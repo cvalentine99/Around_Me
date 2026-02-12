@@ -19,18 +19,20 @@ if not site.ENABLE_USER_SITE:
 
 import os
 import queue
+import secrets as _secrets
 import threading
 import platform
 import subprocess
 
 from typing import Any
 
-from flask import Flask, render_template, jsonify, send_file, Response, request,redirect, url_for, flash, session
+from flask import Flask, render_template, jsonify, send_file, Response, request, redirect, url_for, flash, session, abort
 from werkzeug.security import check_password_hash
 from config import (
     VERSION, CHANGELOG, SHARED_OBSERVER_LOCATION_ENABLED,
     DEFAULT_LATITUDE, DEFAULT_LONGITUDE, SECRET_KEY,
     ADMIN_PASSWORD, ADMIN_PASSWORD_EXPLICIT, ADMIN_USERNAME,
+    _get_env_bool,
 )
 from utils.dependencies import check_tool, check_all_dependencies, TOOL_DEPENDENCIES
 from utils.process import cleanup_stale_processes
@@ -57,6 +59,12 @@ logger = logging.getLogger('valentine.database')
 app = Flask(__name__)
 app.secret_key = SECRET_KEY  # Generated randomly or from VALENTINE_SECRET_KEY env var
 
+# Session cookie hardening (G2)
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+# Secure flag is only useful behind HTTPS; enable when TLS is terminated upstream
+app.config['SESSION_COOKIE_SECURE'] = _get_env_bool('COOKIE_SECURE', False)
+
 # Set up rate limiting
 limiter = Limiter(
     key_func=get_remote_address, # Identifies the user by their IP
@@ -77,6 +85,50 @@ def ratelimit_handler(e):
     return render_template('login.html', version=VERSION), 429
 
 # ============================================
+# CSRF PROTECTION (G1)
+# ============================================
+
+# Routes exempt from CSRF validation (login is handled by rate limiting;
+# SSE streams and health are GET-only; controller API uses bearer tokens).
+_CSRF_EXEMPT_PREFIXES = ('/controller/', '/ws/', '/listening/audio/')
+
+def _generate_csrf_token() -> str:
+    """Return the CSRF token for the current session, creating one if needed."""
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = _secrets.token_hex(32)
+    return session['_csrf_token']
+
+
+@app.before_request
+def _csrf_protect():
+    """Validate CSRF token on all state-changing requests."""
+    if request.method not in ('POST', 'PUT', 'DELETE', 'PATCH'):
+        return None
+
+    # Token-authenticated API routes already verify a bearer token
+    if any(request.path.startswith(p) for p in _CSRF_EXEMPT_PREFIXES):
+        return None
+
+    # Login form is protected by rate limiting; CSRF token doesn't exist
+    # yet at this point (no session) so it's exempt.
+    if request.endpoint == 'login':
+        return None
+
+    token = (
+        request.form.get('_csrf_token')
+        or request.headers.get('X-CSRF-Token')
+    )
+    if not token or token != session.get('_csrf_token'):
+        abort(403)
+
+
+@app.context_processor
+def _inject_csrf_token():
+    """Make csrf_token() available in all Jinja2 templates."""
+    return dict(csrf_token=_generate_csrf_token)
+
+
+# ============================================
 # SECURITY HEADERS
 # ============================================
 
@@ -93,6 +145,20 @@ def add_security_headers(response):
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     # Permissions policy (disable unnecessary features)
     response.headers['Permissions-Policy'] = 'geolocation=(self), microphone=()'
+    # Content Security Policy (G4) — permissive enough for inline handlers
+    # while still blocking the worst injection scenarios.
+    csp_parts = [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://basemaps.cartocdn.com https://server.arcgisonline.com",
+        "connect-src 'self' ws: wss:",
+        "frame-src 'none'",
+        "object-src 'none'",
+        "base-uri 'self'",
+    ]
+    response.headers['Content-Security-Policy'] = '; '.join(csp_parts)
     return response
 
 
@@ -335,27 +401,46 @@ def logout():
     return redirect(url_for('login'))
 
 # ============================================
-# API TOKEN HELPERS
+# API TOKEN HELPERS (G7 — tokens now include an epoch day for expiry)
 # ============================================
 import hashlib as _hashlib
 import hmac as _hmac
+import time as _time_mod
 
-def _generate_api_token(username: str) -> str:
-    """Derive a per-user API token from the app secret key."""
+# Tokens are valid for this many days (rolling window checks today and yesterday)
+_API_TOKEN_VALIDITY_DAYS = 1
+
+
+def _generate_api_token(username: str, *, _epoch_day: int | None = None) -> str:
+    """Derive a per-user, per-day API token from the app secret key.
+
+    Tokens rotate automatically each calendar day (UTC).  The current day
+    and previous day are both accepted to avoid mid-day expiration issues.
+    """
+    if _epoch_day is None:
+        _epoch_day = int(_time_mod.time()) // 86400
+    key = app.secret_key.encode() if isinstance(app.secret_key, str) else app.secret_key
     return _hmac.new(
-        app.secret_key.encode() if isinstance(app.secret_key, str) else app.secret_key,
-        f'valentine-api-token:{username}'.encode(),
-        _hashlib.sha256
+        key,
+        f'valentine-api-token:{username}:{_epoch_day}'.encode(),
+        _hashlib.sha256,
     ).hexdigest()
 
+
 def _verify_api_token(token: str) -> bool:
-    """Verify an API token against all known users."""
+    """Verify an API token against all known users.
+
+    Accepts tokens minted for today or yesterday (UTC) to handle day
+    boundary rollovers.
+    """
+    today = int(_time_mod.time()) // 86400
     with get_db() as conn:
         users = conn.execute('SELECT username FROM users').fetchall()
     for user in users:
-        expected = _generate_api_token(user['username'])
-        if _hmac.compare_digest(token, expected):
-            return True
+        for day_offset in range(_API_TOKEN_VALIDITY_DAYS + 1):
+            expected = _generate_api_token(user['username'], _epoch_day=today - day_offset)
+            if _hmac.compare_digest(token, expected):
+                return True
     return False
 
 
@@ -721,8 +806,17 @@ def export_bluetooth() -> Response:
 
 @app.route('/health')
 def health_check() -> Response:
-    """Health check endpoint for monitoring."""
+    """Health check endpoint for monitoring.
+
+    Unauthenticated callers receive only a minimal liveness probe.
+    Full diagnostics are returned only when the caller has a valid session (G5).
+    """
     import time
+
+    # Minimal response for unauthenticated callers (Docker HEALTHCHECK, load balancers)
+    if 'logged_in' not in session:
+        return jsonify({'status': 'healthy'})
+
     return jsonify({
         'status': 'healthy',
         'version': VERSION,

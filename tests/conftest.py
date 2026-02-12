@@ -19,3 +19,15 @@ def app():
 def client(app):
     """Create test client."""
     return app.test_client()
+
+
+@pytest.fixture
+def auth_client(app):
+    """Create an authenticated test client with a CSRF token."""
+    c = app.test_client()
+    with c.session_transaction() as sess:
+        sess['logged_in'] = True
+        sess['username'] = 'admin'
+        sess['role'] = 'admin'
+        sess['_csrf_token'] = 'test-csrf-token'
+    return c

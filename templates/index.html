@@ -19,11 +19,37 @@
             document.write('<style id="mode-gate">.welcome-overlay{display:none !important}</style>');
         }
     </script>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <script>
         window.VALENTINE_SHARED_OBSERVER_LOCATION = {{ shared_observer_location | tojson }};
         window.VALENTINE_DEFAULT_LAT = {{ default_latitude | tojson }};
         window.VALENTINE_DEFAULT_LON = {{ default_longitude | tojson }};
         window.VALENTINE_API_TOKEN = {{ api_token | tojson }};
+
+        // Auto-inject CSRF token into all same-origin fetch() POST/PUT/DELETE/PATCH requests (G1)
+        (function() {
+            var _origFetch = window.fetch;
+            window.fetch = function(resource, init) {
+                init = init || {};
+                var method = (init.method || 'GET').toUpperCase();
+                if (method !== 'GET' && method !== 'HEAD') {
+                    init.headers = init.headers || {};
+                    // Support both Headers object and plain object
+                    if (init.headers instanceof Headers) {
+                        if (!init.headers.has('X-CSRF-Token')) {
+                            var meta = document.querySelector('meta[name="csrf-token"]');
+                            if (meta) init.headers.set('X-CSRF-Token', meta.content);
+                        }
+                    } else {
+                        if (!init.headers['X-CSRF-Token']) {
+                            var meta = document.querySelector('meta[name="csrf-token"]');
+                            if (meta) init.headers['X-CSRF-Token'] = meta.content;
+                        }
+                    }
+                }
+                return _origFetch.call(this, resource, init);
+            };
+        })();
     </script>
     <script src="{{ url_for('static', filename='js/core/observer-location.js') }}"></script>
     <!-- Fonts - Conditional CDN/Local loading -->

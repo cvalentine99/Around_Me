@@ -19,6 +19,7 @@ import app as app_module
 from utils.dependencies import check_tool, get_tool_path
 from utils.logging import wifi_logger as logger
 from utils.process import is_valid_mac, is_valid_channel
+from utils.safe_path import resolve_safe
 from utils.validation import validate_wifi_channel, validate_mac_address, validate_network_interface
 from utils.sse import format_sse
 from utils.event_pipeline import process_event
@@ -1052,14 +1053,32 @@ def crack_handshake():
     target_bssid = data.get('bssid', '')
     wordlist = data.get('wordlist', '')
 
-    # Validate paths to prevent path traversal
-    if not capture_file.startswith('/tmp/valentine_handshake_') or '..' in capture_file:
+    # --- Path validation (G3) ---
+    # Capture files must resolve inside /tmp and match the valentine prefix.
+    try:
+        safe_capture = resolve_safe(capture_file, '/tmp')
+        if not safe_capture.name.startswith('valentine_handshake_'):
+            raise ValueError('name')
+    except (ValueError, TypeError):
         return jsonify({'status': 'error', 'message': 'Invalid capture file path'}), 400
 
-    if '..' in wordlist:
-        return jsonify({'status': 'error', 'message': 'Invalid wordlist path'}), 400
+    # Wordlists are constrained to well-known directories so the endpoint
+    # cannot be used to probe arbitrary filesystem paths.
+    _ALLOWED_WORDLIST_ROOTS = ('/usr/share/wordlists', '/usr/share/john',
+                               '/usr/share/seclists', '/app/data/wordlists')
+    wordlist_ok = False
+    for root in _ALLOWED_WORDLIST_ROOTS:
+        try:
+            resolve_safe(wordlist, root)
+            wordlist_ok = True
+            break
+        except (ValueError, TypeError):
+            continue
+    if not wordlist_ok:
+        return jsonify({'status': 'error',
+                        'message': f'Wordlist must reside under one of: {", ".join(_ALLOWED_WORDLIST_ROOTS)}'}), 400
 
-    if not os.path.exists(capture_file):
+    if not os.path.exists(str(safe_capture)):
         return jsonify({'status': 'error', 'message': 'Capture file not found'}), 404
 
     if not os.path.exists(wordlist):
@@ -1076,7 +1095,7 @@ def crack_handshake():
         cmd = [aircrack_path, '-a', '2', '-w', wordlist]
         if target_bssid:
             cmd.extend(['-b', target_bssid])
-        cmd.append(capture_file)
+        cmd.append(str(safe_capture))
 
         logger.info(f"Starting aircrack-ng: {' '.join(cmd)}")
 
