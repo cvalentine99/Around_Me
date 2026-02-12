@@ -1,0 +1,43 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+.venv
+env/
+venv/
+.eggs/
+*.egg-info/
+*.egg
+.uv
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test/Dev
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Logs
+*.log
+
+# Local Postgres data
+pgdata/
+pgdata.bak/
+
+# Captured files (don't include in image)
+*.cap
+*.pcap
+*.csv

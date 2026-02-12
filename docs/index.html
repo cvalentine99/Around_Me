@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Valentine RF - Signal Intelligence Platform</title>
+    <meta name="description" content="A web-based interface for software-defined radio tools. Pager decoding, ADS-B tracking, WiFi scanning, and more.">
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="#" class="nav-logo">Valentine RF</a>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#screenshots">Screenshots</a>
+                <a href="#installation">Install</a>
+                <a href="https://github.com/smittix/valentine-rf/blob/main/docs/DISTRIBUTED_AGENTS.md">Remote Agents</a>
+                <a href="https://github.com/smittix/valentine-rf" class="nav-btn" target="_blank">GitHub</a>
+            </div>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <div class="hero-content">
+            <div class="hero-badge">Open Source SIGINT Platform</div>
+            <h1>Valentine RF</h1>
+            <p class="hero-subtitle">A unified web interface for software-defined radio tools. Monitor pagers, track aircraft, scan WiFi networks, and more — all from your browser.</p>
+            <div class="hero-buttons">
+                <a href="#installation" class="btn btn-primary">Get Started</a>
+                <a href="https://github.com/smittix/valentine-rf" class="btn btn-secondary" target="_blank">View on GitHub</a>
+            </div>
+            <div class="hero-stats">
+                <div class="stat">
+                    <span class="stat-value">15+</span>
+                    <span class="stat-label">Modes</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value">200+</span>
+                    <span class="stat-label">Protocols</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value">$25</span>
+                    <span class="stat-label">Min Hardware</span>
+                </div>
+            </div>
+        </div>
+        <div class="hero-image">
+            <img src="images/dashboard.png" alt="Valentine RF Dashboard">
+        </div>
+    </header>
+
+    <section id="features" class="features">
+        <div class="container">
+            <h2>Capabilities</h2>
+            <p class="section-subtitle">Everything you need for signal intelligence in one interface</p>
+
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">📟</div>
+                    <h3>Pager Decoding</h3>
+                    <p>Decode POCSAG and FLEX pager messages using rtl_fm and multimon-ng. Monitor emergency services and legacy paging systems.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">✈️</div>
+                    <h3>Aircraft Tracking</h3>
+                    <p>Real-time ADS-B tracking with interactive maps, aircraft photos, emergency squawk detection, and range visualization.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📡</div>
+                    <h3>433MHz Sensors</h3>
+                    <p>Decode 200+ protocols including weather stations, TPMS, smart home devices, and IoT sensors via rtl_433.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📻</div>
+                    <h3>Listening Post</h3>
+                    <p>Frequency scanner with real-time audio monitoring, fine-tuning controls, and customizable frequency presets.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🛰️</div>
+                    <h3>Satellite Tracking</h3>
+                    <p>Track satellites with TLE data, sky plots, ground track visualization, and pass predictions for your location.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📶</div>
+                    <h3>WiFi Scanning</h3>
+                    <p>Monitor mode reconnaissance via aircrack-ng. Network discovery, client tracking, and handshake capture.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🔵</div>
+                    <h3>Bluetooth Scanning</h3>
+                    <p>Device discovery with tracker detection for AirTags, Tile, Samsung SmartTag, and other Bluetooth devices.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🛡️</div>
+                    <h3>TSCM</h3>
+                    <p>Counter-surveillance with baseline recording, threat detection, device correlation, and risk scoring.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Meter Reading</h3>
+                    <p>Valentine RF smart utility meters via rtl_amr. Monitor electricity, gas, and water meter transmissions.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🚢</div>
+                    <h3>Vessel Tracking</h3>
+                    <p>Real-time AIS ship tracking via AIS-catcher. Monitor maritime traffic with vessel details, course, speed, and destination.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🔢</div>
+                    <h3>Spy Stations</h3>
+                    <p>Number stations and diplomatic HF network database. Frequencies, schedules, and background info from priyom.org.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🌐</div>
+                    <h3>Remote Agents</h3>
+                    <p>Distributed signal intelligence with remote sensor nodes. Deploy agents across multiple locations and aggregate data to a central controller.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📴</div>
+                    <h3>Offline Mode</h3>
+                    <p>Run without internet using bundled assets. Choose from multiple map tile providers or use your own local tile server.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📡</div>
+                    <h3>Meshtastic</h3>
+                    <p>LoRa mesh network integration. Connect to Meshtastic devices for decentralized, long-range communication monitoring.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🖼️</div>
+                    <h3>ISS SSTV</h3>
+                    <p>Receive Slow Scan Television from the ISS. Real-time tracking globe, pass predictions, and image decoding.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="screenshots" class="screenshots">
+        <div class="container">
+            <h2>See It In Action</h2>
+            <p class="section-subtitle">A clean, modern interface for complex RF operations</p>
+
+            <div class="screenshot-gallery">
+                <div class="screenshot-item">
+                    <img src="images/dashboard.png" alt="Main Dashboard">
+                    <span class="screenshot-label">Dashboard</span>
+                </div>
+                <div class="screenshot-item">
+                    <img src="images/tscm.png" alt="TSCM Counter-Surveillance">
+                    <span class="screenshot-label">TSCM Counter-Surveillance</span>
+                </div>
+                <div class="screenshot-item">
+                    <img src="images/bluetooth.png" alt="Bluetooth Scanner">
+                    <span class="screenshot-label">Bluetooth Scanner</span>
+                </div>
+                <div class="screenshot-item">
+                    <img src="images/wifi.png" alt="WiFi Scanner">
+                    <span class="screenshot-label">WiFi Scanner</span>
+                </div>
+                <div class="screenshot-item">
+                    <img src="images/scanner.png" alt="Listening Post">
+                    <span class="screenshot-label">Listening Post</span>
+                </div>
+                <div class="screenshot-item">
+                    <img src="images/sensors.png" alt="433MHz Sensor Monitor">
+                    <span class="screenshot-label">433MHz Sensors</span>
+                </div>
+                <div class="screenshot-item">
+                    <img src="images/tscm-detail.png" alt="Device Detail Dialog">
+                    <span class="screenshot-label">Device Analysis</span>
+                </div>
+                <div class="screenshot-item">
+                    <img src="images/remote-agents.png" alt="Remote Agents Management">
+                    <span class="screenshot-label">Remote Agents</span>
+                </div>
+                <div class="screenshot-item">
+                    <img src="images/ais.png" alt="AIS Vessel Tracking">
+                    <span class="screenshot-label">AIS Vessel Tracking</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="installation" class="installation">
+        <div class="container">
+            <h2>Quick Start</h2>
+            <p class="section-subtitle">Get up and running in minutes</p>
+
+            <div class="platform-note">
+                <p><strong>Supported Platforms:</strong> Officially tested on Debian and Ubuntu. Partial support for macOS. Other distributions have not been fully tested.</p>
+            </div>
+
+            <div class="install-options">
+                <div class="install-card">
+                    <h3>Standard Installation</h3>
+                    <div class="code-block">
+                        <pre><code>git clone https://github.com/smittix/valentine-rf.git
+cd valentine-rf
+./setup.sh
+sudo -E venv/bin/python valentine.py</code></pre>
+                    </div>
+                    <p class="install-note">Requires Python 3.9+ and RTL-SDR drivers</p>
+                </div>
+
+                <div class="install-card">
+                    <h3>Docker</h3>
+                    <div class="code-block">
+                        <pre><code>git clone https://github.com/smittix/valentine-rf.git
+cd valentine-rf
+docker compose up -d</code></pre>
+                    </div>
+                    <p class="install-note">Requires privileged mode for USB SDR access</p>
+                </div>
+            </div>
+
+            <div class="post-install">
+                <p>After starting, open <code>http://localhost:5050</code> in your browser.</p>
+                <p>Default credentials: <code>admin</code> / <code>admin</code></p>
+            </div>
+        </div>
+    </section>
+
+    <section class="hardware">
+        <div class="container">
+            <h2>Hardware</h2>
+            <p class="section-subtitle">Minimal hardware, maximum capability</p>
+
+            <div class="hardware-grid">
+                <div class="hardware-card required">
+                    <div class="hardware-tag">Required</div>
+                    <h3>RTL-SDR</h3>
+                    <p>Core SDR functionality for all radio features</p>
+                    <span class="price">~$25-35</span>
+                </div>
+                <div class="hardware-card optional">
+                    <div class="hardware-tag">Optional</div>
+                    <h3>WiFi Adapter</h3>
+                    <p>Monitor mode support for WiFi scanning</p>
+                    <span class="price">~$20-40</span>
+                </div>
+                <div class="hardware-card optional">
+                    <div class="hardware-tag">Optional</div>
+                    <h3>GPS Receiver</h3>
+                    <p>Real-time location for mapping features</p>
+                    <span class="price">~$10</span>
+                </div>
+            </div>
+
+            <p class="hardware-note">Valentine RF also supports HackRF, LimeSDR, Airspy, and SDRplay via SoapySDR</p>
+        </div>
+    </section>
+
+    <section class="cta">
+        <div class="container">
+            <h2>Ready to start scanning?</h2>
+            <p>Join the community and start exploring the RF spectrum</p>
+            <div class="cta-buttons">
+                <a href="https://github.com/smittix/valentine-rf" class="btn btn-primary" target="_blank">Get Valentine RF</a>
+                <a href="https://discord.gg/EyeksEJmWE" class="btn btn-secondary" target="_blank">Join Discord</a>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <span class="footer-logo">Valentine RF</span>
+                    <p>Signal Intelligence Platform</p>
+                </div>
+                <div class="footer-links">
+                    <a href="https://github.com/smittix/valentine-rf" target="_blank">GitHub</a>
+                    <a href="https://discord.gg/EyeksEJmWE" target="_blank">Discord</a>
+                    <a href="https://github.com/smittix/valentine-rf/blob/main/docs/USAGE.md">Documentation</a>
+                    <a href="https://github.com/smittix/valentine-rf/blob/main/docs/DISTRIBUTED_AGENTS.md">Remote Agents</a>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>Created by <a href="https://github.com/smittix" target="_blank">smittix</a> · MIT License</p>
+                <p class="disclaimer">For educational and authorized testing purposes only.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Lightbox Modal -->
+    <div id="lightbox" class="lightbox">
+        <span class="lightbox-close">&times;</span>
+        <img class="lightbox-img" id="lightbox-img" src="" alt="">
+        <div class="lightbox-caption" id="lightbox-caption"></div>
+    </div>
+
+    <script>
+        // Lightbox functionality
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightbox-img');
+        const lightboxCaption = document.getElementById('lightbox-caption');
+        const closeBtn = document.querySelector('.lightbox-close');
+
+        document.querySelectorAll('.screenshot-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const img = item.querySelector('img');
+                const label = item.querySelector('.screenshot-label');
+                lightbox.classList.add('active');
+                lightboxImg.src = img.src;
+                lightboxCaption.textContent = label.textContent;
+                document.body.style.overflow = 'hidden';
+            });
+        });
+
+        function closeLightbox() {
+            lightbox.classList.remove('active');
+            document.body.style.overflow = '';
+        }
+
+        closeBtn.addEventListener('click', closeLightbox);
+        lightbox.addEventListener('click', (e) => {
+            if (e.target === lightbox) closeLightbox();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeLightbox();
+        });
+    </script>
+</body>
+</html>

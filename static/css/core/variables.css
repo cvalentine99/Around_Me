@@ -1,0 +1,227 @@
+/**
+ * VALENTINE RF Design Tokens — Obsidian Prism (Purple Glass)
+ * Single source of truth for colors, spacing, typography, and effects
+ * Theme: Dark-mode-first glassmorphic command center
+ * Import this file FIRST in any stylesheet that needs design tokens
+ */
+
+:root {
+    /* ============================================
+       COLOR PALETTE - Obsidian Prism Dark Theme
+       ============================================ */
+
+    /* Backgrounds - deep void layered depth system */
+    --bg-primary: #08060e;
+    --bg-secondary: #0d0a16;
+    --bg-tertiary: #120f1e;
+    --bg-card: #0f0c1a;
+    --bg-elevated: #16122a;
+    --bg-overlay: rgba(8, 6, 14, 0.82);
+
+    /* Glass surfaces */
+    --glass-bg: rgba(18, 14, 36, 0.55);
+    --glass-bg-hover: rgba(24, 18, 48, 0.65);
+    --glass-border: rgba(139, 92, 246, 0.18);
+    --glass-border-hover: rgba(139, 92, 246, 0.35);
+    --glass-blur: 16px;
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+    /* Background aliases for components */
+    --bg-dark: var(--bg-primary);
+    --bg-panel: var(--bg-secondary);
+
+    /* Accent colors — Purple-first palette */
+    /* NOTE: --accent-cyan is a legacy variable name from the original cyan theme. It now holds purple values. */
+    --accent-cyan: #a78bfa;
+    --accent-cyan-dim: rgba(167, 139, 250, 0.16);
+    --accent-cyan-hover: #c4b5fd;
+    --accent-green: #34d399;
+    --accent-green-dim: rgba(52, 211, 153, 0.18);
+    --accent-red: #f87171;
+    --accent-red-dim: rgba(248, 113, 113, 0.16);
+    --accent-orange: #fbbf24;
+    --accent-orange-dim: rgba(251, 191, 36, 0.16);
+    --accent-amber: #fbbf24;
+    --accent-amber-dim: rgba(251, 191, 36, 0.18);
+    --accent-yellow: #fde68a;
+    --accent-purple: #8b5cf6;
+    --accent-purple-dim: rgba(139, 92, 246, 0.16);
+    --accent-violet: #7c3aed;
+    --accent-violet-glow: rgba(124, 58, 237, 0.35);
+
+    /* Text hierarchy */
+    --text-primary: #e8e0f0;
+    --text-secondary: #a89bc2;
+    --text-dim: #6e5f8a;
+    --text-muted: #3d3356;
+    --text-inverse: #08060e;
+
+    /* Borders */
+    --border-color: rgba(139, 92, 246, 0.12);
+    --border-light: rgba(139, 92, 246, 0.22);
+    --border-glow: rgba(139, 92, 246, 0.35);
+    --border-focus: var(--accent-purple);
+
+    /* Status colors */
+    --status-online: #34d399;
+    --status-warning: #fbbf24;
+    --status-error: #f87171;
+    --status-offline: #6e5f8a;
+    --status-info: #a78bfa;
+
+    /* Subtle grid/pattern */
+    --grid-line: rgba(139, 92, 246, 0.06);
+    --grid-dot: rgba(139, 92, 246, 0.03);
+    --noise-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='40'%20height='40'%20viewBox='0%200%2040%2040'%3E%3Cg%20fill='%238b5cf6'%20fill-opacity='0.03'%3E%3Ccircle%20cx='3'%20cy='5'%20r='0.8'/%3E%3Ccircle%20cx='11'%20cy='9'%20r='0.8'/%3E%3Ccircle%20cx='18'%20cy='3'%20r='0.8'/%3E%3Ccircle%20cx='26'%20cy='12'%20r='0.8'/%3E%3Ccircle%20cx='34'%20cy='6'%20r='0.8'/%3E%3Ccircle%20cx='7'%20cy='19'%20r='0.8'/%3E%3Ccircle%20cx='15'%20cy='24'%20r='0.8'/%3E%3Ccircle%20cx='28'%20cy='22'%20r='0.8'/%3E%3Ccircle%20cx='36'%20cy='18'%20r='0.8'/%3E%3Ccircle%20cx='5'%20cy='33'%20r='0.8'/%3E%3Ccircle%20cx='19'%20cy='32'%20r='0.8'/%3E%3Ccircle%20cx='31'%20cy='34'%20r='0.8'/%3E%3C/g%3E%3C/svg%3E");
+
+    /* ============================================
+       SPACING SCALE
+       ============================================ */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
+    --space-16: 64px;
+
+    /* ============================================
+       TYPOGRAPHY
+       ============================================ */
+    --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+    --font-sans: 'IBM Plex Mono', 'Space Mono', ui-monospace, 'SF Mono', 'Consolas', 'Menlo', monospace;
+    --font-mono: 'IBM Plex Mono', 'Space Mono', ui-monospace, 'SF Mono', 'Consolas', 'Menlo', monospace;
+
+    /* Font sizes */
+    --text-xs: 10px;
+    --text-sm: 12px;
+    --text-base: 14px;
+    --text-lg: 16px;
+    --text-xl: 18px;
+    --text-2xl: 20px;
+    --text-3xl: 24px;
+    --text-4xl: 30px;
+
+    /* Font weights */
+    --font-normal: 400;
+    --font-medium: 500;
+    --font-semibold: 600;
+    --font-bold: 700;
+
+    /* Line heights */
+    --leading-tight: 1.25;
+    --leading-normal: 1.5;
+    --leading-relaxed: 1.75;
+
+    /* ============================================
+       BORDERS & RADIUS
+       ============================================ */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-xl: 12px;
+    --radius-full: 9999px;
+
+    /* ============================================
+       SHADOWS
+       ============================================ */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.5);
+    --shadow-glow: 0 0 20px rgba(139, 92, 246, 0.2);
+    --shadow-glow-strong: 0 0 30px rgba(139, 92, 246, 0.35);
+    --shadow-purple-inset: inset 0 0 30px rgba(139, 92, 246, 0.06);
+
+    /* ============================================
+       TRANSITIONS
+       ============================================ */
+    --transition-fast: 150ms ease;
+    --transition-base: 200ms ease;
+    --transition-slow: 300ms ease;
+
+    /* ============================================
+       Z-INDEX SCALE
+       ============================================ */
+    --z-base: 0;
+    --z-dropdown: 100;
+    --z-sticky: 200;
+    --z-fixed: 300;
+    --z-modal-backdrop: 400;
+    --z-modal: 500;
+    --z-toast: 600;
+    --z-tooltip: 700;
+
+    /* ============================================
+       LAYOUT
+       ============================================ */
+    --header-height: 60px;
+    --nav-height: 44px;
+    --sidebar-width: 280px;
+    --stats-strip-height: 36px;
+    --content-max-width: 1800px;
+}
+
+/* ============================================
+   LIGHT THEME OVERRIDES — Frosted Amethyst
+   ============================================ */
+[data-theme="light"] {
+    --bg-primary: #f5f0fa;
+    --bg-secondary: #ebe4f5;
+    --bg-tertiary: #ddd4ed;
+    --bg-card: #ffffff;
+    --bg-elevated: #f0eaf8;
+    --bg-overlay: rgba(245, 240, 250, 0.92);
+
+    --glass-bg: rgba(255, 255, 255, 0.65);
+    --glass-bg-hover: rgba(255, 255, 255, 0.8);
+    --glass-border: rgba(139, 92, 246, 0.2);
+    --glass-border-hover: rgba(139, 92, 246, 0.35);
+
+    --bg-dark: var(--bg-primary);
+    --bg-panel: var(--bg-secondary);
+
+    --accent-cyan: #7c3aed;
+    --accent-cyan-dim: rgba(124, 58, 237, 0.12);
+    --accent-cyan-hover: #6d28d9;
+    --accent-green: #059669;
+    --accent-green-dim: rgba(5, 150, 105, 0.12);
+    --accent-red: #dc2626;
+    --accent-red-dim: rgba(220, 38, 38, 0.12);
+    --accent-orange: #d97706;
+    --accent-orange-dim: rgba(217, 119, 6, 0.12);
+    --accent-amber: #d97706;
+    --accent-amber-dim: rgba(217, 119, 6, 0.12);
+
+    --text-primary: #1e1333;
+    --text-secondary: #4a3d66;
+    --text-dim: #7a6d99;
+    --text-muted: #b8aed0;
+    --text-inverse: #f5f0fa;
+
+    --border-color: rgba(139, 92, 246, 0.15);
+    --border-light: rgba(139, 92, 246, 0.25);
+    --border-glow: rgba(124, 58, 237, 0.15);
+
+    --grid-line: rgba(124, 58, 237, 0.08);
+    --grid-dot: rgba(124, 58, 237, 0.04);
+    --noise-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='40'%20height='40'%20viewBox='0%200%2040%2040'%3E%3Cg%20fill='%237c3aed'%20fill-opacity='0.04'%3E%3Ccircle%20cx='3'%20cy='5'%20r='0.8'/%3E%3Ccircle%20cx='11'%20cy='9'%20r='0.8'/%3E%3Ccircle%20cx='18'%20cy='3'%20r='0.8'/%3E%3Ccircle%20cx='26'%20cy='12'%20r='0.8'/%3E%3Ccircle%20cx='34'%20cy='6'%20r='0.8'/%3E%3Ccircle%20cx='7'%20cy='19'%20r='0.8'/%3E%3Ccircle%20cx='15'%20cy='24'%20r='0.8'/%3E%3Ccircle%20cx='28'%20cy='22'%20r='0.8'/%3E%3Ccircle%20cx='36'%20cy='18'%20r='0.8'/%3E%3Ccircle%20cx='5'%20cy='33'%20r='0.8'/%3E%3Ccircle%20cx='19'%20cy='32'%20r='0.8'/%3E%3Ccircle%20cx='31'%20cy='34'%20r='0.8'/%3E%3C/g%3E%3C/svg%3E");
+
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.12);
+    --shadow-lg: 0 12px 20px rgba(0, 0, 0, 0.15);
+    --shadow-glow: 0 0 20px rgba(124, 58, 237, 0.12);
+}
+
+/* ============================================
+   REDUCED MOTION
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --transition-fast: 0ms;
+        --transition-base: 0ms;
+        --transition-slow: 0ms;
+    }
+}
