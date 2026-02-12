@@ -1,62 +1,76 @@
-# VALENTINE RF
+# VALENTINE RF — Around Me
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.9+-blue.svg" alt="Python 3.9+">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/theme-Obsidian%20Prism-blueviolet.svg" alt="Obsidian Prism Theme">
 </p>
 
-<p align="center">
-Support the developer of this open-source project 
-</p>
-
-<p align="center">
-  <a href="https://www.buymeacoffee.com/smittix" target="_blank"><img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" alt="Buy Me A Coffee" style="height: 41px !important;width: 174px !important;box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;-webkit-box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;" ></a>
-</p>
 <p align="center">
   <strong>Signal Intelligence Platform</strong><br>
-  A web-based interface for software-defined radio tools.
+  A web-based interface for software-defined radio reconnaissance and RF analysis.
 </p>
 
 <p align="center">
-  <img src="static/images/screenshots/valentine-rf-main.png" alt="Screenshot">
+  <img src="static/images/screenshots/valentine-rf-main.png" alt="Valentine RF - Around Me Screenshot">
 </p>
+
+---
+
+## Overview
+
+Valentine RF — Around Me is a comprehensive SIGINT platform that provides a unified web interface for software-defined radio tools, wireless reconnaissance, and RF spectrum analysis. The platform integrates 20 scan modes across WiFi, Bluetooth, ADS-B, AIS, Meshtastic, TSCM, and more — all accessible through a glassmorphic dark-mode UI built on the **Obsidian Prism** design system.
+
+The application runs as a Flask server with real-time SSE data streams, Leaflet-based geospatial visualization (5 map instances), Chart.js analytics, and hardware integration for RTL-SDR, HackRF, and Ubertooth devices.
 
 ---
 
 ## Features
 
-- **Pager Decoding** - POCSAG/FLEX via rtl_fm + multimon-ng
-- **433MHz Sensors** - Weather stations, TPMS, IoT devices via rtl_433
-- **Aircraft Tracking** - ADS-B via dump1090 with real-time map and radar
-- **Vessel Tracking** - AIS ship tracking with VHF DSC distress monitoring
-- **ACARS Messaging** - Aircraft datalink messages via acarsdec
-- **DMR Digital Voice** - DMR/P25/NXDN/D-STAR decoding via dsd-fme with visual synthesizer
-- **Listening Post** - Frequency scanner with audio monitoring
-- **Weather Satellites** - NOAA APT and Meteor LRPT image decoding via SatDump
-- **WebSDR** - Remote HF/shortwave listening via WebSDR servers
-- **ISS SSTV** - Slow-scan TV image reception from the International Space Station
-- **HF SSTV** - Terrestrial SSTV on shortwave frequencies
-- **Satellite Tracking** - Pass prediction using TLE data
-- **ADS-B History** - Persistent aircraft history with reporting dashboard (Postgres optional)
-- **WiFi Scanning** - Monitor mode reconnaissance via aircrack-ng
-- **Bluetooth Scanning** - Device discovery and tracker detection (with Ubertooth support)
-- **TSCM** - Counter-surveillance with RF baseline comparison and threat detection
-- **Meshtastic** - LoRa mesh network integration
-- **Spy Stations** - Number stations and diplomatic HF network database
-- **Remote Agents** - Distributed SIGINT with remote sensor nodes
-- **Offline Mode** - Bundled assets for air-gapped/field deployments
+| Category | Capabilities |
+|----------|-------------|
+| **RF Decoding** | POCSAG/FLEX pager decoding, 433MHz sensor capture (weather, TPMS, IoT), ACARS aircraft datalink |
+| **Aircraft** | ADS-B tracking via dump1090, real-time radar map, persistent history (Postgres optional) |
+| **Maritime** | AIS ship tracking, VHF DSC distress monitoring |
+| **Voice** | DMR/P25/NXDN/D-STAR decoding via dsd-fme with visual synthesizer |
+| **Spectrum** | Listening post frequency scanner, WebSDR remote HF listening |
+| **Satellite** | NOAA APT / Meteor LRPT weather image decoding, ISS SSTV, pass prediction via TLE |
+| **Wireless Recon** | WiFi monitor-mode scanning (aircrack-ng), Bluetooth discovery + tracker detection |
+| **TSCM** | Counter-surveillance sweeps, RF baseline comparison, threat-level reporting |
+| **Mesh** | Meshtastic LoRa mesh network integration |
+| **Geospatial** | 5-layer map view (ADS-B, Meshtastic, Satellites, WebSDR, Trilateration) |
+| **Intelligence** | Number stations database, remote distributed agents, offline/air-gapped mode |
 
 ---
 
-## Installation / Debian / Ubuntu / MacOS
+## Architecture
+
+The platform consists of 35 Flask route blueprints, a 572-line trilateration engine, gpsd integration, and SQLite storage. The frontend uses Jinja2 templates with vanilla JavaScript, Leaflet maps, and Chart.js visualizations — all styled with the Obsidian Prism purple glass theme.
 
 ```
+valentine.py              ← Main entry point
+app.py                    ← Flask app factory
+config.py                 ← Configuration and environment variables
+routes/                   ← 35 route blueprints (scan, adsb, ais, wifi, bt, tscm, etc.)
+templates/                ← 38 Jinja2 HTML templates
+static/css/core/          ← Theme variables and glassmorphic styles
+static/js/                ← 41 JavaScript modules
+utils/                    ← Trilateration engine, safe_path, hardware helpers
+data/                     ← OUI database, satellite TLE, TSCM frequency tables
+```
 
-**1. Clone and run:**
+A separate **React/TypeScript redesign** is available on the `react-redesign` branch, featuring the same Obsidian Prism theme with shadcn/ui components, resizable panels, and keyboard-first navigation.
+
+---
+
+## Installation
+
+### Local (Debian / Ubuntu / macOS)
+
 ```bash
-git clone https://github.com/smittix/valentine-rf.git
-cd valentine-rf
+git clone https://github.com/cvalentine99/Around_Me.git
+cd Around_Me
 ./setup.sh
 sudo -E venv/bin/python valentine.py
 ```
@@ -64,12 +78,12 @@ sudo -E venv/bin/python valentine.py
 ### Docker
 
 ```bash
-git clone https://github.com/smittix/valentine-rf.git
-cd valentine-rf
+git clone https://github.com/cvalentine99/Around_Me.git
+cd Around_Me
 docker compose --profile basic up -d --build
 ```
 
-> **Note:** Docker requires privileged mode for USB SDR access. SDR devices are passed through via `/dev/bus/usb`.
+> **Note:** Docker requires privileged mode for USB SDR access. SDR devices are passed through via `/dev/bus/usb`. The container runs as a non-root user with only the necessary Linux capabilities (NET_RAW, NET_ADMIN, SYS_RAWIO).
 
 #### Multi-Architecture Builds (amd64 + arm64)
 
@@ -87,8 +101,6 @@ REGISTRY=ghcr.io/youruser ./build-multiarch.sh --push
 VALENTINE_IMAGE=ghcr.io/youruser/valentine-rf:latest docker compose --profile basic up -d
 ```
 
-Build script options:
-
 | Flag | Description |
 |------|-------------|
 | `--push` | Push to container registry |
@@ -100,73 +112,59 @@ Environment variables: `REGISTRY`, `IMAGE_NAME`, `IMAGE_TAG`
 
 #### Using a Pre-built Image
 
-If you've pushed to a registry, you can skip building entirely on the target machine:
-
 ```bash
-# Set in .env or export
 VALENTINE_IMAGE=ghcr.io/youruser/valentine-rf:latest
-
-# Then just run
 docker compose --profile basic up -d
 ```
 
-### ADS-B History (Optional)
+---
+
+## ADS-B History (Optional)
 
 The ADS-B history feature persists aircraft messages to Postgres for long-term analysis.
 
 ```bash
-# Start with ADS-B history and Postgres
 docker compose --profile history up -d
 ```
 
-Set the following environment variables (for example in a `.env` file):
-
-```bash
-VALENTINE_ADSB_HISTORY_ENABLED=true
-VALENTINE_ADSB_DB_HOST=adsb_db
-VALENTINE_ADSB_DB_PORT=5432
-VALENTINE_ADSB_DB_NAME=valentine-rf_adsb
-VALENTINE_ADSB_DB_USER=valentine-rf
-VALENTINE_ADSB_DB_PASSWORD=valentine-rf
-```
-
-### Other ADS-B Settings
-
-Set these as environment variables for either local installs or Docker:
-
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VALENTINE_ADSB_AUTO_START` | `false` | Auto-start ADS-B tracking when the dashboard loads |
-| `VALENTINE_SHARED_OBSERVER_LOCATION` | `true` | Share observer location across ADS-B/AIS/SSTV/Satellite modules |
-
-**Local install example**
-
-```bash
-VALENTINE_ADSB_AUTO_START=true \
-VALENTINE_SHARED_OBSERVER_LOCATION=false \
-python app.py
-```
-
-**Docker example (.env)**
-
-```bash
-VALENTINE_ADSB_AUTO_START=true
-VALENTINE_SHARED_OBSERVER_LOCATION=false
-```
-
-To store Postgres data on external storage, set `PGDATA_PATH` (defaults to `./pgdata`):
-
-```bash
-PGDATA_PATH=/mnt/usbpi1/valentine-rf/pgdata
-```
+| `VALENTINE_ADSB_HISTORY_ENABLED` | `false` | Enable persistent ADS-B history |
+| `VALENTINE_ADSB_DB_HOST` | `adsb_db` | Postgres host |
+| `VALENTINE_ADSB_DB_PORT` | `5432` | Postgres port |
+| `VALENTINE_ADSB_DB_NAME` | `valentine-rf_adsb` | Database name |
+| `VALENTINE_ADSB_AUTO_START` | `false` | Auto-start ADS-B tracking on dashboard load |
+| `VALENTINE_SHARED_OBSERVER_LOCATION` | `true` | Share observer location across modules |
 
 Then open **/adsb/history** for the reporting dashboard.
 
-### Open the Interface
+---
 
-After starting, open **http://localhost:5050** in your browser. The username and password is <b>admin</b>:<b>admin</b> 
+## Open the Interface
 
-The credentials can be change in the ADMIN_USERNAME & ADMIN_PASSWORD variables in config.py
+After starting, open **http://localhost:5050** in your browser.
+
+Default credentials: **admin** / **admin**
+
+> On first login, you will be prompted to change your password (enforced by the security hardening layer).
+
+Credentials can be changed via the `ADMIN_USERNAME` and `ADMIN_PASSWORD` variables in `config.py`.
+
+---
+
+## Security Hardening
+
+This release includes 7 priority security fixes:
+
+| Fix | Description |
+|-----|-------------|
+| **Random Secret Key** | Flask secret key generated via `secrets.token_hex(32)` on first run |
+| **Forced Password Change** | Default admin credentials must be changed on first login |
+| **Auth Bypass Removal** | All debug/backdoor authentication bypasses removed |
+| **Path Traversal Protection** | `utils/safe_path.py` containment for all file operations |
+| **RTL-TCP Binding** | Locked to `127.0.0.1` — no external network exposure |
+| **Dependency Pinning** | All Python packages pinned to exact versions |
+| **Docker Hardening** | Non-root user, dropped capabilities, read-only filesystem where possible |
 
 ---
 
@@ -175,38 +173,60 @@ The credentials can be change in the ADMIN_USERNAME & ADMIN_PASSWORD variables i
 | Hardware | Purpose | Price |
 |----------|---------|-------|
 | **RTL-SDR** | Required for all SDR features | ~$25-35 |
-| **WiFi adapter** | Must support promiscuous (monitor) mode | ~$20-40 |
-| **Bluetooth adapter** | Device scanning (usually built-in) | - |
-| **GPS** | Any Linux supported GPS Unit | ~10 |
+| **WiFi adapter** | Must support monitor mode | ~$20-40 |
+| **Bluetooth adapter** | Device scanning (usually built-in) | — |
+| **GPS** | Any Linux-supported GPS unit | ~$10 |
 
-Most features work with a basic RTL-SDR dongle (RTL2832U + R820T2).
+Most features work with a basic RTL-SDR dongle (RTL2832U + R820T2). Valentine RF supports any device that SoapySDR supports — install the appropriate module for your hardware (e.g., `soapysdr-module-sdrplay` for SDRPlay devices).
 
-| :exclamation:  Not using an RTL-SDR Device?   |
-|-----------------------------------------------
-|Valentine RF supports any device that SoapySDR supports. You must however have the correct module for your device installed! For example if you have an SDRPlay device you'd need to install soapysdr-module-sdrplay.
-
-| :exclamation:  GPS Usage   |
-|-----------------------------------------------
-|gpsd is needed for real time location. Valentine RF automatically checks to see if you're running gpsd in the background when any maps are rendered.
+> **GPS:** gpsd is required for real-time location. Valentine RF automatically detects gpsd when rendering map views.
 
 ---
 
-## Discord Server
+## Theme: Obsidian Prism
 
-<p align="center">
-  <a href="https://discord.gg/EyeksEJmWE">Join our Discord</a>
-</p>
+The UI uses the **Obsidian Prism** design system — a glassmorphic dark-mode aesthetic with:
 
+- Deep void background (`#08060e`)
+- Frosted purple glass panels with `backdrop-filter: blur`
+- Violet accent colors for interactive elements
+- Cyan highlights for live/active states
+- Space Grotesk + IBM Plex Mono typography
+- 200–250ms transition animations
+
+All theme variables are defined in `static/css/core/variables.css`.
+
+---
+
+## React Redesign
+
+A modern React/TypeScript frontend is available on the **`react-redesign`** branch:
+
+```bash
+git checkout react-redesign
+pnpm install
+pnpm dev
+```
+
+The React version includes the same Obsidian Prism theme with additional features: resizable panels, keyboard-first command palette (Cmd+K), collapsible detail drawers, and ultrawide monitor optimization. Every screen maps to the same Flask backend routes.
 
 ---
 
 ## Documentation
 
-- [Usage Guide](docs/USAGE.md) - Detailed instructions for each mode
-- [Distributed Agents](docs/DISTRIBUTED_AGENTS.md) - Remote sensor node deployment
-- [Hardware Guide](docs/HARDWARE.md) - SDR hardware and advanced setup
-- [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
-- [Security](docs/SECURITY.md) - Network security and best practices
+- [Usage Guide](docs/USAGE.md) — Detailed instructions for each scan mode
+- [Distributed Agents](docs/DISTRIBUTED_AGENTS.md) — Remote sensor node deployment
+- [Hardware Guide](docs/HARDWARE.md) — SDR hardware and advanced setup
+- [Troubleshooting](docs/TROUBLESHOOTING.md) — Common issues and solutions
+- [Security](docs/SECURITY.md) — Network security and best practices
+
+---
+
+## Discord
+
+<p align="center">
+  <a href="https://discord.gg/EyeksEJmWE">Join our Discord</a>
+</p>
 
 ---
 
@@ -224,11 +244,13 @@ This project was developed using AI as a coding partner, combining human directi
 
 ## License
 
-MIT License - see [LICENSE](LICENSE)
+MIT License — see [LICENSE](LICENSE)
 
 ## Author
 
-Created by **smittix** - [GitHub](https://github.com/smittix)
+Created by **smittix** — [GitHub](https://github.com/smittix)
+
+Redesigned by **cvalentine99** — [GitHub](https://github.com/cvalentine99)
 
 ## Acknowledgments
 
@@ -243,12 +265,3 @@ Created by **smittix** - [GitHub](https://github.com/smittix)
 [SatDump](https://github.com/SatDump/SatDump) |
 [Celestrak](https://celestrak.org/) |
 [Priyom.org](https://priyom.org/)
-
-
-
-
-
-
-
-
-
