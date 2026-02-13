@@ -58,10 +58,30 @@ app = Flask(__name__)
 app.secret_key = SECRET_KEY  # Generated randomly or from VALENTINE_SECRET_KEY env var
 
 # Set up rate limiting
+# Default: 60 requests/minute for normal endpoints. SSE streams are exempt
+# because they are long-lived connections (one request, continuous response).
+def _is_sse_or_health() -> bool:
+    """Return True to EXEMPT this request from default rate limits.
+
+    SSE endpoints are long-lived (one HTTP request, continuous response).
+    Rate-limiting them per-request would break real-time streaming after
+    the limit is hit. The /health endpoint is also exempt since it is
+    used by Docker healthchecks and monitoring probes.
+    """
+    path = request.path
+    if path.endswith('/stream') or '/stream/' in path:
+        return True
+    if path == '/health':
+        return True
+    return False
+
+
 limiter = Limiter(
-    key_func=get_remote_address, # Identifies the user by their IP
+    key_func=get_remote_address,
     app=app,
-    storage_uri="memory://", # Use RAM memory (change to redis:// etc. for distributed setups)
+    default_limits=["60 per minute"],
+    default_limits_exempt_when=_is_sse_or_health,
+    storage_uri="memory://",
 )
 
 # Disable Werkzeug debugger PIN (not needed for local development tool)
@@ -72,9 +92,11 @@ os.environ['WERKZEUG_DEBUG_PIN'] = 'off'
 # ============================================
 @app.errorhandler(429)
 def ratelimit_handler(e):
-    logger.warning(f"Rate limit exceeded for IP: {request.remote_addr}")
-    flash("Too many login attempts. Please wait one minute before trying again.", "error")
-    return render_template('login.html', version=VERSION), 429
+    logger.warning(f"Rate limit exceeded for IP: {request.remote_addr} on {request.path}")
+    if request.path == '/login':
+        flash("Too many login attempts. Please wait one minute before trying again.", "error")
+        return render_template('login.html', version=VERSION), 429
+    return jsonify({'status': 'error', 'message': 'Rate limit exceeded'}), 429
 
 # ============================================
 # SECURITY HEADERS
@@ -94,6 +116,28 @@ def add_security_headers(response):
     # Permissions policy (disable unnecessary features)
     response.headers['Permissions-Policy'] = 'geolocation=(self), microphone=()'
     return response
+
+
+_tls_warning_logged = False
+
+
+@app.before_request
+def warn_no_tls_termination():
+    """Log a warning if the app appears to be receiving traffic without upstream TLS."""
+    global _tls_warning_logged
+    if _tls_warning_logged:
+        return None
+    proto = request.headers.get('X-Forwarded-Proto', '')
+    # Only warn once, and only when we see actual non-forwarded traffic
+    # (i.e. no X-Forwarded-Proto at all, meaning no reverse proxy in front)
+    if not proto:
+        _tls_warning_logged = True
+        logger.warning(
+            "No X-Forwarded-Proto header detected. If this app is exposed beyond "
+            "localhost, ensure TLS is terminated by a reverse proxy (nginx/Caddy). "
+            "See docs/DEPLOYMENT.md for details."
+        )
+    return None
 
 
 # ============================================
@@ -300,6 +344,48 @@ def get_sdr_device_status() -> dict[int, str]:
 # ============================================
 # MAIN ROUTES
 # ============================================
+
+@app.before_request
+def csrf_origin_check():
+    """Reject cross-origin POST/PUT/DELETE requests (CSRF protection).
+
+    Validates that state-changing requests originate from the same host by
+    checking the Origin header (preferred) or Referer header (fallback).
+    This is a lightweight alternative to token-based CSRF that requires no
+    template changes or new dependencies.
+    """
+    if request.method in ('GET', 'HEAD', 'OPTIONS'):
+        return None
+
+    origin = request.headers.get('Origin')
+    if origin:
+        from urllib.parse import urlparse
+        parsed = urlparse(origin)
+        if parsed.netloc and parsed.netloc != request.host:
+            logger.warning(
+                "CSRF: Origin mismatch - expected %s, got %s (IP: %s)",
+                request.host, parsed.netloc, request.remote_addr,
+            )
+            return jsonify({'status': 'error', 'message': 'Origin mismatch'}), 403
+        return None
+
+    referer = request.headers.get('Referer')
+    if referer:
+        from urllib.parse import urlparse
+        parsed = urlparse(referer)
+        if parsed.netloc and parsed.netloc != request.host:
+            logger.warning(
+                "CSRF: Referer mismatch - expected %s, got %s (IP: %s)",
+                request.host, parsed.netloc, request.remote_addr,
+            )
+            return jsonify({'status': 'error', 'message': 'Referer mismatch'}), 403
+        return None
+
+    # Neither Origin nor Referer present. Allow the request — this happens
+    # with curl, API clients, and some privacy-hardened browsers. The login
+    # form is also rate-limited, which bounds abuse from direct POST.
+    return None
+
 
 @app.before_request
 def require_login():
@@ -616,6 +702,7 @@ def get_dependencies() -> Response:
 
 
 @app.route('/export/aircraft', methods=['GET'])
+@limiter.limit("30 per minute")
 def export_aircraft() -> Response:
     """Export aircraft data as JSON or CSV."""
     import csv
@@ -652,6 +739,7 @@ def export_aircraft() -> Response:
 
 
 @app.route('/export/wifi', methods=['GET'])
+@limiter.limit("30 per minute")
 def export_wifi() -> Response:
     """Export WiFi networks as JSON or CSV."""
     import csv
@@ -686,6 +774,7 @@ def export_wifi() -> Response:
 
 
 @app.route('/export/bluetooth', methods=['GET'])
+@limiter.limit("30 per minute")
 def export_bluetooth() -> Response:
     """Export Bluetooth devices as JSON or CSV."""
     import csv
@@ -751,6 +840,7 @@ def health_check() -> Response:
 
 
 @app.route('/killall', methods=['POST'])
+@limiter.limit("10 per minute")
 def kill_all() -> Response:
     """Kill all decoder, WiFi, and Bluetooth processes."""
     global current_process, sensor_process, wifi_process, adsb_process, ais_process, acars_process
