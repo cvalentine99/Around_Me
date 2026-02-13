@@ -56,6 +56,12 @@ logger = logging.getLogger('valentine.database')
 # Create Flask app
 app = Flask(__name__)
 app.secret_key = SECRET_KEY  # Generated randomly or from VALENTINE_SECRET_KEY env var
+if not os.environ.get('VALENTINE_SECRET_KEY') and not os.environ.get('SECRET_KEY'):
+    logging.getLogger('valentine').warning(
+        'VALENTINE_SECRET_KEY is not set — using a random key. '
+        'User sessions will not survive application restarts. '
+        'Set VALENTINE_SECRET_KEY to a stable hex string for production.'
+    )
 
 # Set up rate limiting
 limiter = Limiter(

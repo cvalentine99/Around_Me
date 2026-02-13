@@ -37,6 +37,8 @@ services:
     volumes:
       # Persist decoded images and database across container rebuilds
       - ./data:/app/data
+      # Persist user accounts, settings, baselines, and signal history
+      - ./instance:/app/instance
       # Optional: mount logs directory
       # - ./logs:/app/logs
     environment:
@@ -96,6 +98,8 @@ services:
       - /dev/bus/usb:/dev/bus/usb
     volumes:
       - ./data:/app/data
+      # Persist user accounts, settings, baselines, and signal history
+      - ./instance:/app/instance
     environment:
       - VALENTINE_HOST=0.0.0.0
       - VALENTINE_PORT=5050
@@ -108,7 +112,7 @@ services:
       - VALENTINE_ADSB_DB_PORT=5432
       - VALENTINE_ADSB_DB_NAME=valentine_adsb
       - VALENTINE_ADSB_DB_USER=valentine
-      - VALENTINE_ADSB_DB_PASSWORD=valentine
+      - VALENTINE_ADSB_DB_PASSWORD=${VALENTINE_ADSB_DB_PASSWORD:-valentine}
       # ADS-B auto-start on dashboard load (default false)
       - VALENTINE_ADSB_AUTO_START=${VALENTINE_ADSB_AUTO_START:-false}
       # Shared observer location across modules
@@ -132,7 +136,7 @@ services:
     environment:
       - POSTGRES_DB=valentine_adsb
       - POSTGRES_USER=valentine
-      - POSTGRES_PASSWORD=valentine
+      - POSTGRES_PASSWORD=${VALENTINE_ADSB_DB_PASSWORD:-valentine}
     volumes:
       # Default local path (override with PGDATA_PATH for external storage)
       - ${PGDATA_PATH:-./pgdata}:/var/lib/postgresql/data

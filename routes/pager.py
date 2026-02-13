@@ -417,6 +417,11 @@ def start_decoding() -> Response:
             return jsonify({'status': 'started', 'command': full_cmd})
 
         except FileNotFoundError as e:
+            # Close leaked PTY master fd if it was opened
+            try:
+                os.close(master_fd)
+            except Exception:
+                pass
             # Kill orphaned rtl_fm process
             try:
                 rtl_process.terminate()
@@ -432,6 +437,11 @@ def start_decoding() -> Response:
                 pager_active_device = None
             return jsonify({'status': 'error', 'message': f'Tool not found: {e.filename}'})
         except Exception as e:
+            # Close leaked PTY master fd if it was opened
+            try:
+                os.close(master_fd)
+            except Exception:
+                pass
             # Kill orphaned rtl_fm process if it was started
             try:
                 rtl_process.terminate()
