@@ -45,10 +45,12 @@ def kill_audio_processes():
         try:
             audio_process.terminate()
             audio_process.wait(timeout=0.5)
+        except ProcessLookupError:
+            pass
         except Exception:
             try:
                 audio_process.kill()
-            except Exception:
+            except (ProcessLookupError, OSError):
                 pass
         audio_process = None
 
@@ -56,10 +58,12 @@ def kill_audio_processes():
         try:
             rtl_process.terminate()
             rtl_process.wait(timeout=0.5)
+        except ProcessLookupError:
+            pass
         except Exception:
             try:
                 rtl_process.kill()
-            except Exception:
+            except (ProcessLookupError, OSError):
                 pass
         rtl_process = None
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import time
+import asyncio
 from typing import Generator
 
 from quart import Blueprint, Response, jsonify, request
@@ -15,15 +16,15 @@ alerts_bp = Blueprint('alerts', __name__, url_prefix='/alerts')
 
 
 @alerts_bp.route('/rules', methods=['GET'])
-def list_rules():
+async def list_rules():
     manager = get_alert_manager()
     include_disabled = request.args.get('all') in ('1', 'true', 'yes')
     return jsonify({'status': 'success', 'rules': manager.list_rules(include_disabled=include_disabled)})
 
 
 @alerts_bp.route('/rules', methods=['POST'])
-def create_rule():
-    data = request.get_json() or {}
+async def create_rule():
+    data = await request.get_json(silent=True) or {}
     if not isinstance(data.get('match', {}), dict):
         return jsonify({'status': 'error', 'message': 'match must be a JSON object'}), 400
 
@@ -33,8 +34,8 @@ def create_rule():
 
 
 @alerts_bp.route('/rules/<int:rule_id>', methods=['PUT', 'PATCH'])
-def update_rule(rule_id: int):
-    data = request.get_json() or {}
+async def update_rule(rule_id: int):
+    data = await request.get_json(silent=True) or {}
     manager = get_alert_manager()
     ok = manager.update_rule(rule_id, data)
     if not ok:
@@ -43,7 +44,7 @@ def update_rule(rule_id: int):
 
 
 @alerts_bp.route('/rules/<int:rule_id>', methods=['DELETE'])
-def delete_rule(rule_id: int):
+async def delete_rule(rule_id: int):
     manager = get_alert_manager()
     ok = manager.delete_rule(rule_id)
     if not ok:
@@ -52,7 +53,7 @@ def delete_rule(rule_id: int):
 
 
 @alerts_bp.route('/events', methods=['GET'])
-def list_events():
+async def list_events():
     manager = get_alert_manager()
     limit = request.args.get('limit', default=100, type=int)
     mode = request.args.get('mode')
@@ -62,10 +63,10 @@ def list_events():
 
 
 @alerts_bp.route('/stream', methods=['GET'])
-def stream_alerts() -> Response:
+async def stream_alerts() -> Response:
     manager = get_alert_manager()
 
-    def generate() -> Generator[str, None, None]:
+    async def generate():
         for event in manager.stream_events(timeout=1.0):
             yield format_sse(event)
 

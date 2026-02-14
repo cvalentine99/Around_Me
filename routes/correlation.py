@@ -14,7 +14,7 @@ correlation_bp = Blueprint('correlation', __name__, url_prefix='/correlation')
 
 
 @correlation_bp.route('', methods=['GET'])
-def get_device_correlations() -> Response:
+async def get_device_correlations() -> Response:
     """
     Get device correlations between WiFi and Bluetooth.
 
@@ -54,7 +54,7 @@ def get_device_correlations() -> Response:
 
 
 @correlation_bp.route('/analyze', methods=['POST'])
-def analyze_correlation() -> Response:
+async def analyze_correlation() -> Response:
     """
     Analyze specific device pair for correlation.
 
@@ -62,7 +62,7 @@ def analyze_correlation() -> Response:
         wifi_mac: WiFi device MAC address
         bt_mac: Bluetooth device MAC address
     """
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
     wifi_mac = data.get('wifi_mac')
     bt_mac = data.get('bt_mac')
 

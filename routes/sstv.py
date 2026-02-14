@@ -9,6 +9,7 @@ from __future__ import annotations
 import queue
 import time
 from pathlib import Path
+import asyncio
 from typing import Generator
 
 from quart import Blueprint, jsonify, request, Response, send_file
@@ -47,7 +48,7 @@ def _progress_callback(data: dict) -> None:
 
 
 @sstv_bp.route('/status')
-def get_status():
+async def get_status():
     """
     Get SSTV decoder status.
 
@@ -75,7 +76,7 @@ def get_status():
 
 
 @sstv_bp.route('/start', methods=['POST'])
-def start_decoder():
+async def start_decoder():
     """
     Start SSTV decoder.
 
@@ -117,7 +118,7 @@ def start_decoder():
             break
 
     # Get parameters
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
     frequency = data.get('frequency', ISS_SSTV_FREQ)
     device_index = data.get('device', 0)
     latitude = data.get('latitude')
@@ -206,7 +207,7 @@ def start_decoder():
 
 
 @sstv_bp.route('/stop', methods=['POST'])
-def stop_decoder():
+async def stop_decoder():
     """
     Stop SSTV decoder.
 
@@ -226,7 +227,7 @@ def stop_decoder():
 
 
 @sstv_bp.route('/doppler')
-def get_doppler():
+async def get_doppler():
     """
     Get current Doppler shift information.
 
@@ -259,7 +260,7 @@ def get_doppler():
 
 
 @sstv_bp.route('/images')
-def list_images():
+async def list_images():
     """
     Get list of decoded SSTV images.
 
@@ -284,7 +285,7 @@ def list_images():
 
 
 @sstv_bp.route('/images/<filename>')
-def get_image(filename: str):
+async def get_image(filename: str):
     """
     Get a decoded SSTV image file.
 
@@ -314,11 +315,11 @@ def get_image(filename: str):
     if not image_path.exists():
         return jsonify({'status': 'error', 'message': 'Image not found'}), 404
 
-    return send_file(image_path, mimetype='image/png')
+    return await send_file(image_path, mimetype='image/png')
 
 
 @sstv_bp.route('/images/<filename>/download')
-def download_image(filename: str):
+async def download_image(filename: str):
     """
     Download a decoded SSTV image file.
 
@@ -347,11 +348,11 @@ def download_image(filename: str):
     if not image_path.exists():
         return jsonify({'status': 'error', 'message': 'Image not found'}), 404
 
-    return send_file(image_path, mimetype='image/png', as_attachment=True, download_name=filename)
+    return await send_file(image_path, mimetype='image/png', as_attachment=True, download_name=filename)
 
 
 @sstv_bp.route('/images/<filename>', methods=['DELETE'])
-def delete_image(filename: str):
+async def delete_image(filename: str):
     """
     Delete a decoded SSTV image.
 
@@ -377,7 +378,7 @@ def delete_image(filename: str):
 
 
 @sstv_bp.route('/images', methods=['DELETE'])
-def delete_all_images():
+async def delete_all_images():
     """
     Delete all decoded SSTV images.
 
@@ -390,7 +391,7 @@ def delete_all_images():
 
 
 @sstv_bp.route('/stream')
-def stream_progress():
+async def stream_progress():
     """
     SSE stream of SSTV decode progress.
 
@@ -402,13 +403,16 @@ def stream_progress():
     Returns:
         SSE stream (text/event-stream)
     """
-    def generate() -> Generator[str, None, None]:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         keepalive_interval = 30.0
 
         while True:
             try:
-                progress = _sstv_queue.get(timeout=1)
+                progress = await loop.run_in_executor(
+                    None, lambda: _sstv_queue.get(timeout=1)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('sstv', progress, progress.get('type'))
@@ -429,7 +433,7 @@ def stream_progress():
 
 
 @sstv_bp.route('/iss-schedule')
-def iss_schedule():
+async def iss_schedule():
     """
     Get ISS pass schedule for SSTV reception.
 
@@ -553,7 +557,7 @@ def iss_schedule():
 
 
 @sstv_bp.route('/iss-position')
-def iss_position():
+async def iss_position():
     """
     Get current ISS position from real-time API.
 
@@ -575,7 +579,8 @@ def iss_position():
 
     # Try primary API: Where The ISS At
     try:
-        response = httpx.get('https://api.wheretheiss.at/v1/satellites/25544', timeout=5)
+        async with httpx.AsyncClient() as client:
+            response = await client.get('https://api.wheretheiss.at/v1/satellites/25544', timeout=5)
         if response.status_code == 200:
             data = response.json()
             iss_lat = float(data['latitude'])
@@ -600,7 +605,8 @@ def iss_position():
 
     # Try fallback API: Open Notify
     try:
-        response = httpx.get('http://api.open-notify.org/iss-now.json', timeout=5)
+        async with httpx.AsyncClient() as client:
+            response = await client.get('http://api.open-notify.org/iss-now.json', timeout=5)
         if response.status_code == 200:
             data = response.json()
             if data.get('message') == 'success':
@@ -678,7 +684,7 @@ def _calculate_observer_data(iss_lat: float, iss_lon: float, obs_lat: float, obs
 
 
 @sstv_bp.route('/decode-file', methods=['POST'])
-def decode_file():
+async def decode_file():
     """
     Decode SSTV from an uploaded audio file.
 
@@ -687,13 +693,14 @@ def decode_file():
     Returns:
         JSON with decoded images.
     """
-    if 'audio' not in request.files:
+    files = await request.files
+    if 'audio' not in files:
         return jsonify({
             'status': 'error',
             'message': 'No audio file provided'
         }), 400
 
-    audio_file = request.files['audio']
+    audio_file = files['audio']
 
     if not audio_file.filename:
         return jsonify({
@@ -704,7 +711,7 @@ def decode_file():
     # Save to temp file
     import tempfile
     with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
-        audio_file.save(tmp.name)
+        await audio_file.save(tmp.name)
         tmp_path = tmp.name
 
     try:

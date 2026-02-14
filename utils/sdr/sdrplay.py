@@ -7,6 +7,7 @@ SDRPlay RSP devices support 1 kHz to 2 GHz frequency range.
 
 from __future__ import annotations
 
+import shlex
 from typing import Optional
 
 from .base import CommandBuilder, SDRCapabilities, SDRDevice, SDRType
@@ -31,7 +32,7 @@ class SDRPlayCommandBuilder(CommandBuilder):
     def _build_device_string(self, device: SDRDevice) -> str:
         """Build SoapySDR device string for SDRPlay."""
         if device.serial and device.serial != 'N/A':
-            return f'driver=sdrplay,serial={device.serial}'
+            return f'driver=sdrplay,serial={shlex.quote(str(device.serial))}'
         return 'driver=sdrplay'
 
     def build_fm_demod_command(

@@ -12,8 +12,8 @@ recordings_bp = Blueprint('recordings', __name__, url_prefix='/recordings')
 
 
 @recordings_bp.route('/start', methods=['POST'])
-def start_recording():
-    data = request.get_json() or {}
+async def start_recording():
+    data = await request.get_json(silent=True) or {}
     mode = (data.get('mode') or '').strip()
     if not mode:
         return jsonify({'status': 'error', 'message': 'mode is required'}), 400
@@ -37,8 +37,8 @@ def start_recording():
 
 
 @recordings_bp.route('/stop', methods=['POST'])
-def stop_recording():
-    data = request.get_json() or {}
+async def stop_recording():
+    data = await request.get_json(silent=True) or {}
     mode = data.get('mode')
     session_id = data.get('id')
 
@@ -63,7 +63,7 @@ def stop_recording():
 
 
 @recordings_bp.route('', methods=['GET'])
-def list_recordings():
+async def list_recordings():
     manager = get_recording_manager()
     limit = request.args.get('limit', default=50, type=int)
     return jsonify({
@@ -74,7 +74,7 @@ def list_recordings():
 
 
 @recordings_bp.route('/<session_id>', methods=['GET'])
-def get_recording(session_id: str):
+async def get_recording(session_id: str):
     manager = get_recording_manager()
     rec = manager.get_recording(session_id)
     if not rec:
@@ -83,7 +83,7 @@ def get_recording(session_id: str):
 
 
 @recordings_bp.route('/<session_id>/download', methods=['GET'])
-def download_recording(session_id: str):
+async def download_recording(session_id: str):
     manager = get_recording_manager()
     rec = manager.get_recording(session_id)
     if not rec:
@@ -101,7 +101,7 @@ def download_recording(session_id: str):
     if not file_path.exists():
         return jsonify({'status': 'error', 'message': 'Recording file missing'}), 404
 
-    return send_file(
+    return await send_file(
         file_path,
         mimetype='application/x-ndjson',
         as_attachment=True,

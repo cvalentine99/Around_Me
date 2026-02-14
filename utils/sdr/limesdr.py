@@ -7,6 +7,7 @@ LimeSDR supports 100 kHz to 3.8 GHz frequency range.
 
 from __future__ import annotations
 
+import shlex
 from typing import Optional
 
 from .base import CommandBuilder, SDRCapabilities, SDRDevice, SDRType
@@ -30,8 +31,8 @@ class LimeSDRCommandBuilder(CommandBuilder):
     def _build_device_string(self, device: SDRDevice) -> str:
         """Build SoapySDR device string for LimeSDR."""
         if device.serial and device.serial != 'N/A':
-            return f'driver=lime,serial={device.serial}'
-        return f'driver=lime'
+            return f'driver=lime,serial={shlex.quote(str(device.serial))}'
+        return 'driver=lime'
 
     def build_fm_demod_command(
         self,

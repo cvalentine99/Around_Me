@@ -14,6 +14,7 @@ import threading
 import time
 from datetime import datetime
 from subprocess import PIPE, STDOUT
+import asyncio
 from typing import Generator, Optional
 
 from quart import Blueprint, jsonify, request, Response
@@ -1414,7 +1415,7 @@ def stream_aprs_output(rtl_process: subprocess.Popen, decoder_process: subproces
 
 
 @aprs_bp.route('/tools')
-def check_aprs_tools() -> Response:
+async def check_aprs_tools() -> Response:
     """Check for APRS decoding tools."""
     has_rtl_fm = find_rtl_fm() is not None
     has_direwolf = find_direwolf() is not None
@@ -1430,7 +1431,7 @@ def check_aprs_tools() -> Response:
 
 
 @aprs_bp.route('/status')
-def aprs_status() -> Response:
+async def aprs_status() -> Response:
     """Get APRS decoder status."""
     running = False
     if app_module.aprs_process:
@@ -1446,7 +1447,7 @@ def aprs_status() -> Response:
 
 
 @aprs_bp.route('/stations')
-def get_stations() -> Response:
+async def get_stations() -> Response:
     """Get all tracked APRS stations."""
     return jsonify({
         'stations': list(aprs_stations.values()),
@@ -1455,7 +1456,7 @@ def get_stations() -> Response:
 
 
 @aprs_bp.route('/start', methods=['POST'])
-def start_aprs() -> Response:
+async def start_aprs() -> Response:
     """Start APRS decoder."""
     global aprs_packet_count, aprs_station_count, aprs_last_packet_time, aprs_stations
     global aprs_active_device
@@ -1485,7 +1486,7 @@ def start_aprs() -> Response:
             'message': 'No APRS decoder found. Install direwolf or multimon-ng'
         }), 400
 
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     # Validate inputs
     try:
@@ -1686,7 +1687,7 @@ def start_aprs() -> Response:
 
 
 @aprs_bp.route('/stop', methods=['POST'])
-def stop_aprs() -> Response:
+async def stop_aprs() -> Response:
     """Stop APRS decoder."""
     global aprs_active_device
 
@@ -1727,14 +1728,17 @@ def stop_aprs() -> Response:
 
 
 @aprs_bp.route('/stream')
-def stream_aprs() -> Response:
+async def stream_aprs() -> Response:
     """SSE stream for APRS packets."""
-    def generate() -> Generator[str, None, None]:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
 
         while True:
             try:
-                msg = app_module.aprs_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                msg = await loop.run_in_executor(
+                    None, lambda: app_module.aprs_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('aprs', msg, msg.get('type'))
@@ -1754,13 +1758,13 @@ def stream_aprs() -> Response:
 
 
 @aprs_bp.route('/frequencies')
-def get_frequencies() -> Response:
+async def get_frequencies() -> Response:
     """Get APRS frequencies by region."""
     return jsonify(APRS_FREQUENCIES)
 
 
 @aprs_bp.route('/spectrum', methods=['GET', 'POST'])
-def scan_aprs_spectrum() -> Response:
+async def scan_aprs_spectrum() -> Response:
     """Scan spectrum around APRS frequency for signal visibility debugging.
 
     This endpoint runs rtl_power briefly to detect signal activity near the
@@ -1785,7 +1789,7 @@ def scan_aprs_spectrum() -> Response:
 
     # Get parameters from JSON body or query args
     if request.is_json:
-        data = request.json or {}
+        data = await request.get_json(silent=True) or {}
     else:
         data = {}
 

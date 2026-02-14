@@ -23,7 +23,7 @@ settings_bp = Blueprint('settings', __name__, url_prefix='/settings')
 
 
 @settings_bp.route('', methods=['GET'])
-def get_settings() -> Response:
+async def get_settings() -> Response:
     """Get all settings."""
     try:
         settings = get_all_settings()
@@ -40,9 +40,9 @@ def get_settings() -> Response:
 
 
 @settings_bp.route('', methods=['POST'])
-def save_settings() -> Response:
+async def save_settings() -> Response:
     """Save one or more settings."""
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     if not data:
         return jsonify({
@@ -73,7 +73,7 @@ def save_settings() -> Response:
 
 
 @settings_bp.route('/<key>', methods=['GET'])
-def get_single_setting(key: str) -> Response:
+async def get_single_setting(key: str) -> Response:
     """Get a single setting by key."""
     try:
         value = get_setting(key)
@@ -97,9 +97,9 @@ def get_single_setting(key: str) -> Response:
 
 
 @settings_bp.route('/<key>', methods=['PUT'])
-def update_single_setting(key: str) -> Response:
+async def update_single_setting(key: str) -> Response:
     """Update a single setting."""
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
     value = data.get('value')
 
     if value is None and 'value' not in data:
@@ -124,7 +124,7 @@ def update_single_setting(key: str) -> Response:
 
 
 @settings_bp.route('/<key>', methods=['DELETE'])
-def delete_single_setting(key: str) -> Response:
+async def delete_single_setting(key: str) -> Response:
     """Delete a setting."""
     try:
         deleted = delete_setting(key)
@@ -152,7 +152,7 @@ def delete_single_setting(key: str) -> Response:
 # =============================================================================
 
 @settings_bp.route('/correlations', methods=['GET'])
-def get_device_correlations() -> Response:
+async def get_device_correlations() -> Response:
     """Get device correlations between WiFi and Bluetooth."""
     min_confidence = request.args.get('min_confidence', 0.5, type=float)
 
@@ -179,7 +179,7 @@ BLACKLIST_FILE = '/etc/modprobe.d/blacklist-rtlsdr.conf'
 
 
 @settings_bp.route('/rtlsdr/driver-status', methods=['GET'])
-def check_dvb_driver_status() -> Response:
+async def check_dvb_driver_status() -> Response:
     """Check if DVB kernel drivers are loaded and blocking RTL-SDR devices."""
     if sys.platform != 'linux':
         return jsonify({
@@ -226,7 +226,7 @@ def check_dvb_driver_status() -> Response:
 
 
 @settings_bp.route('/rtlsdr/blacklist-drivers', methods=['POST'])
-def blacklist_dvb_drivers() -> Response:
+async def blacklist_dvb_drivers() -> Response:
     """Blacklist DVB kernel drivers to prevent them from claiming RTL-SDR devices."""
     if sys.platform != 'linux':
         return jsonify({

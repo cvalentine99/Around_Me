@@ -203,7 +203,7 @@ def get_receivers(force_refresh: bool = False) -> list[dict]:
 # ============================================
 
 @websdr_bp.route('/receivers')
-def list_receivers() -> Response:
+async def list_receivers() -> Response:
     """List KiwiSDR receivers, with optional filters."""
     freq_khz = request.args.get('freq_khz', type=float)
     available = request.args.get('available', type=str)
@@ -230,7 +230,7 @@ def list_receivers() -> Response:
 
 
 @websdr_bp.route('/receivers/nearest')
-def nearest_receivers() -> Response:
+async def nearest_receivers() -> Response:
     """Find receivers nearest to a given location."""
     lat = request.args.get('lat', type=float)
     lon = request.args.get('lon', type=float)
@@ -266,7 +266,7 @@ def nearest_receivers() -> Response:
 
 
 @websdr_bp.route('/spy-station/<station_id>/receivers')
-def spy_station_receivers(station_id: str) -> Response:
+async def spy_station_receivers(station_id: str) -> Response:
     """Find receivers that can tune to a spy station's frequency."""
     try:
         from routes.spy_stations import STATIONS
@@ -318,7 +318,7 @@ def spy_station_receivers(station_id: str) -> Response:
 
 
 @websdr_bp.route('/status')
-def websdr_status() -> Response:
+async def websdr_status() -> Response:
     """Get WebSDR connection and cache status."""
     return jsonify({
         'status': 'ok',

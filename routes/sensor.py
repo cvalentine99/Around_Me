@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+import asyncio
 from typing import Generator
 
 from quart import Blueprint, jsonify, request, Response
@@ -96,7 +97,7 @@ def stream_sensor_output(process: subprocess.Popen[bytes]) -> None:
 
 
 @sensor_bp.route('/sensor/status')
-def sensor_status() -> Response:
+async def sensor_status() -> Response:
     """Check if sensor decoder is currently running."""
     with app_module.sensor_lock:
         running = app_module.sensor_process is not None and app_module.sensor_process.poll() is None
@@ -104,14 +105,14 @@ def sensor_status() -> Response:
 
 
 @sensor_bp.route('/start_sensor', methods=['POST'])
-def start_sensor() -> Response:
+async def start_sensor() -> Response:
     global sensor_active_device
 
     with app_module.sensor_lock:
         if app_module.sensor_process:
             return jsonify({'status': 'error', 'message': 'Sensor already running'}), 409
 
-        data = request.json or {}
+        data = await request.get_json(silent=True) or {}
 
         # Validate inputs
         try:
@@ -229,7 +230,7 @@ def start_sensor() -> Response:
 
 
 @sensor_bp.route('/stop_sensor', methods=['POST'])
-def stop_sensor() -> Response:
+async def stop_sensor() -> Response:
     global sensor_active_device
 
     with app_module.sensor_lock:
@@ -252,14 +253,17 @@ def stop_sensor() -> Response:
 
 
 @sensor_bp.route('/stream_sensor')
-def stream_sensor() -> Response:
-    def generate() -> Generator[str, None, None]:
+async def stream_sensor() -> Response:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         keepalive_interval = 30.0
 
         while True:
             try:
-                msg = app_module.sensor_queue.get(timeout=1)
+                msg = await loop.run_in_executor(
+                    None, lambda: app_module.sensor_queue.get(timeout=1)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('sensor', msg, msg.get('type'))

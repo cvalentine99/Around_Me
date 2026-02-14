@@ -376,6 +376,12 @@ def _cleanup_uat_processes() -> None:
                     os.killpg(pgid, 9)  # SIGKILL
                 except (ProcessLookupError, OSError):
                     pass
+            # Close leaked stderr pipes
+            if proc.stderr:
+                try:
+                    proc.stderr.close()
+                except Exception:
+                    pass
             unregister_process(proc)
 
     _uat_dump978_process = None

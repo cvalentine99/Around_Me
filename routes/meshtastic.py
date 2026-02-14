@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import queue
 import time
+import asyncio
 from typing import Generator
 
 from quart import Blueprint, jsonify, request, Response
@@ -59,7 +60,7 @@ def _message_callback(msg: MeshtasticMessage) -> None:
 
 
 @meshtastic_bp.route('/ports')
-def list_ports():
+async def list_ports():
     """
     List available serial ports that may have Meshtastic devices.
 
@@ -91,7 +92,7 @@ def list_ports():
 
 
 @meshtastic_bp.route('/status')
-def get_status():
+async def get_status():
     """
     Get Meshtastic connection status.
 
@@ -129,7 +130,7 @@ def get_status():
 
 
 @meshtastic_bp.route('/start', methods=['POST'])
-def start_mesh():
+async def start_mesh():
     """
     Start Meshtastic listener.
 
@@ -174,7 +175,7 @@ def start_mesh():
     _recent_messages.clear()
 
     # Parse connection parameters
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
     connection_type = data.get('connection_type', 'serial').lower().strip()
     device = data.get('device')
     hostname = data.get('hostname')
@@ -232,7 +233,7 @@ def start_mesh():
 
 
 @meshtastic_bp.route('/stop', methods=['POST'])
-def stop_mesh():
+async def stop_mesh():
     """
     Stop Meshtastic listener.
 
@@ -246,7 +247,7 @@ def stop_mesh():
 
 
 @meshtastic_bp.route('/channels')
-def get_channels():
+async def get_channels():
     """
     Get configured channels on the connected device.
 
@@ -271,7 +272,7 @@ def get_channels():
 
 
 @meshtastic_bp.route('/channels/<int:index>', methods=['POST'])
-def configure_channel(index: int):
+async def configure_channel(index: int):
     """
     Configure a channel with name and/or encryption key.
 
@@ -316,7 +317,7 @@ def configure_channel(index: int):
             'message': 'Channel index must be 0-7'
         }), 400
 
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
     name = data.get('name')
     psk = data.get('psk')
 
@@ -353,7 +354,7 @@ def configure_channel(index: int):
 
 
 @meshtastic_bp.route('/send', methods=['POST'])
-def send_message():
+async def send_message():
     """
     Send a text message to the mesh network.
 
@@ -381,7 +382,7 @@ def send_message():
             'message': 'Not connected to Meshtastic device'
         }), 400
 
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
     text = data.get('text', '').strip()
 
     if not text:
@@ -419,7 +420,7 @@ def send_message():
 
 
 @meshtastic_bp.route('/messages')
-def get_messages():
+async def get_messages():
     """
     Get recent message history.
 
@@ -454,7 +455,7 @@ def get_messages():
 
 
 @meshtastic_bp.route('/stream')
-def stream_messages():
+async def stream_messages():
     """
     SSE stream of Meshtastic messages.
 
@@ -469,13 +470,16 @@ def stream_messages():
     Returns:
         SSE stream (text/event-stream)
     """
-    def generate() -> Generator[str, None, None]:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         keepalive_interval = 30.0
 
         while True:
             try:
-                msg = _mesh_queue.get(timeout=1)
+                msg = await loop.run_in_executor(
+                    None, lambda: _mesh_queue.get(timeout=1)
+                )
                 last_keepalive = time.time()
                 yield format_sse(msg)
             except queue.Empty:
@@ -492,7 +496,7 @@ def stream_messages():
 
 
 @meshtastic_bp.route('/node')
-def get_node():
+async def get_node():
     """
     Get local node information.
 
@@ -525,7 +529,7 @@ def get_node():
 
 
 @meshtastic_bp.route('/nodes')
-def get_nodes():
+async def get_nodes():
     """
     Get all tracked mesh nodes with their positions.
 
@@ -564,7 +568,7 @@ def get_nodes():
 
 
 @meshtastic_bp.route('/traceroute', methods=['POST'])
-def send_traceroute():
+async def send_traceroute():
     """
     Send a traceroute request to a mesh node.
 
@@ -591,7 +595,7 @@ def send_traceroute():
             'message': 'Not connected to Meshtastic device'
         }), 400
 
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
     destination = data.get('destination')
 
     if not destination:
@@ -620,7 +624,7 @@ def send_traceroute():
 
 
 @meshtastic_bp.route('/traceroute/results')
-def get_traceroute_results():
+async def get_traceroute_results():
     """
     Get recent traceroute results.
 
@@ -650,7 +654,7 @@ def get_traceroute_results():
 
 
 @meshtastic_bp.route('/position/request', methods=['POST'])
-def request_position():
+async def request_position():
     """
     Request position from a specific node.
 
@@ -676,7 +680,7 @@ def request_position():
             'message': 'Not connected to Meshtastic device'
         }), 400
 
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
     node_id = data.get('node_id')
 
     if not node_id:
@@ -700,7 +704,7 @@ def request_position():
 
 
 @meshtastic_bp.route('/firmware/check')
-def check_firmware():
+async def check_firmware():
     """
     Check current firmware version and compare to latest release.
 
@@ -721,7 +725,7 @@ def check_firmware():
 
 
 @meshtastic_bp.route('/channels/<int:index>/qr')
-def get_channel_qr(index: int):
+async def get_channel_qr(index: int):
     """
     Generate QR code for a channel configuration.
 
@@ -757,7 +761,7 @@ def get_channel_qr(index: int):
 
 
 @meshtastic_bp.route('/telemetry/history')
-def get_telemetry_history():
+async def get_telemetry_history():
     """
     Get telemetry history for a node.
 
@@ -812,7 +816,7 @@ def get_telemetry_history():
 
 
 @meshtastic_bp.route('/neighbors')
-def get_neighbors():
+async def get_neighbors():
     """
     Get neighbor information for mesh topology visualization.
 
@@ -863,7 +867,7 @@ def get_neighbors():
 
 
 @meshtastic_bp.route('/pending')
-def get_pending_messages():
+async def get_pending_messages():
     """
     Get messages waiting for ACK.
 
@@ -889,7 +893,7 @@ def get_pending_messages():
 
 
 @meshtastic_bp.route('/range-test/start', methods=['POST'])
-def start_range_test():
+async def start_range_test():
     """
     Start a range test.
 
@@ -916,7 +920,7 @@ def start_range_test():
             'message': 'Not connected to Meshtastic device'
         }), 400
 
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
     count = data.get('count', 10)
     interval = data.get('interval', 5)
 
@@ -942,7 +946,7 @@ def start_range_test():
 
 
 @meshtastic_bp.route('/range-test/stop', methods=['POST'])
-def stop_range_test():
+async def stop_range_test():
     """
     Stop an ongoing range test.
 
@@ -958,7 +962,7 @@ def stop_range_test():
 
 
 @meshtastic_bp.route('/range-test/status')
-def get_range_test_status():
+async def get_range_test_status():
     """
     Get range test status and results.
 
@@ -983,7 +987,7 @@ def get_range_test_status():
 
 
 @meshtastic_bp.route('/store-forward/status')
-def get_store_forward_status():
+async def get_store_forward_status():
     """
     Check if Store & Forward router is available.
 
@@ -1007,7 +1011,7 @@ def get_store_forward_status():
 
 
 @meshtastic_bp.route('/store-forward/request', methods=['POST'])
-def request_store_forward():
+async def request_store_forward():
     """
     Request missed messages from Store & Forward router.
 
@@ -1033,7 +1037,7 @@ def request_store_forward():
             'message': 'Not connected to Meshtastic device'
         }), 400
 
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
     window_minutes = data.get('window_minutes', 60)
 
     if not isinstance(window_minutes, int) or window_minutes < 1 or window_minutes > 1440:

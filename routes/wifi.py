@@ -11,6 +11,7 @@ import re
 import subprocess
 import threading
 import time
+import asyncio
 from typing import Any, Generator
 
 from quart import Blueprint, jsonify, request, Response
@@ -433,7 +434,7 @@ def stream_airodump_output(process, csv_path):
 
 
 @wifi_bp.route('/interfaces')
-def get_wifi_interfaces():
+async def get_wifi_interfaces():
     """Get available WiFi interfaces."""
     interfaces = detect_wifi_interfaces()
     tools = {
@@ -446,9 +447,9 @@ def get_wifi_interfaces():
 
 
 @wifi_bp.route('/monitor', methods=['POST'])
-def toggle_monitor_mode():
+async def toggle_monitor_mode():
     """Enable or disable monitor mode on an interface."""
-    data = request.json
+    data = await request.get_json()
     action = data.get('action', 'start')
 
     # Validate interface name to prevent command injection
@@ -626,13 +627,13 @@ def toggle_monitor_mode():
 
 
 @wifi_bp.route('/scan/start', methods=['POST'])
-def start_wifi_scan():
+async def start_wifi_scan():
     """Start WiFi scanning with airodump-ng."""
     with app_module.wifi_lock:
         if app_module.wifi_process:
             return jsonify({'status': 'error', 'message': 'Scan already running'})
 
-        data = request.json
+        data = await request.get_json()
         channel = data.get('channel')
         channels = data.get('channels')
         band = data.get('band', 'abg')
@@ -740,7 +741,7 @@ def start_wifi_scan():
 
 
 @wifi_bp.route('/scan/stop', methods=['POST'])
-def stop_wifi_scan():
+async def stop_wifi_scan():
     """Stop WiFi scanning."""
     with app_module.wifi_lock:
         if app_module.wifi_process:
@@ -755,9 +756,9 @@ def stop_wifi_scan():
 
 
 @wifi_bp.route('/deauth', methods=['POST'])
-def send_deauth():
+async def send_deauth():
     """Send deauthentication packets."""
-    data = request.json
+    data = await request.get_json()
     target_bssid = data.get('bssid')
     target_client = data.get('client', 'FF:FF:FF:FF:FF:FF')
     count = data.get('count', 5)
@@ -820,9 +821,9 @@ def send_deauth():
 
 
 @wifi_bp.route('/handshake/capture', methods=['POST'])
-def capture_handshake():
+async def capture_handshake():
     """Start targeted handshake capture."""
-    data = request.json
+    data = await request.get_json()
     target_bssid = data.get('bssid')
     channel = data.get('channel')
 
@@ -870,9 +871,9 @@ def capture_handshake():
 
 
 @wifi_bp.route('/handshake/status', methods=['POST'])
-def check_handshake_status():
+async def check_handshake_status():
     """Check if a handshake has been captured."""
-    data = request.json
+    data = await request.get_json()
     capture_file = data.get('file', '')
     target_bssid = data.get('bssid', '')
 
@@ -937,11 +938,11 @@ def check_handshake_status():
 
 
 @wifi_bp.route('/pmkid/capture', methods=['POST'])
-def capture_pmkid():
+async def capture_pmkid():
     """Start PMKID capture using hcxdumptool."""
     global pmkid_process
 
-    data = request.json
+    data = await request.get_json()
     target_bssid = data.get('bssid')
     channel = data.get('channel')
 
@@ -992,9 +993,9 @@ def capture_pmkid():
 
 
 @wifi_bp.route('/pmkid/status', methods=['POST'])
-def check_pmkid_status():
+async def check_pmkid_status():
     """Check if PMKID has been captured."""
-    data = request.json
+    data = await request.get_json()
     capture_file = data.get('file', '')
 
     if not capture_file.startswith('/tmp/valentine_pmkid_') or '..' in capture_file:
@@ -1028,7 +1029,7 @@ def check_pmkid_status():
 
 
 @wifi_bp.route('/pmkid/stop', methods=['POST'])
-def stop_pmkid():
+async def stop_pmkid():
     """Stop PMKID capture."""
     global pmkid_process
 
@@ -1045,9 +1046,9 @@ def stop_pmkid():
 
 
 @wifi_bp.route('/handshake/crack', methods=['POST'])
-def crack_handshake():
+async def crack_handshake():
     """Crack a captured handshake using aircrack-ng."""
-    data = request.json
+    data = await request.get_json()
     capture_file = data.get('capture_file', '')
     target_bssid = data.get('bssid', '')
     wordlist = data.get('wordlist', '')
@@ -1122,7 +1123,7 @@ def crack_handshake():
 
 
 @wifi_bp.route('/networks')
-def get_wifi_networks():
+async def get_wifi_networks():
     """Get current list of discovered networks."""
     return jsonify({
         'networks': list(app_module.wifi_networks.values()),
@@ -1133,15 +1134,18 @@ def get_wifi_networks():
 
 
 @wifi_bp.route('/stream')
-def stream_wifi():
+async def stream_wifi():
     """SSE stream for WiFi events."""
-    def generate():
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         keepalive_interval = 30.0
 
         while True:
             try:
-                msg = app_module.wifi_queue.get(timeout=1)
+                msg = await loop.run_in_executor(
+                    None, lambda: app_module.wifi_queue.get(timeout=1)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('wifi', msg, msg.get('type'))
@@ -1169,7 +1173,7 @@ from utils.wifi.scanner import get_wifi_scanner, reset_wifi_scanner
 
 
 @wifi_bp.route('/v2/capabilities')
-def get_v2_capabilities():
+async def get_v2_capabilities():
     """Get WiFi scanning capabilities on this system."""
     try:
         scanner = get_wifi_scanner()
@@ -1200,10 +1204,10 @@ def get_v2_capabilities():
 
 
 @wifi_bp.route('/v2/scan/quick', methods=['POST'])
-def v2_quick_scan():
+async def v2_quick_scan():
     """Perform a quick one-shot WiFi scan using system tools."""
     try:
-        data = request.json or {}
+        data = await request.get_json() or {}
         interface = data.get('interface')
         timeout = data.get('timeout', 10.0)
 
@@ -1231,10 +1235,10 @@ def v2_quick_scan():
 
 
 @wifi_bp.route('/v2/scan/start', methods=['POST'])
-def v2_start_scan():
+async def v2_start_scan():
     """Start continuous deep scan with airodump-ng."""
     try:
-        data = request.json or {}
+        data = await request.get_json() or {}
         interface = data.get('interface')
         band = data.get('band', 'all')
         channel = data.get('channel')
@@ -1253,7 +1257,7 @@ def v2_start_scan():
 
 
 @wifi_bp.route('/v2/scan/stop', methods=['POST'])
-def v2_stop_scan():
+async def v2_stop_scan():
     """Stop the current scan."""
     try:
         scanner = get_wifi_scanner()
@@ -1265,7 +1269,7 @@ def v2_stop_scan():
 
 
 @wifi_bp.route('/v2/scan/status')
-def v2_scan_status():
+async def v2_scan_status():
     """Get current scan status."""
     try:
         scanner = get_wifi_scanner()
@@ -1285,7 +1289,7 @@ def v2_scan_status():
 
 
 @wifi_bp.route('/v2/networks')
-def v2_get_networks():
+async def v2_get_networks():
     """Get all discovered networks."""
     try:
         scanner = get_wifi_scanner()
@@ -1300,7 +1304,7 @@ def v2_get_networks():
 
 
 @wifi_bp.route('/v2/clients')
-def v2_get_clients():
+async def v2_get_clients():
     """Get discovered clients with optional filtering."""
     try:
         scanner = get_wifi_scanner()
@@ -1337,7 +1341,7 @@ def v2_get_clients():
 
 
 @wifi_bp.route('/v2/probes')
-def v2_get_probes():
+async def v2_get_probes():
     """Get probe requests."""
     try:
         scanner = get_wifi_scanner()
@@ -1352,7 +1356,7 @@ def v2_get_probes():
 
 
 @wifi_bp.route('/v2/channels')
-def v2_get_channels():
+async def v2_get_channels():
     """Get channel statistics and recommendations."""
     try:
         scanner = get_wifi_scanner()
@@ -1368,9 +1372,9 @@ def v2_get_channels():
 
 
 @wifi_bp.route('/v2/stream')
-def v2_stream():
+async def v2_stream():
     """SSE stream for real-time WiFi events."""
-    def generate():
+    async def generate():
         scanner = get_wifi_scanner()
         for event in scanner.get_event_stream():
             yield format_sse(event)
@@ -1383,7 +1387,7 @@ def v2_stream():
 
 
 @wifi_bp.route('/v2/export')
-def v2_export():
+async def v2_export():
     """Export scan data as CSV or JSON."""
     try:
         format_type = request.args.get('format', 'json')
@@ -1463,7 +1467,7 @@ def v2_export():
 
 
 @wifi_bp.route('/v2/baseline/set', methods=['POST'])
-def v2_set_baseline():
+async def v2_set_baseline():
     """Set current networks as baseline."""
     try:
         scanner = get_wifi_scanner()
@@ -1475,7 +1479,7 @@ def v2_set_baseline():
 
 
 @wifi_bp.route('/v2/baseline/clear', methods=['POST'])
-def v2_clear_baseline():
+async def v2_clear_baseline():
     """Clear the baseline."""
     try:
         scanner = get_wifi_scanner()
@@ -1487,7 +1491,7 @@ def v2_clear_baseline():
 
 
 @wifi_bp.route('/v2/clear', methods=['POST'])
-def v2_clear_data():
+async def v2_clear_data():
     """Clear all discovered data."""
     try:
         scanner = get_wifi_scanner()
@@ -1503,7 +1507,7 @@ def v2_clear_data():
 # =============================================================================
 
 @wifi_bp.route('/v2/deauth/status')
-def v2_deauth_status():
+async def v2_deauth_status():
     """
     Get deauth detection status and recent alerts.
 
@@ -1546,7 +1550,7 @@ def v2_deauth_status():
 
 
 @wifi_bp.route('/v2/deauth/stream')
-def v2_deauth_stream():
+async def v2_deauth_stream():
     """
     SSE stream for real-time deauth alerts.
 
@@ -1557,14 +1561,17 @@ def v2_deauth_stream():
         - deauth_error: An error occurred
         - keepalive: Periodic keepalive
     """
-    def generate():
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         keepalive_interval = SSE_KEEPALIVE_INTERVAL
 
         while True:
             try:
                 # Try to get from the dedicated deauth queue
-                msg = app_module.deauth_detector_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                msg = await loop.run_in_executor(
+                    None, lambda: app_module.deauth_detector_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                )
                 last_keepalive = time.time()
                 yield format_sse(msg)
             except queue.Empty:
@@ -1581,7 +1588,7 @@ def v2_deauth_stream():
 
 
 @wifi_bp.route('/v2/deauth/alerts')
-def v2_deauth_alerts():
+async def v2_deauth_alerts():
     """
     Get historical deauth alerts.
 
@@ -1619,7 +1626,7 @@ def v2_deauth_alerts():
 
 
 @wifi_bp.route('/v2/deauth/clear', methods=['POST'])
-def v2_deauth_clear():
+async def v2_deauth_clear():
     """Clear deauth alert history."""
     try:
         scanner = get_wifi_scanner()

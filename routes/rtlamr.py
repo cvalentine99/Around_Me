@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+import asyncio
 from typing import Generator
 
 from quart import Blueprint, jsonify, request, Response
@@ -96,14 +97,14 @@ def stream_rtlamr_output(process: subprocess.Popen[bytes]) -> None:
 
 
 @rtlamr_bp.route('/start_rtlamr', methods=['POST'])
-def start_rtlamr() -> Response:
+async def start_rtlamr() -> Response:
     global rtl_tcp_process, rtlamr_active_device
 
     with app_module.rtlamr_lock:
         if app_module.rtlamr_process:
             return jsonify({'status': 'error', 'message': 'RTLAMR already running'}), 409
 
-        data = request.json or {}
+        data = await request.get_json(silent=True) or {}
 
         # Validate inputs
         try:
@@ -255,7 +256,7 @@ def start_rtlamr() -> Response:
 
 
 @rtlamr_bp.route('/stop_rtlamr', methods=['POST'])
-def stop_rtlamr() -> Response:
+async def stop_rtlamr() -> Response:
     global rtl_tcp_process, rtlamr_active_device
 
     with app_module.rtlamr_lock:
@@ -287,14 +288,17 @@ def stop_rtlamr() -> Response:
 
 
 @rtlamr_bp.route('/stream_rtlamr')
-def stream_rtlamr() -> Response:
-    def generate() -> Generator[str, None, None]:
+async def stream_rtlamr() -> Response:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         keepalive_interval = 30.0
 
         while True:
             try:
-                msg = app_module.rtlamr_queue.get(timeout=1)
+                msg = await loop.run_in_executor(
+                    None, lambda: app_module.rtlamr_queue.get(timeout=1)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('rtlamr', msg, msg.get('type'))

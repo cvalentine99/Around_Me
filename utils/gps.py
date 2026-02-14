@@ -128,7 +128,7 @@ class GPSDClient:
             self._thread.start()
 
             logger.info(f"Connected to gpsd at {self.host}:{self.port}")
-            print(f"[GPS] Connected to gpsd at {self.host}:{self.port}", flush=True)
+            logger.info(f"Connected to gpsd at {self.host}:{self.port}")
             return True
 
         except Exception as e:
@@ -169,7 +169,7 @@ class GPSDClient:
         buffer = ""
         message_count = 0
 
-        print(f"[GPS] gpsd read loop started", flush=True)
+        logger.info("gpsd read loop started")
 
         while self._running and self._socket:
             try:
@@ -198,7 +198,7 @@ class GPSDClient:
 
                         message_count += 1
                         if message_count <= 5 or message_count % 20 == 0:
-                            print(f"[GPS] gpsd msg [{message_count}]: {msg_class}", flush=True)
+                            logger.debug(f"gpsd msg [{message_count}]: {msg_class}")
 
                         if msg_class == 'TPV':
                             self._handle_tpv(msg)
@@ -207,7 +207,7 @@ class GPSDClient:
                             devices = msg.get('devices', [])
                             if devices:
                                 self._device = devices[0].get('path', 'unknown')
-                                print(f"[GPS] gpsd device: {self._device}", flush=True)
+                                logger.info(f"gpsd device: {self._device}")
 
                     except json.JSONDecodeError:
                         logger.debug(f"Invalid JSON from gpsd: {line[:50]}")
@@ -256,7 +256,7 @@ class GPSDClient:
             device=self._device or f"gpsd://{self.host}:{self.port}",
         )
 
-        print(f"[GPS] gpsd FIX: {lat:.6f}, {lon:.6f} (mode: {mode})", flush=True)
+        logger.info(f"gpsd FIX: {lat:.6f}, {lon:.6f} (mode: {mode})")
         self._update_position(position)
 
     def _update_position(self, position: GPSPosition) -> None:

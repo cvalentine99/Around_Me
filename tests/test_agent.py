@@ -8,11 +8,12 @@ Tests cover:
 - GPS integration
 """
 
+import asyncio
 import json
 import os
 import pytest
 import tempfile
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -148,8 +149,9 @@ class TestAgentClient:
         headers = client._headers()
         assert headers['X-API-Key'] == 'test-key'
 
-    @patch('utils.agent_client.httpx.get')
-    def test_get_capabilities(self, mock_get):
+    @pytest.mark.asyncio
+    @patch('utils.agent_client.httpx.AsyncClient')
+    async def test_get_capabilities(self, mock_client_cls):
         """get_capabilities should parse JSON response."""
         mock_response = Mock()
         mock_response.json.return_value = {
@@ -159,17 +161,21 @@ class TestAgentClient:
         }
         mock_response.content = b'{}'
         mock_response.raise_for_status = Mock()
-        mock_get.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
 
         client = AgentClient('http://localhost:8020')
-        caps = client.get_capabilities()
+        caps = await client.get_capabilities()
 
         assert caps['modes']['adsb'] is True
         assert len(caps['devices']) == 1
-        mock_get.assert_called_once()
 
-    @patch('utils.agent_client.httpx.get')
-    def test_get_status(self, mock_get):
+    @pytest.mark.asyncio
+    @patch('utils.agent_client.httpx.AsyncClient')
+    async def test_get_status(self, mock_client_cls):
         """get_status should return status dict."""
         mock_response = Mock()
         mock_response.json.return_value = {
@@ -179,68 +185,93 @@ class TestAgentClient:
         }
         mock_response.content = b'{}'
         mock_response.raise_for_status = Mock()
-        mock_get.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
 
         client = AgentClient('http://localhost:8020')
-        status = client.get_status()
+        status = await client.get_status()
 
         assert 'adsb' in status['running_modes']
         assert status['uptime'] == 3600
 
-    @patch('utils.agent_client.httpx.get')
-    def test_health_check_healthy(self, mock_get):
+    @pytest.mark.asyncio
+    @patch('utils.agent_client.httpx.AsyncClient')
+    async def test_health_check_healthy(self, mock_client_cls):
         """health_check should return True for healthy agent."""
         mock_response = Mock()
         mock_response.json.return_value = {'status': 'healthy'}
         mock_response.content = b'{}'
         mock_response.raise_for_status = Mock()
-        mock_get.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
 
         client = AgentClient('http://localhost:8020')
-        assert client.health_check() is True
+        assert await client.health_check() is True
 
-    @patch('utils.agent_client.httpx.get')
-    def test_health_check_unhealthy(self, mock_get):
+    @pytest.mark.asyncio
+    @patch('utils.agent_client.httpx.AsyncClient')
+    async def test_health_check_unhealthy(self, mock_client_cls):
         """health_check should return False for connection error."""
         import httpx
-        mock_get.side_effect = httpx.ConnectError("Connection refused")
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = httpx.ConnectError("Connection refused")
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
 
         client = AgentClient('http://localhost:8020')
-        assert client.health_check() is False
+        assert await client.health_check() is False
 
-    @patch('utils.agent_client.httpx.post')
-    def test_start_mode(self, mock_post):
+    @pytest.mark.asyncio
+    @patch('utils.agent_client.httpx.AsyncClient')
+    async def test_start_mode(self, mock_client_cls):
         """start_mode should POST to correct endpoint."""
         mock_response = Mock()
         mock_response.json.return_value = {'status': 'started', 'mode': 'adsb'}
         mock_response.content = b'{}'
         mock_response.raise_for_status = Mock()
-        mock_post.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
 
         client = AgentClient('http://localhost:8020')
-        result = client.start_mode('adsb', {'device_index': 0})
+        result = await client.start_mode('adsb', {'device_index': 0})
 
         assert result['status'] == 'started'
-        mock_post.assert_called_once()
-        call_url = mock_post.call_args[0][0]
+        mock_client.post.assert_called_once()
+        call_url = mock_client.post.call_args[0][0]
         assert '/adsb/start' in call_url
 
-    @patch('utils.agent_client.httpx.post')
-    def test_stop_mode(self, mock_post):
+    @pytest.mark.asyncio
+    @patch('utils.agent_client.httpx.AsyncClient')
+    async def test_stop_mode(self, mock_client_cls):
         """stop_mode should POST to stop endpoint."""
         mock_response = Mock()
         mock_response.json.return_value = {'status': 'stopped'}
         mock_response.content = b'{}'
         mock_response.raise_for_status = Mock()
-        mock_post.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
 
         client = AgentClient('http://localhost:8020')
-        result = client.stop_mode('wifi')
+        result = await client.stop_mode('wifi')
 
         assert result['status'] == 'stopped'
 
-    @patch('utils.agent_client.httpx.get')
-    def test_get_mode_data(self, mock_get):
+    @pytest.mark.asyncio
+    @patch('utils.agent_client.httpx.AsyncClient')
+    async def test_get_mode_data(self, mock_client_cls):
         """get_mode_data should return data snapshot."""
         mock_response = Mock()
         mock_response.json.return_value = {
@@ -252,51 +283,73 @@ class TestAgentClient:
         }
         mock_response.content = b'{}'
         mock_response.raise_for_status = Mock()
-        mock_get.return_value = mock_response
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
 
         client = AgentClient('http://localhost:8020')
-        result = client.get_mode_data('adsb')
+        result = await client.get_mode_data('adsb')
 
         assert len(result['data']) == 2
         assert result['data'][0]['icao'] == 'ABC123'
 
-    @patch('utils.agent_client.httpx.get')
-    def test_connection_error_handling(self, mock_get):
+    @pytest.mark.asyncio
+    @patch('utils.agent_client.httpx.AsyncClient')
+    async def test_connection_error_handling(self, mock_client_cls):
         """Client should raise AgentConnectionError on connection failure."""
         import httpx
-        mock_get.side_effect = httpx.ConnectError("Connection refused")
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = httpx.ConnectError("Connection refused")
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
 
         client = AgentClient('http://localhost:8020')
 
         with pytest.raises(AgentConnectionError) as exc_info:
-            client.get_capabilities()
+            await client.get_capabilities()
         assert 'Cannot connect' in str(exc_info.value)
 
-    @patch('utils.agent_client.httpx.get')
-    def test_timeout_error_handling(self, mock_get):
+    @pytest.mark.asyncio
+    @patch('utils.agent_client.httpx.AsyncClient')
+    async def test_timeout_error_handling(self, mock_client_cls):
         """Client should raise AgentConnectionError on timeout."""
         import httpx
-        mock_get.side_effect = httpx.TimeoutException("Request timed out")
+        mock_client = AsyncMock()
+        mock_client.get.side_effect = httpx.TimeoutException("Request timed out")
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
 
         client = AgentClient('http://localhost:8020', timeout=5.0)
 
         with pytest.raises(AgentConnectionError) as exc_info:
-            client.get_status()
+            await client.get_status()
         assert 'timed out' in str(exc_info.value)
 
-    @patch('utils.agent_client.httpx.get')
-    def test_http_error_handling(self, mock_get):
+    @pytest.mark.asyncio
+    @patch('utils.agent_client.httpx.AsyncClient')
+    async def test_http_error_handling(self, mock_client_cls):
         """Client should raise AgentHTTPError on HTTP errors."""
         import httpx
         mock_response = Mock()
         mock_response.status_code = 500
-        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(response=mock_response)
-        mock_get.return_value = mock_response
+        mock_request = Mock()
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            message="Server Error", request=mock_request, response=mock_response
+        )
+        mock_client = AsyncMock()
+        mock_client.get.return_value = mock_response
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
 
         client = AgentClient('http://localhost:8020')
 
         with pytest.raises(AgentHTTPError) as exc_info:
-            client.get_capabilities()
+            await client.get_capabilities()
         assert exc_info.value.status_code == 500
 
     def test_create_client_from_agent(self):
@@ -332,20 +385,12 @@ class TestDatabaseAgentCRUD:
         db_module.DB_PATH = test_db_path
         db_module.DB_DIR = tmp_path
 
-        # Clear any existing connection
-        if hasattr(db_module._local, 'connection') and db_module._local.connection:
-            db_module._local.connection.close()
-            db_module._local.connection = None
-
         # Initialize schema
         init_db()
 
         yield
 
         # Cleanup
-        if hasattr(db_module._local, 'connection') and db_module._local.connection:
-            db_module._local.connection.close()
-            db_module._local.connection = None
         db_module.DB_PATH = original_db_path
 
     def test_create_agent(self):
@@ -490,17 +535,10 @@ class TestDatabasePayloads:
         db_module.DB_PATH = test_db_path
         db_module.DB_DIR = tmp_path
 
-        if hasattr(db_module._local, 'connection') and db_module._local.connection:
-            db_module._local.connection.close()
-            db_module._local.connection = None
-
         init_db()
 
         yield
 
-        if hasattr(db_module._local, 'connection') and db_module._local.connection:
-            db_module._local.connection.close()
-            db_module._local.connection = None
         db_module.DB_PATH = original_db_path
 
     def test_store_push_payload(self):

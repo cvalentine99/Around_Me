@@ -12,6 +12,7 @@ import io
 import json
 import logging
 from datetime import datetime
+import asyncio
 from typing import Generator
 
 from quart import Blueprint, jsonify, request, Response
@@ -37,7 +38,7 @@ wifi_v2_bp = Blueprint('wifi_v2', __name__, url_prefix='/wifi/v2')
 # =============================================================================
 
 @wifi_v2_bp.route('/capabilities', methods=['GET'])
-def get_capabilities():
+async def get_capabilities():
     """
     Get WiFi scanning capabilities.
 
@@ -53,7 +54,7 @@ def get_capabilities():
 # =============================================================================
 
 @wifi_v2_bp.route('/scan/quick', methods=['POST'])
-def quick_scan():
+async def quick_scan():
     """
     Perform a quick one-shot WiFi scan.
 
@@ -66,7 +67,7 @@ def quick_scan():
     Returns:
         WiFiScanResult with discovered networks and channel analysis.
     """
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
     interface = data.get('interface')
     timeout = float(data.get('timeout', 15))
 
@@ -81,7 +82,7 @@ def quick_scan():
 # =============================================================================
 
 @wifi_v2_bp.route('/scan/start', methods=['POST'])
-def start_deep_scan():
+async def start_deep_scan():
     """
     Start a deep scan using airodump-ng.
 
@@ -93,7 +94,7 @@ def start_deep_scan():
         channel: Optional specific channel to monitor
         channels: Optional list or comma-separated channels to monitor
     """
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
     interface = data.get('interface')
     band = data.get('band', 'all')
     channel = data.get('channel')
@@ -140,7 +141,7 @@ def start_deep_scan():
 
 
 @wifi_v2_bp.route('/scan/stop', methods=['POST'])
-def stop_deep_scan():
+async def stop_deep_scan():
     """Stop the deep scan."""
     scanner = get_wifi_scanner()
     scanner.stop_deep_scan()
@@ -151,7 +152,7 @@ def stop_deep_scan():
 
 
 @wifi_v2_bp.route('/scan/status', methods=['GET'])
-def get_scan_status():
+async def get_scan_status():
     """Get current scan status."""
     scanner = get_wifi_scanner()
     status = scanner.get_status()
@@ -163,7 +164,7 @@ def get_scan_status():
 # =============================================================================
 
 @wifi_v2_bp.route('/networks', methods=['GET'])
-def get_networks():
+async def get_networks():
     """
     Get all discovered networks.
 
@@ -227,7 +228,7 @@ def get_networks():
 
 
 @wifi_v2_bp.route('/networks/<bssid>', methods=['GET'])
-def get_network(bssid):
+async def get_network(bssid):
     """Get a specific network by BSSID."""
     scanner = get_wifi_scanner()
     network = scanner.get_network(bssid)
@@ -239,7 +240,7 @@ def get_network(bssid):
 
 
 @wifi_v2_bp.route('/clients', methods=['GET'])
-def get_clients():
+async def get_clients():
     """
     Get all discovered clients.
 
@@ -274,7 +275,7 @@ def get_clients():
 
 
 @wifi_v2_bp.route('/clients/<mac>', methods=['GET'])
-def get_client(mac):
+async def get_client(mac):
     """Get a specific client by MAC address."""
     scanner = get_wifi_scanner()
     client = scanner.get_client(mac)
@@ -286,7 +287,7 @@ def get_client(mac):
 
 
 @wifi_v2_bp.route('/probes', methods=['GET'])
-def get_probes():
+async def get_probes():
     """
     Get captured probe requests.
 
@@ -324,7 +325,7 @@ def get_probes():
 # =============================================================================
 
 @wifi_v2_bp.route('/channels', methods=['GET'])
-def get_channel_stats():
+async def get_channel_stats():
     """
     Get channel utilization statistics and recommendations.
 
@@ -350,7 +351,7 @@ def get_channel_stats():
 # =============================================================================
 
 @wifi_v2_bp.route('/hidden', methods=['GET'])
-def get_hidden_correlations():
+async def get_hidden_correlations():
     """
     Get revealed hidden SSIDs from correlation.
 
@@ -365,7 +366,7 @@ def get_hidden_correlations():
 # =============================================================================
 
 @wifi_v2_bp.route('/baseline/set', methods=['POST'])
-def set_baseline():
+async def set_baseline():
     """Mark current networks as baseline (known networks)."""
     scanner = get_wifi_scanner()
     scanner.set_baseline()
@@ -378,7 +379,7 @@ def set_baseline():
 
 
 @wifi_v2_bp.route('/baseline/clear', methods=['POST'])
-def clear_baseline():
+async def clear_baseline():
     """Clear the baseline."""
     scanner = get_wifi_scanner()
     scanner.clear_baseline()
@@ -393,7 +394,7 @@ def clear_baseline():
 # =============================================================================
 
 @wifi_v2_bp.route('/stream', methods=['GET'])
-def event_stream():
+async def event_stream():
     """
     Server-Sent Events stream for real-time updates.
 
@@ -405,7 +406,7 @@ def event_stream():
         - scan_started, scan_stopped, scan_error
         - keepalive: Periodic keepalive
     """
-    def generate() -> Generator[str, None, None]:
+    async def generate():
         scanner = get_wifi_scanner()
 
         for event in scanner.get_event_stream():
@@ -426,7 +427,7 @@ def event_stream():
 # =============================================================================
 
 @wifi_v2_bp.route('/clear', methods=['POST'])
-def clear_data():
+async def clear_data():
     """Clear all discovered data."""
     scanner = get_wifi_scanner()
     scanner.clear_data()
@@ -441,7 +442,7 @@ def clear_data():
 # =============================================================================
 
 @wifi_v2_bp.route('/export', methods=['GET'])
-def export_data():
+async def export_data():
     """
     Export scan data.
 

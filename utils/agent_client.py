@@ -53,7 +53,7 @@ class AgentClient:
             headers['X-API-Key'] = self.api_key
         return headers
 
-    def _get(self, path: str, params: dict | None = None) -> dict:
+    async def _get(self, path: str, params: dict | None = None) -> dict:
         """
         Perform GET request to agent.
 
@@ -70,12 +70,13 @@ class AgentClient:
         """
         url = f"{self.base_url}{path}"
         try:
-            response = httpx.get(
-                url,
-                headers=self._headers(),
-                params=params,
-                timeout=self.timeout
-            )
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self._headers(),
+                    params=params,
+                    timeout=self.timeout
+                )
             response.raise_for_status()
             return response.json() if response.content else {}
         except httpx.ConnectError as e:
@@ -97,7 +98,7 @@ class AgentClient:
         except httpx.HTTPError as e:
             raise AgentHTTPError(f"Request failed: {e}")
 
-    def _post(self, path: str, data: dict | None = None) -> dict:
+    async def _post(self, path: str, data: dict | None = None) -> dict:
         """
         Perform POST request to agent.
 
@@ -114,12 +115,13 @@ class AgentClient:
         """
         url = f"{self.base_url}{path}"
         try:
-            response = httpx.post(
-                url,
-                json=data or {},
-                headers=self._headers(),
-                timeout=self.timeout
-            )
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    json=data or {},
+                    headers=self._headers(),
+                    timeout=self.timeout
+                )
             response.raise_for_status()
             return response.json() if response.content else {}
         except httpx.ConnectError as e:
@@ -141,33 +143,33 @@ class AgentClient:
         except httpx.HTTPError as e:
             raise AgentHTTPError(f"Request failed: {e}")
 
-    def post(self, path: str, data: dict | None = None) -> dict:
+    async def post(self, path: str, data: dict | None = None) -> dict:
         """Public POST method for arbitrary endpoints."""
-        return self._post(path, data)
+        return await self._post(path, data)
 
     # =========================================================================
     # Capability & Status
     # =========================================================================
 
-    def get_capabilities(self) -> dict:
+    async def get_capabilities(self) -> dict:
         """
         Get agent capabilities (available modes, devices).
 
         Returns:
             Dict with 'modes' (mode -> bool), 'devices' (list), 'agent_version'
         """
-        return self._get('/capabilities')
+        return await self._get('/capabilities')
 
-    def get_status(self) -> dict:
+    async def get_status(self) -> dict:
         """
         Get agent status.
 
         Returns:
             Dict with 'running_modes', 'uptime', 'push_enabled', etc.
         """
-        return self._get('/status')
+        return await self._get('/status')
 
-    def health_check(self) -> bool:
+    async def health_check(self) -> bool:
         """
         Check if agent is healthy.
 
@@ -175,16 +177,16 @@ class AgentClient:
             True if agent is reachable and healthy
         """
         try:
-            result = self._get('/health')
+            result = await self._get('/health')
             return result.get('status') == 'healthy'
         except (AgentHTTPError, AgentConnectionError):
             return False
 
-    def get_config(self) -> dict:
+    async def get_config(self) -> dict:
         """Get agent configuration (non-sensitive fields)."""
-        return self._get('/config')
+        return await self._get('/config')
 
-    def update_config(self, **kwargs) -> dict:
+    async def update_config(self, **kwargs) -> dict:
         """
         Update agent configuration.
 
@@ -195,13 +197,13 @@ class AgentClient:
         Returns:
             Updated config
         """
-        return self._post('/config', kwargs)
+        return await self._post('/config', kwargs)
 
     # =========================================================================
     # Mode Operations
     # =========================================================================
 
-    def start_mode(self, mode: str, params: dict | None = None) -> dict:
+    async def start_mode(self, mode: str, params: dict | None = None) -> dict:
         """
         Start a mode on the agent.
 
@@ -212,9 +214,9 @@ class AgentClient:
         Returns:
             Start result with 'status' field
         """
-        return self._post(f'/{mode}/start', params or {})
+        return await self._post(f'/{mode}/start', params or {})
 
-    def stop_mode(self, mode: str) -> dict:
+    async def stop_mode(self, mode: str) -> dict:
         """
         Stop a running mode on the agent.
 
@@ -224,9 +226,9 @@ class AgentClient:
         Returns:
             Stop result with 'status' field
         """
-        return self._post(f'/{mode}/stop')
+        return await self._post(f'/{mode}/stop')
 
-    def get_mode_status(self, mode: str) -> dict:
+    async def get_mode_status(self, mode: str) -> dict:
         """
         Get status of a specific mode.
 
@@ -236,9 +238,9 @@ class AgentClient:
         Returns:
             Mode status with 'running' field
         """
-        return self._get(f'/{mode}/status')
+        return await self._get(f'/{mode}/status')
 
-    def get_mode_data(self, mode: str) -> dict:
+    async def get_mode_data(self, mode: str) -> dict:
         """
         Get current data snapshot for a mode.
 
@@ -248,13 +250,13 @@ class AgentClient:
         Returns:
             Data snapshot with 'data' field
         """
-        return self._get(f'/{mode}/data')
+        return await self._get(f'/{mode}/data')
 
     # =========================================================================
     # Convenience Methods
     # =========================================================================
 
-    def refresh_metadata(self) -> dict:
+    async def refresh_metadata(self) -> dict:
         """
         Fetch comprehensive metadata from agent.
 
@@ -269,9 +271,9 @@ class AgentClient:
         }
 
         try:
-            metadata['capabilities'] = self.get_capabilities()
-            metadata['status'] = self.get_status()
-            metadata['config'] = self.get_config()
+            metadata['capabilities'] = await self.get_capabilities()
+            metadata['status'] = await self.get_status()
+            metadata['config'] = await self.get_config()
             metadata['healthy'] = True
         except (AgentHTTPError, AgentConnectionError) as e:
             logger.warning(f"Failed to refresh agent metadata: {e}")

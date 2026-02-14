@@ -19,7 +19,7 @@ updater_bp = Blueprint('updater', __name__, url_prefix='/updater')
 
 
 @updater_bp.route('/check', methods=['GET'])
-def check_updates() -> Response:
+async def check_updates() -> Response:
     """
     Check for updates from GitHub.
 
@@ -46,7 +46,7 @@ def check_updates() -> Response:
 
 
 @updater_bp.route('/status', methods=['GET'])
-def update_status() -> Response:
+async def update_status() -> Response:
     """
     Get current update status from cache.
 
@@ -68,7 +68,7 @@ def update_status() -> Response:
 
 
 @updater_bp.route('/update', methods=['POST'])
-def do_update() -> Response:
+async def do_update() -> Response:
     """
     Perform a git pull to update the application.
 
@@ -78,7 +78,7 @@ def do_update() -> Response:
     Returns:
         JSON with update result information
     """
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
     stash_changes = data.get('stash_changes', False)
 
     try:
@@ -107,7 +107,7 @@ def do_update() -> Response:
 
 
 @updater_bp.route('/dismiss', methods=['POST'])
-def dismiss_notification() -> Response:
+async def dismiss_notification() -> Response:
     """
     Dismiss update notification for a specific version.
 
@@ -120,7 +120,7 @@ def dismiss_notification() -> Response:
     Returns:
         JSON with success status
     """
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
     version = data.get('version')
 
     if not version:
@@ -141,7 +141,7 @@ def dismiss_notification() -> Response:
 
 
 @updater_bp.route('/restart', methods=['POST'])
-def restart_app() -> Response:
+async def restart_app() -> Response:
     """
     Restart the application.
 

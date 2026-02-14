@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import queue
@@ -11,7 +12,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Any, Generator
+from typing import Any, AsyncGenerator
 
 from quart import Blueprint, jsonify, request, Response, render_template
 from quart import make_response
@@ -507,7 +508,7 @@ def parse_sbs_stream(service_addr):
 
 
 @adsb_bp.route('/tools')
-def check_adsb_tools():
+async def check_adsb_tools():
     """Check for ADS-B decoding tools and hardware."""
     # Check available decoders
     has_dump1090 = find_dump1090() is not None
@@ -535,7 +536,7 @@ def check_adsb_tools():
 
 
 @adsb_bp.route('/status')
-def adsb_status():
+async def adsb_status():
     """Get ADS-B tracking status for debugging."""
     # Check if dump1090 process is still running
     dump1090_running = False
@@ -560,7 +561,7 @@ def adsb_status():
 
 
 @adsb_bp.route('/session')
-def adsb_session():
+async def adsb_session():
     """Get ADS-B session status and uptime."""
     session = _get_active_session()
     uptime_seconds = None
@@ -578,7 +579,7 @@ def adsb_session():
 
 
 @adsb_bp.route('/start', methods=['POST'])
-def start_adsb():
+async def start_adsb():
     """Start ADS-B tracking."""
     global adsb_using_service, adsb_active_device
 
@@ -591,7 +592,7 @@ def start_adsb():
                 'session': session
             }), 409
 
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
     start_source = data.get('source')
     started_by = request.remote_addr
 
@@ -797,10 +798,10 @@ def start_adsb():
 
 
 @adsb_bp.route('/stop', methods=['POST'])
-def stop_adsb():
+async def stop_adsb():
     """Stop ADS-B tracking."""
     global adsb_using_service, adsb_active_device
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
     stop_source = data.get('source')
     stopped_by = request.remote_addr
 
@@ -835,14 +836,17 @@ def stop_adsb():
 
 
 @adsb_bp.route('/stream')
-def stream_adsb():
+async def stream_adsb():
     """SSE stream for ADS-B aircraft."""
-    def generate():
+    async def generate():
         last_keepalive = time.time()
+        loop = asyncio.get_running_loop()
 
         while True:
             try:
-                msg = app_module.adsb_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                msg = await loop.run_in_executor(
+                    None, lambda: app_module.adsb_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('adsb', msg, msg.get('type'))
@@ -862,9 +866,9 @@ def stream_adsb():
 
 
 @adsb_bp.route('/dashboard')
-def adsb_dashboard():
+async def adsb_dashboard():
     """Popout ADS-B dashboard."""
-    return render_template(
+    return await render_template(
         'adsb_dashboard.html',
         shared_observer_location=SHARED_OBSERVER_LOCATION_ENABLED,
         adsb_auto_start=ADSB_AUTO_START,
@@ -872,16 +876,16 @@ def adsb_dashboard():
 
 
 @adsb_bp.route('/history')
-def adsb_history():
+async def adsb_history():
     """ADS-B history reporting dashboard."""
     history_available = ADSB_HISTORY_ENABLED and PSYCOPG2_AVAILABLE
-    resp = make_response(render_template('adsb_history.html', history_enabled=history_available))
+    resp = await make_response(await render_template('adsb_history.html', history_enabled=history_available))
     resp.headers['Cache-Control'] = 'no-store'
     return resp
 
 
 @adsb_bp.route('/history/summary')
-def adsb_history_summary():
+async def adsb_history_summary():
     """Summary stats for ADS-B history window."""
     if not ADSB_HISTORY_ENABLED or not PSYCOPG2_AVAILABLE:
         return jsonify({'error': 'ADS-B history is disabled'}), 503
@@ -911,7 +915,7 @@ def adsb_history_summary():
 
 
 @adsb_bp.route('/history/aircraft')
-def adsb_history_aircraft():
+async def adsb_history_aircraft():
     """List latest aircraft snapshots for a time window."""
     if not ADSB_HISTORY_ENABLED or not PSYCOPG2_AVAILABLE:
         return jsonify({'error': 'ADS-B history is disabled'}), 503
@@ -961,7 +965,7 @@ def adsb_history_aircraft():
 
 
 @adsb_bp.route('/history/timeline')
-def adsb_history_timeline():
+async def adsb_history_timeline():
     """Timeline snapshots for a specific aircraft."""
     if not ADSB_HISTORY_ENABLED or not PSYCOPG2_AVAILABLE:
         return jsonify({'error': 'ADS-B history is disabled'}), 503
@@ -996,7 +1000,7 @@ def adsb_history_timeline():
 
 
 @adsb_bp.route('/history/messages')
-def adsb_history_messages():
+async def adsb_history_messages():
     """Raw message history for a specific aircraft."""
     if not ADSB_HISTORY_ENABLED or not PSYCOPG2_AVAILABLE:
         return jsonify({'error': 'ADS-B history is disabled'}), 503
@@ -1032,20 +1036,20 @@ def adsb_history_messages():
 # ============================================
 
 @adsb_bp.route('/aircraft-db/status')
-def aircraft_db_status():
+async def aircraft_db_status():
     """Get aircraft database status."""
     return jsonify(aircraft_db.get_db_status())
 
 
 @adsb_bp.route('/aircraft-db/check-updates')
-def aircraft_db_check_updates():
+async def aircraft_db_check_updates():
     """Check for aircraft database updates."""
     result = aircraft_db.check_for_updates()
     return jsonify(result)
 
 
 @adsb_bp.route('/aircraft-db/download', methods=['POST'])
-def aircraft_db_download():
+async def aircraft_db_download():
     """Download/update aircraft database."""
     global _looked_up_icaos
     result = aircraft_db.download_database()
@@ -1056,14 +1060,14 @@ def aircraft_db_download():
 
 
 @adsb_bp.route('/aircraft-db/delete', methods=['POST'])
-def aircraft_db_delete():
+async def aircraft_db_delete():
     """Delete aircraft database."""
     result = aircraft_db.delete_database()
     return jsonify(result)
 
 
 @adsb_bp.route('/aircraft-photo/<registration>')
-def aircraft_photo(registration: str):
+async def aircraft_photo(registration: str):
     """Fetch aircraft photo from Planespotters.net API."""
     import httpx
 
@@ -1074,9 +1078,10 @@ def aircraft_photo(registration: str):
     try:
         # Planespotters.net public API
         url = f'https://api.planespotters.net/pub/photos/reg/{registration}'
-        resp = httpx.get(url, timeout=5, headers={
-            'User-Agent': 'VALENTINE RF-ADS-B/1.0'
-        })
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=5, headers={
+                'User-Agent': 'VALENTINE RF-ADS-B/1.0'
+            })
 
         if resp.status_code == 200:
             data = resp.json()

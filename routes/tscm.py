@@ -7,6 +7,7 @@ threat detection, and reporting.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import queue
@@ -552,15 +553,15 @@ def _start_sweep_internal(
 
 
 @tscm_bp.route('/status')
-def tscm_status():
+async def tscm_status():
     """Check if any TSCM operation is currently running."""
     return jsonify({'running': _sweep_running})
 
 
 @tscm_bp.route('/sweep/start', methods=['POST'])
-def start_sweep():
+async def start_sweep():
     """Start a TSCM sweep."""
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
     sweep_type = data.get('sweep_type', 'standard')
     baseline_id = data.get('baseline_id')
     if baseline_id in ('', None):
@@ -591,7 +592,7 @@ def start_sweep():
 
 
 @tscm_bp.route('/sweep/stop', methods=['POST'])
-def stop_sweep():
+async def stop_sweep():
     """Stop the current TSCM sweep."""
     global _sweep_running
 
@@ -611,7 +612,7 @@ def stop_sweep():
 
 
 @tscm_bp.route('/sweep/status')
-def sweep_status():
+async def sweep_status():
     """Get current sweep status."""
     status = {
         'running': _sweep_running,
@@ -627,20 +628,23 @@ def sweep_status():
 
 
 @tscm_bp.route('/sweep/stream')
-def sweep_stream():
+async def sweep_stream():
     """SSE stream for real-time sweep updates."""
-    def generate():
+    async def generate():
+        loop = asyncio.get_running_loop()
         while True:
             try:
                 if tscm_queue:
-                    msg = tscm_queue.get(timeout=1)
+                    msg = await loop.run_in_executor(
+                        None, lambda: tscm_queue.get(timeout=1)
+                    )
                     try:
                         process_event('tscm', msg, msg.get('type'))
                     except Exception:
                         pass
                     yield f"data: {json.dumps(msg)}\n\n"
                 else:
-                    time.sleep(1)
+                    await asyncio.sleep(1)
                     yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
             except queue.Empty:
                 yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
@@ -661,7 +665,7 @@ def sweep_stream():
 # =============================================================================
 
 @tscm_bp.route('/schedules', methods=['GET'])
-def list_schedules():
+async def list_schedules():
     """List all TSCM sweep schedules."""
     enabled_param = request.args.get('enabled')
     enabled = None
@@ -677,9 +681,9 @@ def list_schedules():
 
 
 @tscm_bp.route('/schedules', methods=['POST'])
-def create_schedule():
+async def create_schedule():
     """Create a new sweep schedule."""
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
     name = (data.get('name') or '').strip()
     cron_expression = (data.get('cron_expression') or '').strip()
     sweep_type = data.get('sweep_type', 'standard')
@@ -723,13 +727,13 @@ def create_schedule():
 
 
 @tscm_bp.route('/schedules/<int:schedule_id>', methods=['PUT', 'PATCH'])
-def update_schedule(schedule_id: int):
+async def update_schedule(schedule_id: int):
     """Update a sweep schedule."""
     schedule = get_tscm_schedule(schedule_id)
     if not schedule:
         return jsonify({'status': 'error', 'message': 'Schedule not found'}), 404
 
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
     updates: dict[str, Any] = {}
 
     for key in ('name', 'cron_expression', 'sweep_type', 'baseline_id', 'zone_name', 'notify_email'):
@@ -767,7 +771,7 @@ def update_schedule(schedule_id: int):
 
 
 @tscm_bp.route('/schedules/<int:schedule_id>', methods=['DELETE'])
-def delete_schedule(schedule_id: int):
+async def delete_schedule(schedule_id: int):
     """Delete a sweep schedule."""
     success = delete_tscm_schedule(schedule_id)
     if not success:
@@ -776,7 +780,7 @@ def delete_schedule(schedule_id: int):
 
 
 @tscm_bp.route('/schedules/<int:schedule_id>/run', methods=['POST'])
-def run_schedule_now(schedule_id: int):
+async def run_schedule_now(schedule_id: int):
     """Trigger a scheduled sweep immediately."""
     schedule = get_tscm_schedule(schedule_id)
     if not schedule:
@@ -817,7 +821,7 @@ def run_schedule_now(schedule_id: int):
 
 
 @tscm_bp.route('/devices')
-def get_tscm_devices():
+async def get_tscm_devices():
     """Get available scanning devices for TSCM sweeps."""
     import platform
     import shutil
@@ -2219,9 +2223,9 @@ def _handle_threat(threat: dict) -> None:
 # =============================================================================
 
 @tscm_bp.route('/baseline/record', methods=['POST'])
-def record_baseline():
+async def record_baseline():
     """Start recording a new baseline."""
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
     name = data.get('name', f'Baseline {datetime.now().strftime("%Y-%m-%d %H:%M")}')
     location = data.get('location')
     description = data.get('description')
@@ -2236,7 +2240,7 @@ def record_baseline():
 
 
 @tscm_bp.route('/baseline/stop', methods=['POST'])
-def stop_baseline():
+async def stop_baseline():
     """Stop baseline recording."""
     result = _baseline_recorder.stop_recording()
 
@@ -2251,20 +2255,20 @@ def stop_baseline():
 
 
 @tscm_bp.route('/baseline/status')
-def baseline_status():
+async def baseline_status():
     """Get baseline recording status."""
     return jsonify(_baseline_recorder.get_recording_status())
 
 
 @tscm_bp.route('/baselines')
-def list_baselines():
+async def list_baselines():
     """List all baselines."""
     baselines = get_all_tscm_baselines()
     return jsonify({'status': 'success', 'baselines': baselines})
 
 
 @tscm_bp.route('/baseline/<int:baseline_id>')
-def get_baseline(baseline_id: int):
+async def get_baseline(baseline_id: int):
     """Get a specific baseline."""
     baseline = get_tscm_baseline(baseline_id)
     if not baseline:
@@ -2274,7 +2278,7 @@ def get_baseline(baseline_id: int):
 
 
 @tscm_bp.route('/baseline/<int:baseline_id>/activate', methods=['POST'])
-def activate_baseline(baseline_id: int):
+async def activate_baseline(baseline_id: int):
     """Set a baseline as active."""
     success = set_active_tscm_baseline(baseline_id)
     if not success:
@@ -2284,7 +2288,7 @@ def activate_baseline(baseline_id: int):
 
 
 @tscm_bp.route('/baseline/<int:baseline_id>', methods=['DELETE'])
-def remove_baseline(baseline_id: int):
+async def remove_baseline(baseline_id: int):
     """Delete a baseline."""
     success = delete_tscm_baseline(baseline_id)
     if not success:
@@ -2294,7 +2298,7 @@ def remove_baseline(baseline_id: int):
 
 
 @tscm_bp.route('/baseline/active')
-def get_active_baseline():
+async def get_active_baseline():
     """Get the currently active baseline."""
     baseline = get_active_tscm_baseline()
     if not baseline:
@@ -2304,7 +2308,7 @@ def get_active_baseline():
 
 
 @tscm_bp.route('/baseline/compare', methods=['POST'])
-def compare_against_baseline():
+async def compare_against_baseline():
     """
     Compare provided device data against the active baseline.
 
@@ -2316,7 +2320,7 @@ def compare_against_baseline():
 
     Returns comparison showing new, missing, and matching devices.
     """
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
 
     wifi_devices = data.get('wifi_devices')
     wifi_clients = data.get('wifi_clients')
@@ -2348,7 +2352,7 @@ def compare_against_baseline():
 # =============================================================================
 
 @tscm_bp.route('/threats')
-def list_threats():
+async def list_threats():
     """List threats with optional filters."""
     sweep_id = request.args.get('sweep_id', type=int)
     severity = request.args.get('severity')
@@ -2370,16 +2374,16 @@ def list_threats():
 
 
 @tscm_bp.route('/threats/summary')
-def threat_summary():
+async def threat_summary():
     """Get threat count summary by severity."""
     summary = get_tscm_threat_summary()
     return jsonify({'status': 'success', 'summary': summary})
 
 
 @tscm_bp.route('/threats/<int:threat_id>', methods=['PUT'])
-def update_threat(threat_id: int):
+async def update_threat(threat_id: int):
     """Update a threat (acknowledge, add notes)."""
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
 
     if data.get('acknowledge'):
         notes = data.get('notes')
@@ -2395,14 +2399,14 @@ def update_threat(threat_id: int):
 # =============================================================================
 
 @tscm_bp.route('/presets')
-def list_presets():
+async def list_presets():
     """List available sweep presets."""
     presets = get_all_sweep_presets()
     return jsonify({'status': 'success', 'presets': presets})
 
 
 @tscm_bp.route('/presets/<preset_name>')
-def get_preset(preset_name: str):
+async def get_preset(preset_name: str):
     """Get details for a specific preset."""
     preset = get_sweep_preset(preset_name)
     if not preset:
@@ -2416,9 +2420,9 @@ def get_preset(preset_name: str):
 # =============================================================================
 
 @tscm_bp.route('/feed/wifi', methods=['POST'])
-def feed_wifi():
+async def feed_wifi():
     """Feed WiFi device data for baseline recording."""
-    data = request.get_json()
+    data = await request.get_json()
     if data:
         if data.get('is_client'):
             _baseline_recorder.add_wifi_client(data)
@@ -2428,18 +2432,18 @@ def feed_wifi():
 
 
 @tscm_bp.route('/feed/bluetooth', methods=['POST'])
-def feed_bluetooth():
+async def feed_bluetooth():
     """Feed Bluetooth device data for baseline recording."""
-    data = request.get_json()
+    data = await request.get_json()
     if data:
         _baseline_recorder.add_bt_device(data)
     return jsonify({'status': 'success'})
 
 
 @tscm_bp.route('/feed/rf', methods=['POST'])
-def feed_rf():
+async def feed_rf():
     """Feed RF signal data for baseline recording."""
-    data = request.get_json()
+    data = await request.get_json()
     if data:
         _baseline_recorder.add_rf_signal(data)
     return jsonify({'status': 'success'})
@@ -2450,7 +2454,7 @@ def feed_rf():
 # =============================================================================
 
 @tscm_bp.route('/findings')
-def get_findings():
+async def get_findings():
     """
     Get comprehensive TSCM findings from the correlation engine.
 
@@ -2476,7 +2480,7 @@ def get_findings():
 
 
 @tscm_bp.route('/findings/high-interest')
-def get_high_interest():
+async def get_high_interest():
     """Get only high-interest devices (score >= 6)."""
     correlation = get_correlation_engine()
     high_interest = correlation.get_high_interest_devices()
@@ -2493,7 +2497,7 @@ def get_high_interest():
 
 
 @tscm_bp.route('/findings/correlations')
-def get_correlations():
+async def get_correlations():
     """Get cross-protocol correlation analysis."""
     correlation = get_correlation_engine()
     correlations = correlation.correlate_devices()
@@ -2511,7 +2515,7 @@ def get_correlations():
 
 
 @tscm_bp.route('/findings/device/<identifier>')
-def get_device_profile(identifier: str):
+async def get_device_profile(identifier: str):
     """Get detailed profile for a specific device."""
     correlation = get_correlation_engine()
 
@@ -2536,7 +2540,7 @@ def get_device_profile(identifier: str):
 # =============================================================================
 
 @tscm_bp.route('/meeting/start', methods=['POST'])
-def start_meeting():
+async def start_meeting():
     """
     Mark the start of a sensitive period (meeting, briefing, etc.).
 
@@ -2558,7 +2562,7 @@ def start_meeting():
 
 
 @tscm_bp.route('/meeting/end', methods=['POST'])
-def end_meeting():
+async def end_meeting():
     """Mark the end of a sensitive period."""
     correlation = get_correlation_engine()
     correlation.end_meeting_window()
@@ -2574,7 +2578,7 @@ def end_meeting():
 
 
 @tscm_bp.route('/meeting/status')
-def meeting_status():
+async def meeting_status():
     """Check if currently in a meeting window."""
     correlation = get_correlation_engine()
     in_meeting = correlation.is_during_meeting()
@@ -2597,7 +2601,7 @@ def meeting_status():
 # =============================================================================
 
 @tscm_bp.route('/report')
-def generate_report():
+async def generate_report():
     """
     Generate a comprehensive TSCM sweep report.
 
@@ -2707,7 +2711,7 @@ def _generate_assessment(summary: dict) -> str:
 # =============================================================================
 
 @tscm_bp.route('/identity/ingest/ble', methods=['POST'])
-def ingest_ble_observation():
+async def ingest_ble_observation():
     """
     Ingest a BLE observation for device identity clustering.
 
@@ -2733,7 +2737,7 @@ def ingest_ble_observation():
     try:
         from utils.tscm.device_identity import ingest_ble_dict
 
-        data = request.get_json()
+        data = await request.get_json()
         if not data:
             return jsonify({'status': 'error', 'message': 'No data provided'}), 400
 
@@ -2751,7 +2755,7 @@ def ingest_ble_observation():
 
 
 @tscm_bp.route('/identity/ingest/wifi', methods=['POST'])
-def ingest_wifi_observation():
+async def ingest_wifi_observation():
     """
     Ingest a WiFi observation for device identity clustering.
 
@@ -2776,7 +2780,7 @@ def ingest_wifi_observation():
     try:
         from utils.tscm.device_identity import ingest_wifi_dict
 
-        data = request.get_json()
+        data = await request.get_json()
         if not data:
             return jsonify({'status': 'error', 'message': 'No data provided'}), 400
 
@@ -2794,7 +2798,7 @@ def ingest_wifi_observation():
 
 
 @tscm_bp.route('/identity/ingest/batch', methods=['POST'])
-def ingest_batch_observations():
+async def ingest_batch_observations():
     """
     Ingest multiple observations in a single request.
 
@@ -2807,7 +2811,7 @@ def ingest_batch_observations():
     try:
         from utils.tscm.device_identity import ingest_ble_dict, ingest_wifi_dict
 
-        data = request.get_json()
+        data = await request.get_json()
         if not data:
             return jsonify({'status': 'error', 'message': 'No data provided'}), 400
 
@@ -2834,7 +2838,7 @@ def ingest_batch_observations():
 
 
 @tscm_bp.route('/identity/clusters')
-def get_device_clusters():
+async def get_device_clusters():
     """
     Get all device clusters (probable physical device identities).
 
@@ -2876,7 +2880,7 @@ def get_device_clusters():
 
 
 @tscm_bp.route('/identity/clusters/high-risk')
-def get_high_risk_clusters():
+async def get_high_risk_clusters():
     """Get device clusters with HIGH risk level."""
     try:
         from utils.tscm.device_identity import get_identity_engine
@@ -2901,7 +2905,7 @@ def get_high_risk_clusters():
 
 
 @tscm_bp.route('/identity/summary')
-def get_identity_summary():
+async def get_identity_summary():
     """
     Get summary of device identity analysis.
 
@@ -2924,7 +2928,7 @@ def get_identity_summary():
 
 
 @tscm_bp.route('/identity/finalize', methods=['POST'])
-def finalize_identity_sessions():
+async def finalize_identity_sessions():
     """
     Finalize all active sessions and complete clustering.
 
@@ -2950,7 +2954,7 @@ def finalize_identity_sessions():
 
 
 @tscm_bp.route('/identity/reset', methods=['POST'])
-def reset_identity_engine():
+async def reset_identity_engine():
     """
     Reset the device identity engine.
 
@@ -2972,7 +2976,7 @@ def reset_identity_engine():
 
 
 @tscm_bp.route('/identity/cluster/<cluster_id>')
-def get_cluster_detail(cluster_id: str):
+async def get_cluster_detail(cluster_id: str):
     """Get detailed information for a specific cluster."""
     try:
         from utils.tscm.device_identity import get_identity_engine
@@ -3002,7 +3006,7 @@ def get_cluster_detail(cluster_id: str):
 # =============================================================================
 
 @tscm_bp.route('/capabilities')
-def get_capabilities():
+async def get_capabilities():
     """
     Get current system capabilities for TSCM sweeping.
 
@@ -3031,7 +3035,7 @@ def get_capabilities():
 
 
 @tscm_bp.route('/sweep/<int:sweep_id>/capabilities')
-def get_sweep_stored_capabilities(sweep_id: int):
+async def get_sweep_stored_capabilities(sweep_id: int):
     """Get stored capabilities for a specific sweep."""
     from utils.database import get_sweep_capabilities
 
@@ -3050,7 +3054,7 @@ def get_sweep_stored_capabilities(sweep_id: int):
 # =============================================================================
 
 @tscm_bp.route('/baseline/diff/<int:baseline_id>/<int:sweep_id>')
-def get_baseline_diff(baseline_id: int, sweep_id: int):
+async def get_baseline_diff(baseline_id: int, sweep_id: int):
     """
     Get comprehensive diff between a baseline and a sweep.
 
@@ -3099,7 +3103,7 @@ def get_baseline_diff(baseline_id: int, sweep_id: int):
 
 
 @tscm_bp.route('/baseline/<int:baseline_id>/health')
-def get_baseline_health(baseline_id: int):
+async def get_baseline_health(baseline_id: int):
     """Get health assessment for a baseline."""
     try:
         from utils.tscm.advanced import BaselineHealth
@@ -3167,7 +3171,7 @@ def get_baseline_health(baseline_id: int):
 # =============================================================================
 
 @tscm_bp.route('/device/<identifier>/timeline')
-def get_device_timeline_endpoint(identifier: str):
+async def get_device_timeline_endpoint(identifier: str):
     """
     Get timeline of observations for a device.
 
@@ -3227,7 +3231,7 @@ def get_device_timeline_endpoint(identifier: str):
 
 
 @tscm_bp.route('/timelines')
-def get_all_device_timelines():
+async def get_all_device_timelines():
     """Get all device timelines."""
     try:
         from utils.tscm.advanced import get_timeline_manager
@@ -3251,7 +3255,7 @@ def get_all_device_timelines():
 # =============================================================================
 
 @tscm_bp.route('/known-devices', methods=['GET'])
-def list_known_devices():
+async def list_known_devices():
     """List all known-good devices."""
     from utils.database import get_all_known_devices
 
@@ -3268,7 +3272,7 @@ def list_known_devices():
 
 
 @tscm_bp.route('/known-devices', methods=['POST'])
-def add_known_device_endpoint():
+async def add_known_device_endpoint():
     """
     Add a device to the known-good registry.
 
@@ -3277,7 +3281,7 @@ def add_known_device_endpoint():
     """
     from utils.database import add_known_device
 
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
 
     identifier = data.get('identifier')
     protocol = data.get('protocol')
@@ -3308,7 +3312,7 @@ def add_known_device_endpoint():
 
 
 @tscm_bp.route('/known-devices/<identifier>', methods=['GET'])
-def get_known_device_endpoint(identifier: str):
+async def get_known_device_endpoint(identifier: str):
     """Get a known device by identifier."""
     from utils.database import get_known_device
 
@@ -3323,7 +3327,7 @@ def get_known_device_endpoint(identifier: str):
 
 
 @tscm_bp.route('/known-devices/<identifier>', methods=['DELETE'])
-def delete_known_device_endpoint(identifier: str):
+async def delete_known_device_endpoint(identifier: str):
     """Remove a device from the known-good registry."""
     from utils.database import delete_known_device
 
@@ -3338,7 +3342,7 @@ def delete_known_device_endpoint(identifier: str):
 
 
 @tscm_bp.route('/known-devices/check/<identifier>')
-def check_known_device(identifier: str):
+async def check_known_device(identifier: str):
     """Check if a device is in the known-good registry."""
     from utils.database import is_known_good_device
 
@@ -3357,7 +3361,7 @@ def check_known_device(identifier: str):
 # =============================================================================
 
 @tscm_bp.route('/cases', methods=['GET'])
-def list_cases():
+async def list_cases():
     """List all TSCM cases."""
     from utils.database import get_all_tscm_cases
 
@@ -3374,11 +3378,11 @@ def list_cases():
 
 
 @tscm_bp.route('/cases', methods=['POST'])
-def create_case():
+async def create_case():
     """Create a new TSCM case."""
     from utils.database import create_tscm_case
 
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
 
     name = data.get('name')
     if not name:
@@ -3401,7 +3405,7 @@ def create_case():
 
 
 @tscm_bp.route('/cases/<int:case_id>', methods=['GET'])
-def get_case(case_id: int):
+async def get_case(case_id: int):
     """Get a TSCM case with all linked sweeps, threats, and notes."""
     from utils.database import get_tscm_case
 
@@ -3416,11 +3420,11 @@ def get_case(case_id: int):
 
 
 @tscm_bp.route('/cases/<int:case_id>', methods=['PUT'])
-def update_case(case_id: int):
+async def update_case(case_id: int):
     """Update a TSCM case."""
     from utils.database import update_tscm_case
 
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
 
     success = update_tscm_case(
         case_id=case_id,
@@ -3440,7 +3444,7 @@ def update_case(case_id: int):
 
 
 @tscm_bp.route('/cases/<int:case_id>/sweeps/<int:sweep_id>', methods=['POST'])
-def link_sweep_to_case(case_id: int, sweep_id: int):
+async def link_sweep_to_case(case_id: int, sweep_id: int):
     """Link a sweep to a case."""
     from utils.database import add_sweep_to_case
 
@@ -3453,7 +3457,7 @@ def link_sweep_to_case(case_id: int, sweep_id: int):
 
 
 @tscm_bp.route('/cases/<int:case_id>/threats/<int:threat_id>', methods=['POST'])
-def link_threat_to_case(case_id: int, threat_id: int):
+async def link_threat_to_case(case_id: int, threat_id: int):
     """Link a threat to a case."""
     from utils.database import add_threat_to_case
 
@@ -3466,11 +3470,11 @@ def link_threat_to_case(case_id: int, threat_id: int):
 
 
 @tscm_bp.route('/cases/<int:case_id>/notes', methods=['POST'])
-def add_note_to_case(case_id: int):
+async def add_note_to_case(case_id: int):
     """Add a note to a case."""
     from utils.database import add_case_note
 
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
 
     content = data.get('content')
     if not content:
@@ -3495,7 +3499,7 @@ def add_note_to_case(case_id: int):
 # =============================================================================
 
 @tscm_bp.route('/meeting/start-tracked', methods=['POST'])
-def start_tracked_meeting():
+async def start_tracked_meeting():
     """
     Start a tracked meeting window with database persistence.
 
@@ -3504,7 +3508,7 @@ def start_tracked_meeting():
     from utils.database import start_meeting_window
     from utils.tscm.advanced import get_timeline_manager
 
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
 
     meeting_id = start_meeting_window(
         sweep_id=_current_sweep_id,
@@ -3535,7 +3539,7 @@ def start_tracked_meeting():
 
 
 @tscm_bp.route('/meeting/<int:meeting_id>/end', methods=['POST'])
-def end_tracked_meeting(meeting_id: int):
+async def end_tracked_meeting(meeting_id: int):
     """End a tracked meeting window."""
     from utils.database import end_meeting_window
     from utils.tscm.advanced import get_timeline_manager
@@ -3564,7 +3568,7 @@ def end_tracked_meeting(meeting_id: int):
 
 
 @tscm_bp.route('/meeting/<int:meeting_id>/summary')
-def get_meeting_summary_endpoint(meeting_id: int):
+async def get_meeting_summary_endpoint(meeting_id: int):
     """Get detailed summary of device activity during a meeting."""
     try:
         from utils.database import get_meeting_windows
@@ -3601,7 +3605,7 @@ def get_meeting_summary_endpoint(meeting_id: int):
 
 
 @tscm_bp.route('/meeting/active')
-def get_active_meeting():
+async def get_active_meeting():
     """Get currently active meeting window."""
     from utils.database import get_active_meeting_window
 
@@ -3619,7 +3623,7 @@ def get_active_meeting():
 # =============================================================================
 
 @tscm_bp.route('/report/pdf')
-def get_pdf_report():
+async def get_pdf_report():
     """
     Generate client-safe PDF report.
 
@@ -3671,7 +3675,7 @@ def get_pdf_report():
 
 
 @tscm_bp.route('/report/annex')
-def get_technical_annex():
+async def get_technical_annex():
     """
     Generate technical annex (JSON + CSV).
 
@@ -3735,7 +3739,7 @@ def get_technical_annex():
 # =============================================================================
 
 @tscm_bp.route('/wifi/advanced-indicators')
-def get_wifi_advanced_indicators():
+async def get_wifi_advanced_indicators():
     """
     Get advanced WiFi indicators (Evil Twin, Probes, Deauth).
 
@@ -3763,7 +3767,7 @@ def get_wifi_advanced_indicators():
 
 
 @tscm_bp.route('/wifi/analyze-network', methods=['POST'])
-def analyze_wifi_network():
+async def analyze_wifi_network():
     """
     Analyze a WiFi network for evil twin patterns.
 
@@ -3772,7 +3776,7 @@ def analyze_wifi_network():
     try:
         from utils.tscm.advanced import get_wifi_detector
 
-        data = request.get_json() or {}
+        data = await request.get_json() or {}
         detector = get_wifi_detector()
 
         # Set known networks from baseline if available
@@ -3797,7 +3801,7 @@ def analyze_wifi_network():
 # =============================================================================
 
 @tscm_bp.route('/bluetooth/<identifier>/explain')
-def explain_bluetooth_risk(identifier: str):
+async def explain_bluetooth_risk(identifier: str):
     """
     Get human-readable risk explanation for a BLE device.
 
@@ -3836,7 +3840,7 @@ def explain_bluetooth_risk(identifier: str):
 
 
 @tscm_bp.route('/bluetooth/<identifier>/proximity')
-def get_bluetooth_proximity(identifier: str):
+async def get_bluetooth_proximity(identifier: str):
     """Get proximity estimate for a BLE device."""
     try:
         from utils.tscm.advanced import estimate_ble_proximity
@@ -3883,7 +3887,7 @@ def get_bluetooth_proximity(identifier: str):
 # =============================================================================
 
 @tscm_bp.route('/playbooks')
-def list_playbooks():
+async def list_playbooks():
     """List all available operator playbooks."""
     try:
         from utils.tscm.advanced import PLAYBOOKS
@@ -3908,7 +3912,7 @@ def list_playbooks():
 
 
 @tscm_bp.route('/playbooks/<playbook_id>')
-def get_playbook(playbook_id: str):
+async def get_playbook(playbook_id: str):
     """Get a specific playbook."""
     try:
         from utils.tscm.advanced import PLAYBOOKS
@@ -3927,7 +3931,7 @@ def get_playbook(playbook_id: str):
 
 
 @tscm_bp.route('/findings/<identifier>/playbook')
-def get_finding_playbook(identifier: str):
+async def get_finding_playbook(identifier: str):
     """Get recommended playbook for a specific finding."""
     try:
         from utils.tscm.advanced import get_playbook_for_finding
