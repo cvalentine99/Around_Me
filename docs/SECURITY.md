@@ -1,6 +1,6 @@
 # Security Considerations
 
-VALENTINE RF is designed as a **local signal intelligence tool** for personal use on trusted networks. This document outlines security considerations and best practices.
+VALENTINE RF is designed as a **local signal intelligence tool** for use on trusted/controlled networks (lab, IR, home). This document outlines security controls and their boundaries.
 
 ## Network Binding
 
@@ -21,18 +21,52 @@ By default, VALENTINE RF binds to `0.0.0.0:5050`, making it accessible from any 
 2. **Bind to Localhost**: For local-only access, set the host environment variable:
    ```bash
    export VALENTINE_HOST=127.0.0.1
-   python valentine-rf.py
+   python valentine.py
    ```
 
-3. **Trusted Networks Only**: Only run VALENTINE RF on networks you trust. The application has no authentication mechanism.
+3. **Trusted Networks Only**: Only run VALENTINE RF on networks you trust.
+
+## TLS
+
+The application is HTTP-only by design. **TLS must be terminated by a reverse proxy** (nginx, Caddy, Traefik). The app must not be exposed directly to the internet. See `docs/DEPLOYMENT.md` for proxy configuration examples.
 
 ## Authentication
 
-VALENTINE RF does **not** include authentication. This is by design for ease of use as a personal tool. If you need to expose VALENTINE RF to untrusted networks:
+VALENTINE RF includes session-based authentication:
 
-1. Use a reverse proxy (nginx, Caddy) with authentication
-2. Use a VPN to access your home network
-3. Use SSH port forwarding: `ssh -L 5050:localhost:5050 your-server`
+- Single admin user with password stored as a Werkzeug/bcrypt hash in SQLite
+- Random password generated on first run if `VALENTINE_ADMIN_PASSWORD` is not set
+- Forced password change on first login (when using generated password)
+- Session-backed login with Flask signed cookies
+- HMAC-SHA256 API tokens for WebSocket/controller endpoints
+
+### CSRF Protection
+
+State-changing requests (POST/PUT/DELETE) are protected by Origin/Referer header validation. Cross-origin mutation requests are rejected with 403.
+
+### Credentials
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `VALENTINE_ADMIN_PASSWORD` | Admin password | Random 16-char token (logged to console) |
+| `VALENTINE_SECRET_KEY` | Session signing key | Random per-process (sessions lost on restart) |
+
+**Both should be set explicitly for any non-ephemeral deployment.**
+
+## Rate Limiting
+
+Rate limits are enforced per-IP via `flask-limiter`:
+
+| Endpoint | Limit |
+|---|---|
+| `/login` | 5 per minute |
+| `/killall` | 10 per minute |
+| `/export/*` | 30 per minute |
+| All other endpoints (default) | 60 per minute |
+| SSE streaming (`/*/stream`) | Exempt (long-lived connections) |
+| `/health` | Exempt (monitoring probes) |
+
+Storage is in-memory. For multi-process deployments, switch to `redis://`.
 
 ## Security Headers
 
@@ -64,6 +98,12 @@ VALENTINE RF executes external tools (rtl_fm, airodump-ng, etc.) via subprocess.
 - **No shell execution**: All subprocess calls use list arguments, not shell strings
 - **Input validation**: All user-provided arguments are validated before use
 - **Process isolation**: Each tool runs in its own process with limited permissions
+
+## Docker Security
+
+- Runs with targeted Linux capabilities (`SYS_RAWIO`, `NET_ADMIN`, `NET_RAW`) instead of `privileged: true`
+- `no-new-privileges: true` prevents privilege escalation
+- `network_mode: host` is disabled by default (see `docs/DEPLOYMENT.md` for tradeoffs)
 
 ## Debug Mode
 
