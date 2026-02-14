@@ -56,13 +56,13 @@ trap 'on_error $LINENO "$BASH_COMMAND"' ERR
 # Banner
 # ----------------------------
 echo -e "${BLUE}"
-echo "  ___ _   _ _____ _____ ____   ____ _____ ____ _____ "
-echo " |_ _| \\ | |_   _| ____|  _ \\ / ___| ____|  _ \\_   _|"
-echo "  | ||  \\| | | | |  _| | |_) | |   |  _| | |_) || |  "
-echo "  | || |\\  | | | | |___|  _ <| |___| |___|  __/ | |  "
-echo " |___|_| \\_| |_| |_____|_| \\_\\\\____|_____|_|    |_|  "
+echo "    _    ____   ___  _   _ _   _ ____    __  __ _____ "
+echo "   / \\  |  _ \\ / _ \\| | | | \\ | |  _ \\  |  \\/  | ____|"
+echo "  / _ \\ | |_) | | | | | | |  \\| | | | | | |\\/| |  _|  "
+echo " / ___ \\|  _ <| |_| | |_| | |\\  | |_| | | |  | | |___ "
+echo "/_/   \\_\\_| \\_\\\\___/ \\___/|_| \\_|____/  |_|  |_|_____|"
 echo -e "${NC}"
-echo "VALENTINE RF - Setup Script"
+echo "VALENTINE RF - Around Me Setup Script"
 echo "============================================"
 echo
 
@@ -458,7 +458,7 @@ install_dsd_from_source() {
     # Step 1: Build and install mbelib (required dependency)
     info "Building mbelib (vocoder library)..."
     git clone https://github.com/lwvmobile/mbelib.git "$tmp_dir/mbelib" >/dev/null 2>&1 \
-    cd "$tmp_dir/mbelib" && git checkout 34adf9f054bc >/dev/null 2>&1
+      && cd "$tmp_dir/mbelib" && git checkout 34adf9f054bc >/dev/null 2>&1 \
       || { warn "Failed to clone mbelib"; exit 1; }
 
     cd "$tmp_dir/mbelib"
@@ -485,7 +485,7 @@ install_dsd_from_source() {
     # Step 2: Build dsd-fme (or fall back to original dsd)
     info "Building dsd-fme..."
     git clone https://github.com/lwvmobile/dsd-fme.git "$tmp_dir/dsd-fme" >/dev/null 2>&1 \
-    cd "$tmp_dir/dsd-fme" && git checkout 615f67536f4b >/dev/null 2>&1
+      && cd "$tmp_dir/dsd-fme" && git checkout 615f67536f4b >/dev/null 2>&1 \
       || { warn "Failed to clone dsd-fme, trying original DSD...";
            git clone --depth 1 https://github.com/szechyjs/dsd.git "$tmp_dir/dsd-fme" >/dev/null 2>&1 \
              || { warn "Failed to clone DSD"; exit 1; }; }
@@ -536,7 +536,7 @@ install_dump1090_from_source_macos() {
 
     info "Cloning FlightAware dump1090..."
     git clone https://github.com/flightaware/dump1090.git "$tmp_dir/dump1090" >/dev/null 2>&1 \
-    cd "$tmp_dir/dump1090" && git checkout 4f47d12a18db >/dev/null 2>&1
+      && cd "$tmp_dir/dump1090" && git checkout 4f47d12a18db >/dev/null 2>&1 \
       || { warn "Failed to clone dump1090"; exit 1; }
 
     cd "$tmp_dir/dump1090"
@@ -569,7 +569,7 @@ install_acarsdec_from_source_macos() {
 
     info "Cloning acarsdec..."
     git clone https://github.com/TLeconte/acarsdec.git "$tmp_dir/acarsdec" >/dev/null 2>&1 \
-    cd "$tmp_dir/acarsdec" && git checkout 339f63eb91a8 >/dev/null 2>&1
+      && cd "$tmp_dir/acarsdec" && git checkout 339f63eb91a8 >/dev/null 2>&1 \
       || { warn "Failed to clone acarsdec"; exit 1; }
 
     cd "$tmp_dir/acarsdec"
@@ -603,7 +603,7 @@ install_aiscatcher_from_source_macos() {
 
     info "Cloning AIS-catcher..."
     git clone https://github.com/jvde-github/AIS-catcher.git "$tmp_dir/AIS-catcher" >/dev/null 2>&1 \
-    cd "$tmp_dir/AIS-catcher" && git checkout 5e34ea2363d5 >/dev/null 2>&1
+      && cd "$tmp_dir/AIS-catcher" && git checkout 5e34ea2363d5 >/dev/null 2>&1 \
       || { warn "Failed to clone AIS-catcher"; exit 1; }
 
     cd "$tmp_dir/AIS-catcher"
@@ -879,7 +879,7 @@ install_dump1090_from_source_debian() {
 
     info "Cloning FlightAware dump1090..."
     git clone https://github.com/flightaware/dump1090.git "$tmp_dir/dump1090" >/dev/null 2>&1 \
-    cd "$tmp_dir/dump1090" && git checkout 4f47d12a18db >/dev/null 2>&1
+      && cd "$tmp_dir/dump1090" && git checkout 4f47d12a18db >/dev/null 2>&1 \
       || { fail "Failed to clone FlightAware dump1090"; exit 1; }
 
     cd "$tmp_dir/dump1090"
@@ -895,7 +895,7 @@ install_dump1090_from_source_debian() {
     warn "FlightAware build failed. Falling back to wiedehopf/readsb..."
     rm -rf "$tmp_dir/dump1090"
     git clone https://github.com/wiedehopf/readsb.git "$tmp_dir/dump1090" >/dev/null 2>&1 \
-    cd "$tmp_dir/dump1090" && git checkout 5831f91093ef >/dev/null 2>&1
+      && cd "$tmp_dir/dump1090" && git checkout 5831f91093ef >/dev/null 2>&1 \
       || { fail "Failed to clone wiedehopf/readsb"; exit 1; }
 
     cd "$tmp_dir/dump1090"
@@ -920,7 +920,7 @@ install_acarsdec_from_source_debian() {
 
     info "Cloning acarsdec..."
     git clone https://github.com/TLeconte/acarsdec.git "$tmp_dir/acarsdec" >/dev/null 2>&1 \
-    cd "$tmp_dir/acarsdec" && git checkout 339f63eb91a8 >/dev/null 2>&1
+      && cd "$tmp_dir/acarsdec" && git checkout 339f63eb91a8 >/dev/null 2>&1 \
       || { warn "Failed to clone acarsdec"; exit 1; }
 
     cd "$tmp_dir/acarsdec"
@@ -949,7 +949,7 @@ install_aiscatcher_from_source_debian() {
 
     info "Cloning AIS-catcher..."
     git clone https://github.com/jvde-github/AIS-catcher.git "$tmp_dir/AIS-catcher" >/dev/null 2>&1 \
-    cd "$tmp_dir/AIS-catcher" && git checkout 5e34ea2363d5 >/dev/null 2>&1
+      && cd "$tmp_dir/AIS-catcher" && git checkout 5e34ea2363d5 >/dev/null 2>&1 \
       || { warn "Failed to clone AIS-catcher"; exit 1; }
 
     cd "$tmp_dir/AIS-catcher"
