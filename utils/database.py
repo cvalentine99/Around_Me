@@ -212,10 +212,10 @@ def init_db() -> None:
         except Exception:
             conn.execute('ALTER TABLE users ADD COLUMN password_must_change BOOLEAN DEFAULT 0')
 
+        from config import ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_PASSWORD_EXPLICIT
+
         cursor = conn.execute('SELECT COUNT(*) FROM users')
         if cursor.fetchone()[0] == 0:
-            from config import ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_PASSWORD_EXPLICIT
-
             # If no explicit password was set via env, generate random and log it
             if not ADMIN_PASSWORD_EXPLICIT:
                 logger.warning(
@@ -238,6 +238,14 @@ def init_db() -> None:
                 INSERT INTO users (username, password_hash, role, password_must_change)
                 VALUES (?, ?, ?, ?)
             ''', (ADMIN_USERNAME, hashed_pw, 'admin', must_change))
+        elif ADMIN_PASSWORD_EXPLICIT:
+            # If env password is set and user already exists, update it
+            hashed_pw = generate_password_hash(ADMIN_PASSWORD)
+            conn.execute('''
+                UPDATE users SET password_hash = ?, password_must_change = 0
+                WHERE username = ?
+            ''', (hashed_pw, ADMIN_USERNAME))
+            logger.info(f"Updated admin password from environment variable")
         # =====================================================================
         # TSCM (Technical Surveillance Countermeasures) Tables
         # =====================================================================
