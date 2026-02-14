@@ -567,7 +567,7 @@ STATIONS = [
 
 
 @spy_stations_bp.route('/stations')
-def get_stations():
+async def get_stations():
     """Return all spy stations, optionally filtered."""
     station_type = request.args.get('type')
     country = request.args.get('country')
@@ -593,7 +593,7 @@ def get_stations():
 
 
 @spy_stations_bp.route('/stations/<station_id>')
-def get_station(station_id):
+async def get_station(station_id):
     """Get a single station by ID."""
     for station in STATIONS:
         if station['id'] == station_id:
@@ -609,7 +609,7 @@ def get_station(station_id):
 
 
 @spy_stations_bp.route('/filters')
-def get_filters():
+async def get_filters():
     """Return available filter options."""
     types = list(set(s['type'] for s in STATIONS))
     countries = sorted(list(set((s['country'], s['country_code']) for s in STATIONS)))

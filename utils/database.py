@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-import threading
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -21,9 +20,6 @@ logger = logging.getLogger('valentine.database')
 DB_DIR = Path(__file__).parent.parent / 'instance'
 DB_PATH = DB_DIR / 'valentine.db'
 
-# Thread-local storage for connections
-_local = threading.local()
-
 
 def get_db_path() -> Path:
     """Get the database file path, creating directory if needed."""
@@ -32,14 +28,18 @@ def get_db_path() -> Path:
 
 
 def get_connection() -> sqlite3.Connection:
-    """Get a thread-local database connection."""
-    if not hasattr(_local, 'connection') or _local.connection is None:
-        db_path = get_db_path()
-        _local.connection = sqlite3.connect(str(db_path), check_same_thread=False)
-        _local.connection.row_factory = sqlite3.Row
-        # Enable foreign keys
-        _local.connection.execute('PRAGMA foreign_keys = ON')
-    return _local.connection
+    """Get a new database connection.
+
+    Creates a fresh connection each call.  Under Quart's async event loop,
+    thread-local storage is unreliable because multiple coroutines may share
+    a single thread.  Per-call connections are safe for SQLite (file-based,
+    cheap to open) and avoid stale-handle issues.
+    """
+    db_path = get_db_path()
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA foreign_keys = ON')
+    return conn
 
 
 @contextmanager
@@ -52,6 +52,8 @@ def get_db():
     except Exception:
         conn.rollback()
         raise
+    finally:
+        conn.close()
 
 
 def init_db() -> None:
@@ -555,10 +557,8 @@ def init_db() -> None:
 
 
 def close_db() -> None:
-    """Close the thread-local database connection."""
-    if hasattr(_local, 'connection') and _local.connection is not None:
-        _local.connection.close()
-        _local.connection = None
+    """No-op. Connections are now closed by get_db() context manager."""
+    pass
 
 
 # =============================================================================
@@ -1417,6 +1417,12 @@ def get_all_tscm_schedules(
         return [dict(row) for row in cursor]
 
 
+_TSCM_SCHEDULE_COLUMNS = frozenset({
+    'name', 'baseline_id', 'zone_name', 'cron_expression', 'sweep_type',
+    'enabled', 'last_run', 'next_run', 'notify_on_threat', 'notify_email',
+})
+
+
 def update_tscm_schedule(schedule_id: int, **fields) -> bool:
     """Update a TSCM schedule."""
     if not fields:
@@ -1426,6 +1432,8 @@ def update_tscm_schedule(schedule_id: int, **fields) -> bool:
     params = []
 
     for key, value in fields.items():
+        if key not in _TSCM_SCHEDULE_COLUMNS:
+            raise ValueError(f"Invalid column name: {key}")
         updates.append(f'{key} = ?')
         params.append(value)
 

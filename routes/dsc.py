@@ -17,6 +17,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+import asyncio
 from typing import Any, Generator
 
 from quart import Blueprint, jsonify, request, Response
@@ -253,7 +254,7 @@ def monitor_rtl_stderr(process: subprocess.Popen) -> None:
 
 
 @dsc_bp.route('/status')
-def get_status() -> Response:
+async def get_status() -> Response:
     """Get DSC decoder status."""
     global dsc_running
 
@@ -277,14 +278,14 @@ def get_status() -> Response:
 
 
 @dsc_bp.route('/tools')
-def check_tools() -> Response:
+async def check_tools() -> Response:
     """Check DSC decoder tool availability."""
     tools = _check_dsc_tools()
     return jsonify(tools)
 
 
 @dsc_bp.route('/start', methods=['POST'])
-def start_decoding() -> Response:
+async def start_decoding() -> Response:
     """Start DSC decoder."""
     global dsc_running
 
@@ -311,7 +312,7 @@ def start_decoding() -> Response:
                 'message': f'Missing required tools: {", ".join(missing)}'
             }), 400
 
-        data = request.json or {}
+        data = await request.get_json(silent=True) or {}
 
         # Validate device
         try:
@@ -468,7 +469,7 @@ def start_decoding() -> Response:
 
 
 @dsc_bp.route('/stop', methods=['POST'])
-def stop_decoding() -> Response:
+async def stop_decoding() -> Response:
     """Stop DSC decoder."""
     global dsc_running, dsc_active_device
 
@@ -516,15 +517,18 @@ def stop_decoding() -> Response:
 
 
 @dsc_bp.route('/stream')
-def stream() -> Response:
+async def stream() -> Response:
     """SSE stream for real-time DSC messages."""
-    def generate() -> Generator[str, None, None]:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         keepalive_interval = 30.0
 
         while True:
             try:
-                msg = app_module.dsc_queue.get(timeout=1)
+                msg = await loop.run_in_executor(
+                    None, lambda: app_module.dsc_queue.get(timeout=1)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('dsc', msg, msg.get('type'))
@@ -545,7 +549,7 @@ def stream() -> Response:
 
 
 @dsc_bp.route('/messages')
-def get_messages() -> Response:
+async def get_messages() -> Response:
     """Get current DSC messages from transient store."""
     messages = list(app_module.dsc_messages.values())
 
@@ -559,7 +563,7 @@ def get_messages() -> Response:
 
 
 @dsc_bp.route('/alerts')
-def get_alerts_endpoint() -> Response:
+async def get_alerts_endpoint() -> Response:
     """Get stored DSC alerts (paginated)."""
     # Parse query params
     category = request.args.get('category')
@@ -593,7 +597,7 @@ def get_alerts_endpoint() -> Response:
 
 
 @dsc_bp.route('/alerts/<int:alert_id>')
-def get_alert(alert_id: int) -> Response:
+async def get_alert(alert_id: int) -> Response:
     """Get a specific DSC alert by ID."""
     alert = get_dsc_alert(alert_id)
     if not alert:
@@ -606,9 +610,9 @@ def get_alert(alert_id: int) -> Response:
 
 
 @dsc_bp.route('/alerts/<int:alert_id>/acknowledge', methods=['POST'])
-def acknowledge_alert(alert_id: int) -> Response:
+async def acknowledge_alert(alert_id: int) -> Response:
     """Acknowledge a DSC alert."""
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
     notes = data.get('notes')
 
     success = acknowledge_dsc_alert(alert_id, notes)
@@ -625,7 +629,7 @@ def acknowledge_alert(alert_id: int) -> Response:
 
 
 @dsc_bp.route('/alerts/summary')
-def get_alerts_summary() -> Response:
+async def get_alerts_summary() -> Response:
     """Get summary of unacknowledged DSC alerts."""
     summary = get_dsc_alert_summary()
     return jsonify(summary)

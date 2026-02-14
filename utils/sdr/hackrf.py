@@ -7,6 +7,7 @@ HackRF supports 1 MHz to 6 GHz frequency range.
 
 from __future__ import annotations
 
+import shlex
 from typing import Optional
 
 from .base import CommandBuilder, SDRCapabilities, SDRDevice, SDRType
@@ -30,8 +31,8 @@ class HackRFCommandBuilder(CommandBuilder):
     def _build_device_string(self, device: SDRDevice) -> str:
         """Build SoapySDR device string for HackRF."""
         if device.serial and device.serial != 'N/A':
-            return f'driver=hackrf,serial={device.serial}'
-        return f'driver=hackrf'
+            return f'driver=hackrf,serial={shlex.quote(str(device.serial))}'
+        return 'driver=hackrf'
 
     def _split_gain(self, gain: float) -> tuple[int, int]:
         """

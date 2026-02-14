@@ -10,6 +10,7 @@ import socket
 import subprocess
 import threading
 import time
+import asyncio
 from typing import Generator
 
 from quart import Blueprint, jsonify, request, Response, render_template
@@ -286,7 +287,7 @@ def process_ais_message(msg: dict) -> dict | None:
 
 
 @ais_bp.route('/tools')
-def check_ais_tools():
+async def check_ais_tools():
     """Check for AIS decoding tools and hardware."""
     has_ais_catcher = find_ais_catcher() is not None
 
@@ -303,7 +304,7 @@ def check_ais_tools():
 
 
 @ais_bp.route('/status')
-def ais_status():
+async def ais_status():
     """Get AIS tracking status for debugging."""
     process_running = False
     if app_module.ais_process:
@@ -324,7 +325,7 @@ def ais_status():
 
 
 @ais_bp.route('/start', methods=['POST'])
-def start_ais():
+async def start_ais():
     """Start AIS tracking."""
     global ais_running, ais_active_device
 
@@ -332,7 +333,7 @@ def start_ais():
         if ais_running:
             return jsonify({'status': 'already_running', 'message': 'AIS tracking already active'}), 409
 
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     # Validate inputs
     try:
@@ -445,7 +446,7 @@ def start_ais():
 
 
 @ais_bp.route('/stop', methods=['POST'])
-def stop_ais():
+async def stop_ais():
     """Stop AIS tracking."""
     global ais_running, ais_active_device
 
@@ -476,14 +477,17 @@ def stop_ais():
 
 
 @ais_bp.route('/stream')
-def stream_ais():
+async def stream_ais():
     """SSE stream for AIS vessels."""
-    def generate() -> Generator[str, None, None]:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
 
         while True:
             try:
-                msg = app_module.ais_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                msg = await loop.run_in_executor(
+                    None, lambda: app_module.ais_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('ais', msg, msg.get('type'))
@@ -503,9 +507,9 @@ def stream_ais():
 
 
 @ais_bp.route('/dashboard')
-def ais_dashboard():
+async def ais_dashboard():
     """Popout AIS dashboard."""
-    return render_template(
+    return await render_template(
         'ais_dashboard.html',
         shared_observer_location=SHARED_OBSERVER_LOCATION_ENABLED,
     )

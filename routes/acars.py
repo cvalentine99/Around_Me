@@ -13,6 +13,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+import asyncio
 from typing import Generator
 
 from quart import Blueprint, jsonify, request, Response
@@ -167,7 +168,7 @@ def stream_acars_output(process: subprocess.Popen, is_text_mode: bool = False) -
 
 
 @acars_bp.route('/tools')
-def check_acars_tools() -> Response:
+async def check_acars_tools() -> Response:
     """Check for ACARS decoding tools."""
     has_acarsdec = find_acarsdec() is not None
 
@@ -178,7 +179,7 @@ def check_acars_tools() -> Response:
 
 
 @acars_bp.route('/status')
-def acars_status() -> Response:
+async def acars_status() -> Response:
     """Get ACARS decoder status."""
     running = False
     if app_module.acars_process:
@@ -193,7 +194,7 @@ def acars_status() -> Response:
 
 
 @acars_bp.route('/start', methods=['POST'])
-def start_acars() -> Response:
+async def start_acars() -> Response:
     """Start ACARS decoder."""
     global acars_message_count, acars_last_message_time, acars_active_device
 
@@ -212,7 +213,7 @@ def start_acars() -> Response:
             'message': 'acarsdec not found. Install with: sudo apt install acarsdec'
         }), 400
 
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     # Validate inputs
     try:
@@ -355,7 +356,7 @@ def start_acars() -> Response:
 
 
 @acars_bp.route('/stop', methods=['POST'])
-def stop_acars() -> Response:
+async def stop_acars() -> Response:
     """Stop ACARS decoder."""
     global acars_active_device
 
@@ -385,14 +386,17 @@ def stop_acars() -> Response:
 
 
 @acars_bp.route('/stream')
-def stream_acars() -> Response:
+async def stream_acars() -> Response:
     """SSE stream for ACARS messages."""
-    def generate() -> Generator[str, None, None]:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
 
         while True:
             try:
-                msg = app_module.acars_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                msg = await loop.run_in_executor(
+                    None, lambda: app_module.acars_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('acars', msg, msg.get('type'))
@@ -412,7 +416,7 @@ def stream_acars() -> Response:
 
 
 @acars_bp.route('/frequencies')
-def get_frequencies() -> Response:
+async def get_frequencies() -> Response:
     """Get default ACARS frequencies."""
     return jsonify({
         'default': DEFAULT_ACARS_FREQUENCIES,

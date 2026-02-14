@@ -8,6 +8,7 @@ with existing RTL-SDR installations. No SoapySDR dependency required.
 from __future__ import annotations
 
 import logging
+import shlex
 import subprocess
 from typing import Optional
 
@@ -68,7 +69,9 @@ class RTLSDRCommandBuilder(CommandBuilder):
         or device index for local devices.
         """
         if device.is_network:
-            return f"rtl_tcp:{device.rtl_tcp_host}:{device.rtl_tcp_port}"
+            host = shlex.quote(str(device.rtl_tcp_host))
+            port = shlex.quote(str(device.rtl_tcp_port))
+            return f"rtl_tcp:{host}:{port}"
         return str(device.index)
 
     def build_fm_demod_command(

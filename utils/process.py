@@ -41,7 +41,12 @@ def cleanup_all_processes() -> None:
                     process.terminate()
                     process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
-                    process.kill()
+                    try:
+                        process.kill()
+                    except (ProcessLookupError, OSError):
+                        pass
+                except ProcessLookupError:
+                    pass
                 except Exception as e:
                     logger.warning(f"Error cleaning up process: {e}")
         _spawned_processes.clear()
@@ -72,9 +77,15 @@ def safe_terminate(process: subprocess.Popen | None, timeout: float = 2.0) -> bo
         unregister_process(process)
         return True
     except subprocess.TimeoutExpired:
-        process.kill()
+        try:
+            process.kill()
+        except (ProcessLookupError, OSError):
+            pass
         unregister_process(process)
         return True
+    except ProcessLookupError:
+        unregister_process(process)
+        return False
     except Exception as e:
         logger.warning(f"Error terminating process: {e}")
         return False

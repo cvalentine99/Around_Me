@@ -13,6 +13,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+import asyncio
 from typing import Generator, Optional, List, Dict
 
 from quart import Blueprint, jsonify, request, Response
@@ -908,7 +909,7 @@ def _stop_audio_stream_internal():
 # ============================================
 
 @listening_post_bp.route('/tools')
-def check_tools() -> Response:
+async def check_tools() -> Response:
     """Check for required tools."""
     rtl_fm = find_rtl_fm()
     rtl_power = find_rtl_power()
@@ -934,7 +935,7 @@ def check_tools() -> Response:
 
 
 @listening_post_bp.route('/scanner/start', methods=['POST'])
-def start_scanner() -> Response:
+async def start_scanner() -> Response:
     """Start the frequency scanner."""
     global scanner_thread, scanner_running, scanner_config, scanner_active_device, listening_active_device
 
@@ -952,7 +953,7 @@ def start_scanner() -> Response:
     except queue.Empty:
         pass
 
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     # Update scanner config
     try:
@@ -1053,7 +1054,7 @@ def start_scanner() -> Response:
 
 
 @listening_post_bp.route('/scanner/stop', methods=['POST'])
-def stop_scanner() -> Response:
+async def stop_scanner() -> Response:
     """Stop the frequency scanner."""
     global scanner_running, scanner_active_device, scanner_power_process
 
@@ -1077,7 +1078,7 @@ def stop_scanner() -> Response:
 
 
 @listening_post_bp.route('/scanner/pause', methods=['POST'])
-def pause_scanner() -> Response:
+async def pause_scanner() -> Response:
     """Pause/resume the scanner."""
     global scanner_paused
 
@@ -1099,7 +1100,7 @@ scanner_skip_signal = False
 
 
 @listening_post_bp.route('/scanner/skip', methods=['POST'])
-def skip_signal() -> Response:
+async def skip_signal() -> Response:
     """Skip current signal and continue scanning."""
     global scanner_skip_signal
 
@@ -1119,9 +1120,9 @@ def skip_signal() -> Response:
 
 
 @listening_post_bp.route('/scanner/config', methods=['POST'])
-def update_scanner_config() -> Response:
+async def update_scanner_config() -> Response:
     """Update scanner config while running (step, squelch, gain, dwell)."""
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     updated = []
 
@@ -1161,7 +1162,7 @@ def update_scanner_config() -> Response:
 
 
 @listening_post_bp.route('/scanner/status')
-def scanner_status() -> Response:
+async def scanner_status() -> Response:
     """Get scanner status."""
     return jsonify({
         'running': scanner_running,
@@ -1174,14 +1175,17 @@ def scanner_status() -> Response:
 
 
 @listening_post_bp.route('/scanner/stream')
-def stream_scanner_events() -> Response:
+async def stream_scanner_events() -> Response:
     """SSE stream for scanner events."""
-    def generate() -> Generator[str, None, None]:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
 
         while True:
             try:
-                msg = scanner_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                msg = await loop.run_in_executor(
+                    None, lambda: scanner_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('listening_scanner', msg, msg.get('type'))
@@ -1201,7 +1205,7 @@ def stream_scanner_events() -> Response:
 
 
 @listening_post_bp.route('/scanner/log')
-def get_activity_log() -> Response:
+async def get_activity_log() -> Response:
     """Get activity log."""
     limit = request.args.get('limit', 100, type=int)
     with activity_log_lock:
@@ -1212,7 +1216,7 @@ def get_activity_log() -> Response:
 
 
 @listening_post_bp.route('/scanner/log/clear', methods=['POST'])
-def clear_activity_log() -> Response:
+async def clear_activity_log() -> Response:
     """Clear activity log."""
     with activity_log_lock:
         activity_log.clear()
@@ -1220,7 +1224,7 @@ def clear_activity_log() -> Response:
 
 
 @listening_post_bp.route('/presets')
-def get_presets() -> Response:
+async def get_presets() -> Response:
     """Get scanner presets."""
     presets = [
         {'name': 'FM Broadcast', 'start': 88.0, 'end': 108.0, 'step': 0.2, 'mod': 'wfm'},
@@ -1240,7 +1244,7 @@ def get_presets() -> Response:
 # ============================================
 
 @listening_post_bp.route('/audio/start', methods=['POST'])
-def start_audio() -> Response:
+async def start_audio() -> Response:
     """Start audio at specific frequency (manual mode)."""
     global scanner_running, scanner_active_device, listening_active_device, scanner_power_process, scanner_thread
 
@@ -1271,7 +1275,7 @@ def start_audio() -> Response:
             pass
         time.sleep(0.5)
 
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     try:
         frequency = float(data.get('frequency', 0))
@@ -1363,7 +1367,7 @@ def start_audio() -> Response:
 
 
 @listening_post_bp.route('/audio/stop', methods=['POST'])
-def stop_audio() -> Response:
+async def stop_audio() -> Response:
     """Stop audio."""
     global listening_active_device
     _stop_audio_stream()
@@ -1374,7 +1378,7 @@ def stop_audio() -> Response:
 
 
 @listening_post_bp.route('/audio/status')
-def audio_status() -> Response:
+async def audio_status() -> Response:
     """Get audio status."""
     return jsonify({
         'running': audio_running,
@@ -1384,7 +1388,7 @@ def audio_status() -> Response:
 
 
 @listening_post_bp.route('/audio/debug')
-def audio_debug() -> Response:
+async def audio_debug() -> Response:
     """Get audio debug status and recent stderr logs."""
     rtl_log_path = '/tmp/rtl_fm_stderr.log'
     ffmpeg_log_path = '/tmp/ffmpeg_stderr.log'
@@ -1413,7 +1417,7 @@ def audio_debug() -> Response:
 
 
 @listening_post_bp.route('/audio/probe')
-def audio_probe() -> Response:
+async def audio_probe() -> Response:
     """Grab a small chunk of audio bytes from the pipeline for debugging."""
     global audio_process
 
@@ -1439,7 +1443,7 @@ def audio_probe() -> Response:
 
 
 @listening_post_bp.route('/audio/stream')
-def stream_audio() -> Response:
+async def stream_audio() -> Response:
     """Stream WAV audio."""
     # Wait for audio to be ready (up to 2 seconds for modulation/squelch changes)
     for _ in range(40):
@@ -1450,19 +1454,24 @@ def stream_audio() -> Response:
     if not audio_running or not audio_process:
         return Response(b'', mimetype='audio/mpeg', status=204)
 
-    def generate():
+    async def generate():
         # Capture local reference to avoid race condition with stop
         proc = audio_process
         if not proc or not proc.stdout:
             return
+        loop = asyncio.get_running_loop()
         try:
             # First byte timeout to avoid hanging clients forever
             first_chunk_deadline = time.time() + 3.0
             while audio_running and proc.poll() is None:
-                # Use select to avoid blocking forever
-                ready, _, _ = select.select([proc.stdout], [], [], 2.0)
+                # Use run_in_executor to avoid blocking the event loop
+                ready = await loop.run_in_executor(
+                    None, lambda: select.select([proc.stdout], [], [], 2.0)[0]
+                )
                 if ready:
-                    chunk = proc.stdout.read(4096)
+                    chunk = await loop.run_in_executor(
+                        None, proc.stdout.read, 4096
+                    )
                     if chunk:
                         yield chunk
                     else:
@@ -1497,9 +1506,9 @@ def stream_audio() -> Response:
 # ============================================
 
 @listening_post_bp.route('/signal/guess', methods=['POST'])
-def guess_signal() -> Response:
+async def guess_signal() -> Response:
     """Identify a signal based on frequency, modulation, and other parameters."""
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     freq_mhz = data.get('frequency_mhz')
     if freq_mhz is None:
@@ -1745,7 +1754,7 @@ def _stop_waterfall_internal() -> None:
 
 
 @listening_post_bp.route('/waterfall/start', methods=['POST'])
-def start_waterfall() -> Response:
+async def start_waterfall() -> Response:
     """Start the waterfall/spectrogram display."""
     global waterfall_thread, waterfall_running, waterfall_config, waterfall_active_device
 
@@ -1756,7 +1765,7 @@ def start_waterfall() -> Response:
     if not find_rtl_power():
         return jsonify({'status': 'error', 'message': 'rtl_power not found'}), 503
 
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     try:
         waterfall_config['start_freq'] = float(data.get('start_freq', 88.0))
@@ -1801,7 +1810,7 @@ def start_waterfall() -> Response:
 
 
 @listening_post_bp.route('/waterfall/stop', methods=['POST'])
-def stop_waterfall() -> Response:
+async def stop_waterfall() -> Response:
     """Stop the waterfall display."""
     _stop_waterfall_internal()
 
@@ -1809,13 +1818,16 @@ def stop_waterfall() -> Response:
 
 
 @listening_post_bp.route('/waterfall/stream')
-def stream_waterfall() -> Response:
+async def stream_waterfall() -> Response:
     """SSE stream for waterfall data."""
-    def generate() -> Generator[str, None, None]:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         while True:
             try:
-                msg = waterfall_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                msg = await loop.run_in_executor(
+                    None, lambda: waterfall_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('waterfall', msg, msg.get('type'))

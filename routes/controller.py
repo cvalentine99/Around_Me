@@ -15,6 +15,7 @@ import logging
 import queue
 import time
 from datetime import datetime, timezone
+import asyncio
 from typing import Generator
 
 import httpx
@@ -47,7 +48,7 @@ agent_data_queue: queue.Queue = queue.Queue(maxsize=1000)
 # =============================================================================
 
 @controller_bp.route('/agents', methods=['GET'])
-def get_agents():
+async def get_agents():
     """List all registered agents."""
     active_only = request.args.get('active_only', 'true').lower() == 'true'
     agents = list_agents(active_only=active_only)
@@ -70,7 +71,7 @@ def get_agents():
 
 
 @controller_bp.route('/agents', methods=['POST'])
-def register_agent():
+async def register_agent():
     """
     Register a new remote agent.
 
@@ -82,7 +83,7 @@ def register_agent():
         "description": "Optional description"
     }
     """
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     # Validate required fields
     name = data.get('name', '').strip()
@@ -156,7 +157,7 @@ def register_agent():
 
 
 @controller_bp.route('/agents/<int:agent_id>', methods=['GET'])
-def get_agent_detail(agent_id: int):
+async def get_agent_detail(agent_id: int):
     """Get details of a specific agent."""
     agent = get_agent(agent_id)
     if not agent:
@@ -192,13 +193,13 @@ def get_agent_detail(agent_id: int):
 
 
 @controller_bp.route('/agents/<int:agent_id>', methods=['PUT', 'PATCH'])
-def update_agent_detail(agent_id: int):
+async def update_agent_detail(agent_id: int):
     """Update an agent's details."""
     agent = get_agent(agent_id)
     if not agent:
         return jsonify({'status': 'error', 'message': 'Agent not found'}), 404
 
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     # Update allowed fields
     update_agent(
@@ -214,7 +215,7 @@ def update_agent_detail(agent_id: int):
 
 
 @controller_bp.route('/agents/<int:agent_id>', methods=['DELETE'])
-def remove_agent(agent_id: int):
+async def remove_agent(agent_id: int):
     """Delete an agent."""
     agent = get_agent(agent_id)
     if not agent:
@@ -225,7 +226,7 @@ def remove_agent(agent_id: int):
 
 
 @controller_bp.route('/agents/<int:agent_id>/refresh', methods=['POST'])
-def refresh_agent_metadata(agent_id: int):
+async def refresh_agent_metadata(agent_id: int):
     """Refresh an agent's capabilities and status."""
     agent = get_agent(agent_id)
     if not agent:
@@ -272,7 +273,7 @@ def refresh_agent_metadata(agent_id: int):
 # =============================================================================
 
 @controller_bp.route('/agents/<int:agent_id>/status', methods=['GET'])
-def get_agent_status(agent_id: int):
+async def get_agent_status(agent_id: int):
     """Get an agent's current status including running modes."""
     agent = get_agent(agent_id)
     if not agent:
@@ -295,7 +296,7 @@ def get_agent_status(agent_id: int):
 
 
 @controller_bp.route('/agents/health', methods=['GET'])
-def check_all_agents_health():
+async def check_all_agents_health():
     """
     Check health of all registered agents in one call.
 
@@ -361,13 +362,13 @@ def check_all_agents_health():
 # =============================================================================
 
 @controller_bp.route('/agents/<int:agent_id>/<mode>/start', methods=['POST'])
-def proxy_start_mode(agent_id: int, mode: str):
+async def proxy_start_mode(agent_id: int, mode: str):
     """Start a mode on a remote agent."""
     agent = get_agent(agent_id)
     if not agent:
         return jsonify({'status': 'error', 'message': 'Agent not found'}), 404
 
-    params = request.json or {}
+    params = await request.get_json(silent=True) or {}
 
     try:
         client = create_client_from_agent(agent)
@@ -396,7 +397,7 @@ def proxy_start_mode(agent_id: int, mode: str):
 
 
 @controller_bp.route('/agents/<int:agent_id>/<mode>/stop', methods=['POST'])
-def proxy_stop_mode(agent_id: int, mode: str):
+async def proxy_stop_mode(agent_id: int, mode: str):
     """Stop a mode on a remote agent."""
     agent = get_agent(agent_id)
     if not agent:
@@ -428,7 +429,7 @@ def proxy_stop_mode(agent_id: int, mode: str):
 
 
 @controller_bp.route('/agents/<int:agent_id>/<mode>/status', methods=['GET'])
-def proxy_mode_status(agent_id: int, mode: str):
+async def proxy_mode_status(agent_id: int, mode: str):
     """Get mode status from a remote agent."""
     agent = get_agent(agent_id)
     if not agent:
@@ -453,7 +454,7 @@ def proxy_mode_status(agent_id: int, mode: str):
 
 
 @controller_bp.route('/agents/<int:agent_id>/<mode>/data', methods=['GET'])
-def proxy_mode_data(agent_id: int, mode: str):
+async def proxy_mode_data(agent_id: int, mode: str):
     """Get current data from a remote agent."""
     agent = get_agent(agent_id)
     if not agent:
@@ -483,7 +484,7 @@ def proxy_mode_data(agent_id: int, mode: str):
 
 
 @controller_bp.route('/agents/<int:agent_id>/<mode>/stream')
-def proxy_mode_stream(agent_id: int, mode: str):
+async def proxy_mode_stream(agent_id: int, mode: str):
     """Proxy SSE stream from a remote agent."""
     agent = get_agent(agent_id)
     if not agent:
@@ -499,14 +500,18 @@ def proxy_mode_stream(agent_id: int, mode: str):
     if agent.get('api_key'):
         headers['X-API-Key'] = agent['api_key']
 
-    def generate() -> Generator[str, None, None]:
+    async def generate():
         try:
-            with httpx.stream('GET', url, headers=headers, timeout=httpx.Timeout(5.0, read=3600.0)) as resp:
-                resp.raise_for_status()
-                for chunk in resp.iter_bytes(chunk_size=1024):
-                    if not chunk:
-                        continue
-                    yield chunk.decode('utf-8', errors='ignore')
+            async with httpx.AsyncClient() as async_client:
+                async with async_client.stream(
+                    'GET', url, headers=headers,
+                    timeout=httpx.Timeout(5.0, read=3600.0)
+                ) as resp:
+                    resp.raise_for_status()
+                    async for chunk in resp.aiter_bytes(chunk_size=1024):
+                        if not chunk:
+                            continue
+                        yield chunk.decode('utf-8', errors='ignore')
         except Exception as e:
             logger.error(f"SSE proxy error for agent {agent_id}/{mode}: {e}")
             yield format_sse({
@@ -524,13 +529,13 @@ def proxy_mode_stream(agent_id: int, mode: str):
 
 
 @controller_bp.route('/agents/<int:agent_id>/wifi/monitor', methods=['POST'])
-def proxy_wifi_monitor(agent_id: int):
+async def proxy_wifi_monitor(agent_id: int):
     """Toggle monitor mode on a remote agent's WiFi interface."""
     agent = get_agent(agent_id)
     if not agent:
         return jsonify({'status': 'error', 'message': 'Agent not found'}), 404
 
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     try:
         client = create_client_from_agent(agent)
@@ -579,7 +584,7 @@ def proxy_wifi_monitor(agent_id: int):
 # =============================================================================
 
 @controller_bp.route('/api/ingest', methods=['POST'])
-def ingest_push_data():
+async def ingest_push_data():
     """
     Receive pushed data from remote agents.
 
@@ -595,7 +600,7 @@ def ingest_push_data():
     Expected header:
         X-API-Key: shared-secret (if agent has api_key configured)
     """
-    data = request.json
+    data = await request.get_json(silent=True)
     if not data:
         return jsonify({'status': 'error', 'message': 'No data provided'}), 400
 
@@ -650,7 +655,7 @@ def ingest_push_data():
 
 
 @controller_bp.route('/api/payloads', methods=['GET'])
-def get_payloads():
+async def get_payloads():
     """Get recent push payloads."""
     agent_id = request.args.get('agent_id', type=int)
     scan_type = request.args.get('scan_type')
@@ -674,20 +679,23 @@ def get_payloads():
 # =============================================================================
 
 @controller_bp.route('/stream/all')
-def stream_all_agents():
+async def stream_all_agents():
     """
     Combined SSE stream for data from all agents.
 
     This endpoint streams push data as it arrives from agents.
     Each message is tagged with agent_id and agent_name.
     """
-    def generate() -> Generator[str, None, None]:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         keepalive_interval = 30.0
 
         while True:
             try:
-                msg = agent_data_queue.get(timeout=1.0)
+                msg = await loop.run_in_executor(
+                    None, lambda: agent_data_queue.get(timeout=1.0)
+                )
                 last_keepalive = time.time()
                 yield format_sse(msg)
             except queue.Empty:
@@ -708,18 +716,18 @@ def stream_all_agents():
 # =============================================================================
 
 @controller_bp.route('/manage')
-def agent_management_page():
+async def agent_management_page():
     """Render the agent management page."""
     from quart import render_template
     from config import VERSION
-    return render_template('agents.html', version=VERSION)
+    return await render_template('agents.html', version=VERSION)
 
 
 @controller_bp.route('/monitor')
-def network_monitor_page():
+async def network_monitor_page():
     """Render the network monitor page for multi-agent aggregated view."""
     from quart import render_template
-    return render_template('network_monitor.html')
+    return await render_template('network_monitor.html')
 
 
 # =============================================================================
@@ -738,7 +746,7 @@ device_tracker = DeviceLocationTracker(
 
 
 @controller_bp.route('/api/location/observe', methods=['POST'])
-def add_location_observation():
+async def add_location_observation():
     """
     Add an observation for device location estimation.
 
@@ -754,7 +762,7 @@ def add_location_observation():
 
     Returns location estimate if enough data, null otherwise.
     """
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     required = ['device_id', 'agent_name', 'agent_lat', 'agent_lon', 'rssi']
     for field in required:
@@ -795,7 +803,7 @@ def add_location_observation():
 
 
 @controller_bp.route('/api/location/estimate', methods=['POST'])
-def estimate_location():
+async def estimate_location():
     """
     Estimate device location from provided observations.
 
@@ -809,7 +817,7 @@ def estimate_location():
         "environment": "outdoor"  (optional: outdoor, indoor, free_space)
     }
     """
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     observations = data.get('observations', [])
     if len(observations) < 2:
@@ -832,7 +840,7 @@ def estimate_location():
 
 
 @controller_bp.route('/api/location/<device_id>', methods=['GET'])
-def get_device_location(device_id: str):
+async def get_device_location(device_id: str):
     """Get the latest location estimate for a device."""
     estimate = device_tracker.get_location(device_id)
 
@@ -851,7 +859,7 @@ def get_device_location(device_id: str):
 
 
 @controller_bp.route('/api/location/all', methods=['GET'])
-def get_all_locations():
+async def get_all_locations():
     """Get all current device location estimates."""
     locations = device_tracker.get_all_locations()
 
@@ -866,7 +874,7 @@ def get_all_locations():
 
 
 @controller_bp.route('/api/location/near', methods=['GET'])
-def get_devices_near():
+async def get_devices_near():
     """
     Find devices near a location.
 

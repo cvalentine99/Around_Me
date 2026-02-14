@@ -67,17 +67,17 @@ os.environ['WERKZEUG_DEBUG_PIN'] = 'off'
 # ERROR HANDLERS    
 # ============================================
 @app.errorhandler(429)
-def ratelimit_handler(e):
+async def ratelimit_handler(e):
     logger.warning(f"Rate limit exceeded for IP: {request.remote_addr}")
     flash("Too many login attempts. Please wait one minute before trying again.", "error")
-    return render_template('login.html', version=VERSION), 429
+    return await render_template('login.html', version=VERSION), 429
 
 # ============================================
 # SECURITY HEADERS
 # ============================================
 
 @app.after_request
-def add_security_headers(response):
+async def add_security_headers(response):
     """Add security headers to all responses."""
     # Prevent MIME type sniffing
     response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -89,6 +89,18 @@ def add_security_headers(response):
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     # Permissions policy (disable unnecessary features)
     response.headers['Permissions-Policy'] = 'geolocation=(self), microphone=()'
+    # Content Security Policy
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://unpkg.com https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://unpkg.com https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+        "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://*.basemaps.cartocdn.com https://api.planespotters.net; "
+        "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+        "connect-src 'self' ws: wss:; "
+        "media-src 'self' blob:; "
+        "worker-src 'self' blob:; "
+        "frame-src 'self'"
+    )
     return response
 
 
@@ -97,7 +109,7 @@ def add_security_headers(response):
 # ============================================
 
 @app.context_processor
-def inject_offline_settings():
+async def inject_offline_settings():
     """Inject offline settings into all templates."""
     from utils.database import get_setting
     return {
@@ -298,7 +310,7 @@ def get_sdr_device_status() -> dict[int, str]:
 # ============================================
 
 @app.before_request
-def require_login():
+async def require_login():
     # Routes that don't require login (to avoid infinite redirect loop)
     allowed_routes = ['login', 'static', 'favicon', 'health', 'health_check',
                       'change_password']
@@ -326,7 +338,7 @@ def require_login():
         return redirect(url_for('change_password'))
     
 @app.route('/logout')
-def logout():
+async def logout():
     session.pop('logged_in', None)
     return redirect(url_for('login'))
 
@@ -357,10 +369,11 @@ def _verify_api_token(token: str) -> bool:
 
 @app.route('/login', methods=['GET', 'POST'])
 @rate_limit(5, timedelta(minutes=1))  # Limit to 5 login attempts per minute per IP
-def login():
+async def login():
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
+        form = await request.form
+        username = form.get('username')
+        password = form.get('password')
 
         # Connect to DB and find user
         with get_db() as conn:
@@ -390,27 +403,28 @@ def login():
             logger.warning(f"Failed login attempt for username: {username}")
             flash("ACCESS DENIED: INVALID CREDENTIALS", "error")
 
-    return render_template('login.html', version=VERSION)
+    return await render_template('login.html', version=VERSION)
 
 
 @app.route('/change-password', methods=['GET', 'POST'])
-def change_password():
+async def change_password():
     """Force password change on first login."""
     if 'logged_in' not in session:
         return redirect(url_for('login'))
 
     if request.method == 'POST':
         from werkzeug.security import generate_password_hash
-        new_password = request.form.get('new_password', '')
-        confirm_password = request.form.get('confirm_password', '')
+        form = await request.form
+        new_password = form.get('new_password', '')
+        confirm_password = form.get('confirm_password', '')
 
         if len(new_password) < 12:
             flash('PASSWORD MUST BE AT LEAST 12 CHARACTERS', 'error')
-            return render_template('change_password.html', version=VERSION)
+            return await render_template('change_password.html', version=VERSION)
 
         if new_password != confirm_password:
             flash('PASSWORDS DO NOT MATCH', 'error')
-            return render_template('change_password.html', version=VERSION)
+            return await render_template('change_password.html', version=VERSION)
 
         with get_db() as conn:
             conn.execute(
@@ -423,10 +437,10 @@ def change_password():
         flash('PASSWORD UPDATED SUCCESSFULLY', 'success')
         return redirect(url_for('index'))
 
-    return render_template('change_password.html', version=VERSION)
+    return await render_template('change_password.html', version=VERSION)
 
 @app.route('/')
-def index() -> str:
+async def index() -> str:
     tools = {
         'rtl_fm': check_tool('rtl_fm'),
         'multimon': check_tool('multimon-ng'),
@@ -434,7 +448,7 @@ def index() -> str:
         'rtlamr': check_tool('rtlamr')
     }
     devices = [d.to_dict() for d in SDRFactory.detect_devices()]
-    return render_template(
+    return await render_template(
         'index.html',
         tools=tools,
         devices=devices,
@@ -448,19 +462,19 @@ def index() -> str:
 
 
 @app.route('/favicon.svg')
-def favicon() -> Response:
-    return send_file('favicon.svg', mimetype='image/svg+xml')
+async def favicon() -> Response:
+    return await send_file('favicon.svg', mimetype='image/svg+xml')
 
 
 @app.route('/devices')
-def get_devices() -> Response:
+async def get_devices() -> Response:
     """Get all detected SDR devices with hardware type info."""
     devices = SDRFactory.detect_devices()
     return jsonify([d.to_dict() for d in devices])
 
 
 @app.route('/devices/status')
-def get_devices_status() -> Response:
+async def get_devices_status() -> Response:
     """Get all SDR devices with usage status."""
     devices = SDRFactory.detect_devices()
     registry = get_sdr_device_status()
@@ -476,7 +490,7 @@ def get_devices_status() -> Response:
 
 
 @app.route('/devices/debug')
-def get_devices_debug() -> Response:
+async def get_devices_debug() -> Response:
     """Get detailed SDR device detection diagnostics."""
     import shutil
 
@@ -590,7 +604,7 @@ def get_devices_debug() -> Response:
 
 
 @app.route('/dependencies')
-def get_dependencies() -> Response:
+async def get_dependencies() -> Response:
     """Get status of all tool dependencies."""
     results = check_all_dependencies()
 
@@ -612,7 +626,7 @@ def get_dependencies() -> Response:
 
 
 @app.route('/export/aircraft', methods=['GET'])
-def export_aircraft() -> Response:
+async def export_aircraft() -> Response:
     """Export aircraft data as JSON or CSV."""
     import csv
     import io
@@ -648,7 +662,7 @@ def export_aircraft() -> Response:
 
 
 @app.route('/export/wifi', methods=['GET'])
-def export_wifi() -> Response:
+async def export_wifi() -> Response:
     """Export WiFi networks as JSON or CSV."""
     import csv
     import io
@@ -682,7 +696,7 @@ def export_wifi() -> Response:
 
 
 @app.route('/export/bluetooth', methods=['GET'])
-def export_bluetooth() -> Response:
+async def export_bluetooth() -> Response:
     """Export Bluetooth devices as JSON or CSV."""
     import csv
     import io
@@ -725,7 +739,7 @@ def _is_uat_running() -> bool:
 
 
 @app.route('/health')
-def health_check() -> Response:
+async def health_check() -> Response:
     """Health check endpoint for monitoring."""
     import time
     return jsonify({
@@ -757,7 +771,7 @@ def health_check() -> Response:
 
 
 @app.route('/killall', methods=['POST'])
-def kill_all() -> Response:
+async def kill_all() -> Response:
     """Kill all decoder, WiFi, and Bluetooth processes."""
     global current_process, sensor_process, wifi_process, adsb_process, ais_process, acars_process
     global aprs_process, aprs_rtl_process, dsc_process, dsc_rtl_process, bt_process
@@ -893,44 +907,31 @@ def main() -> None:
     # Check dependencies only
     if args.check_deps:
         results = check_all_dependencies()
-        print("Dependency Status:")
-        print("-" * 40)
+        logger.info("Dependency Status:")
         for mode, info in results.items():
-            status = "✓" if info['ready'] else "✗"
-            print(f"\n{status} {info['name']}:")
+            status = "ready" if info['ready'] else "missing"
+            logger.info(f"  {info['name']}: {status}")
             for tool, tool_info in info['tools'].items():
-                tool_status = "✓" if tool_info['installed'] else "✗"
+                tool_status = "installed" if tool_info['installed'] else "missing"
                 req = " (required)" if tool_info['required'] else ""
-                print(f"    {tool_status} {tool}{req}")
+                logger.info(f"    {tool}: {tool_status}{req}")
         sys.exit(0)
 
-    print("=" * 50)
-    print("  VALENTINE RF // Signal Intelligence")
-    print("  Pager / 433MHz / Aircraft / ACARS / Satellite / WiFi / BT")
-    print("=" * 50)
-    print()
+    logger.info("=" * 50)
+    logger.info("  VALENTINE RF // Signal Intelligence")
+    logger.info("  Pager / 433MHz / Aircraft / ACARS / Satellite / WiFi / BT")
+    logger.info("=" * 50)
 
     # Check if running as root (required for WiFi monitor mode, some BT operations)
     import os
     if os.geteuid() != 0:
-        print("\033[93m" + "=" * 50)
-        print("  ⚠️  WARNING: Not running as root/sudo")
-        print("=" * 50)
-        print("  Some features require root privileges:")
-        print("    - WiFi monitor mode and scanning")
-        print("    - Bluetooth low-level operations")
-        print("    - RTL-SDR access (on some systems)")
-        print()
-        print("  To run with full capabilities:")
-        print("    sudo -E venv/bin/python valentine.py")
-        print("=" * 50 + "\033[0m")
-        print()
+        logger.warning("Not running as root/sudo. Some features require root privileges: "
+                        "WiFi monitor mode, Bluetooth low-level operations, RTL-SDR access.")
         # Store for API access
         app.config['RUNNING_AS_ROOT'] = False
     else:
         app.config['RUNNING_AS_ROOT'] = True
-        print("Running as root - full capabilities enabled")
-        print()
+        logger.info("Running as root - full capabilities enabled")
 
     # Clean up any stale processes from previous runs
     cleanup_stale_processes()
@@ -971,14 +972,14 @@ def main() -> None:
     def update_tle_background():
         try:
             from routes.satellite import refresh_tle_data
-            print("Updating satellite TLE data from CelesTrak...")
+            logger.info("Updating satellite TLE data from CelesTrak...")
             updated = refresh_tle_data()
             if updated:
-                print(f"TLE data updated for: {', '.join(updated)}")
+                logger.info(f"TLE data updated for: {', '.join(updated)}")
             else:
-                print("TLE update: No satellites updated (may be offline)")
+                logger.info("TLE update: No satellites updated (may be offline)")
         except Exception as e:
-            print(f"TLE update failed (will use cached data): {e}")
+            logger.warning(f"TLE update failed (will use cached data): {e}")
 
     tle_thread = threading.Thread(target=update_tle_background, daemon=True)
     tle_thread.start()
@@ -987,30 +988,37 @@ def main() -> None:
     try:
         from routes.audio_websocket import init_audio_websocket
         init_audio_websocket(app)
-        print("WebSocket audio streaming enabled")
+        logger.info("WebSocket audio streaming enabled")
     except ImportError as e:
-        print(f"WebSocket audio disabled: {e}")
+        logger.warning(f"WebSocket audio disabled: {e}")
 
     # Initialize KiwiSDR WebSocket audio proxy
     try:
         from routes.websdr import init_websdr_audio
         init_websdr_audio(app)
-        print("KiwiSDR audio proxy enabled")
+        logger.info("KiwiSDR audio proxy enabled")
     except ImportError as e:
-        print(f"KiwiSDR audio proxy disabled: {e}")
+        logger.warning(f"KiwiSDR audio proxy disabled: {e}")
 
     # Initialize WebSocket for waterfall streaming
     try:
         from routes.waterfall_websocket import init_waterfall_websocket
         init_waterfall_websocket(app)
-        print("WebSocket waterfall streaming enabled")
+        logger.info("WebSocket waterfall streaming enabled")
     except ImportError as e:
-        print(f"WebSocket waterfall disabled: {e}")
+        logger.warning(f"WebSocket waterfall disabled: {e}")
 
-    print(f"Open http://localhost:{args.port} in your browser")
-    print()
-    print("Press Ctrl+C to stop")
-    print()
+    logger.info(f"Open http://localhost:{args.port} in your browser")
+    logger.info("Press Ctrl+C to stop")
+
+    @app.after_serving
+    async def shutdown_cleanup():
+        """Ensure subprocesses and SDR resources are cleaned up on shutdown."""
+        logger.info("Shutting down — cleaning up subprocesses and resources...")
+        cleanup_all_processes()
+        from utils.database import close_db
+        close_db()
+        logger.info("Shutdown cleanup complete.")
 
 # Quart uses Hypercorn as its ASGI server (replaces Flask's threaded Werkzeug).
     # This eliminates the thread-per-SSE-connection bottleneck.

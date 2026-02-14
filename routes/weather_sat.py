@@ -41,7 +41,7 @@ def _progress_callback(progress: CaptureProgress) -> None:
 
 
 @weather_sat_bp.route('/status')
-def get_status():
+async def get_status():
     """Get weather satellite decoder status.
 
     Returns:
@@ -52,7 +52,7 @@ def get_status():
 
 
 @weather_sat_bp.route('/satellites')
-def list_satellites():
+async def list_satellites():
     """Get list of supported weather satellites with frequencies.
 
     Returns:
@@ -76,7 +76,7 @@ def list_satellites():
 
 
 @weather_sat_bp.route('/start', methods=['POST'])
-def start_capture():
+async def start_capture():
     """Start weather satellite capture and decode.
 
     JSON body:
@@ -105,7 +105,7 @@ def start_capture():
             'frequency': decoder.current_frequency,
         })
 
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
 
     # Validate satellite
     satellite = data.get('satellite')
@@ -186,7 +186,7 @@ def start_capture():
 
 
 @weather_sat_bp.route('/test-decode', methods=['POST'])
-def test_decode():
+async def test_decode():
     """Start weather satellite decode from a pre-recorded file.
 
     No SDR hardware is required — decodes an IQ baseband or WAV file
@@ -217,7 +217,7 @@ def test_decode():
             'frequency': decoder.current_frequency,
         })
 
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
 
     # Validate satellite
     satellite = data.get('satellite')
@@ -307,7 +307,7 @@ def test_decode():
 
 
 @weather_sat_bp.route('/stop', methods=['POST'])
-def stop_capture():
+async def stop_capture():
     """Stop weather satellite capture.
 
     Returns:
@@ -329,7 +329,7 @@ def stop_capture():
 
 
 @weather_sat_bp.route('/images')
-def list_images():
+async def list_images():
     """Get list of decoded weather satellite images.
 
     Query parameters:
@@ -360,7 +360,7 @@ def list_images():
 
 
 @weather_sat_bp.route('/images/<filename>')
-def get_image(filename: str):
+async def get_image(filename: str):
     """Serve a decoded weather satellite image file.
 
     Args:
@@ -389,11 +389,11 @@ def get_image(filename: str):
         return jsonify({'status': 'error', 'message': 'Image not found'}), 404
 
     mimetype = 'image/png' if filename.endswith('.png') else 'image/jpeg'
-    return send_file(image_path, mimetype=mimetype)
+    return await send_file(image_path, mimetype=mimetype)
 
 
 @weather_sat_bp.route('/images/<filename>', methods=['DELETE'])
-def delete_image(filename: str):
+async def delete_image(filename: str):
     """Delete a decoded image.
 
     Args:
@@ -414,7 +414,7 @@ def delete_image(filename: str):
 
 
 @weather_sat_bp.route('/images', methods=['DELETE'])
-def delete_all_images():
+async def delete_all_images():
     """Delete all decoded weather satellite images.
 
     Returns:
@@ -426,7 +426,7 @@ def delete_all_images():
 
 
 @weather_sat_bp.route('/stream')
-def stream_progress():
+async def stream_progress():
     """SSE stream of capture/decode progress.
 
     Returns:
@@ -440,7 +440,7 @@ def stream_progress():
 
 
 @weather_sat_bp.route('/passes')
-def get_passes():
+async def get_passes():
     """Get upcoming weather satellite passes for observer location.
 
     Query parameters:
@@ -529,7 +529,7 @@ def _scheduler_event_callback(event: dict) -> None:
 
 
 @weather_sat_bp.route('/schedule/enable', methods=['POST'])
-def enable_schedule():
+async def enable_schedule():
     """Enable auto-scheduling of weather satellite captures.
 
     JSON body:
@@ -547,7 +547,7 @@ def enable_schedule():
     """
     from utils.weather_sat_scheduler import get_weather_sat_scheduler
 
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
 
     if data.get('latitude') is None or data.get('longitude') is None:
         return jsonify({
@@ -584,7 +584,7 @@ def enable_schedule():
 
 
 @weather_sat_bp.route('/schedule/disable', methods=['POST'])
-def disable_schedule():
+async def disable_schedule():
     """Disable auto-scheduling."""
     from utils.weather_sat_scheduler import get_weather_sat_scheduler
 
@@ -594,7 +594,7 @@ def disable_schedule():
 
 
 @weather_sat_bp.route('/schedule/status')
-def schedule_status():
+async def schedule_status():
     """Get current scheduler state."""
     from utils.weather_sat_scheduler import get_weather_sat_scheduler
 
@@ -603,7 +603,7 @@ def schedule_status():
 
 
 @weather_sat_bp.route('/schedule/passes')
-def schedule_passes():
+async def schedule_passes():
     """List scheduled passes."""
     from utils.weather_sat_scheduler import get_weather_sat_scheduler
 
@@ -617,7 +617,7 @@ def schedule_passes():
 
 
 @weather_sat_bp.route('/schedule/skip/<pass_id>', methods=['POST'])
-def skip_pass(pass_id: str):
+async def skip_pass(pass_id: str):
     """Skip a scheduled pass."""
     from utils.weather_sat_scheduler import get_weather_sat_scheduler
 

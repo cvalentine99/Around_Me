@@ -13,6 +13,7 @@ import select
 import subprocess
 import threading
 import time
+import asyncio
 from typing import Any, Generator
 
 from quart import Blueprint, jsonify, request, Response
@@ -325,7 +326,7 @@ def stream_bt_scan(process, scan_mode):
 
 
 @bluetooth_bp.route('/reload-oui', methods=['POST'])
-def reload_oui_database_route():
+async def reload_oui_database_route():
     """Reload OUI database from external file."""
     new_db = load_oui_database()
     if new_db:
@@ -336,7 +337,7 @@ def reload_oui_database_route():
 
 
 @bluetooth_bp.route('/interfaces')
-def get_bt_interfaces():
+async def get_bt_interfaces():
     """Get available Bluetooth interfaces and tools."""
     interfaces = detect_bt_interfaces()
     tools = {
@@ -354,7 +355,7 @@ def get_bt_interfaces():
 
 
 @bluetooth_bp.route('/scan/start', methods=['POST'])
-def start_bt_scan():
+async def start_bt_scan():
     """Start Bluetooth scanning."""
     with app_module.bt_lock:
         if app_module.bt_process:
@@ -363,7 +364,7 @@ def start_bt_scan():
             else:
                 app_module.bt_process = None
 
-        data = request.json
+        data = await request.get_json()
         scan_mode = data.get('mode', 'hcitool')
         scan_ble = data.get('scan_ble', True)
 
@@ -436,7 +437,7 @@ def start_bt_scan():
 
 
 @bluetooth_bp.route('/scan/stop', methods=['POST'])
-def stop_bt_scan():
+async def stop_bt_scan():
     """Stop Bluetooth scanning."""
     with app_module.bt_lock:
         if app_module.bt_process:
@@ -451,9 +452,9 @@ def stop_bt_scan():
 
 
 @bluetooth_bp.route('/reset', methods=['POST'])
-def reset_bt_adapter():
+async def reset_bt_adapter():
     """Reset Bluetooth adapter."""
-    data = request.json
+    data = await request.get_json()
 
     # Validate Bluetooth interface name
     try:
@@ -498,9 +499,9 @@ def reset_bt_adapter():
 
 
 @bluetooth_bp.route('/enum', methods=['POST'])
-def enum_bt_services():
+async def enum_bt_services():
     """Enumerate services on a Bluetooth device."""
-    data = request.json
+    data = await request.get_json()
     target_mac = data.get('mac')
 
     if not target_mac:
@@ -544,7 +545,7 @@ def enum_bt_services():
 
 
 @bluetooth_bp.route('/devices')
-def get_bt_devices():
+async def get_bt_devices():
     """Get current list of discovered Bluetooth devices."""
     return jsonify({
         'devices': list(app_module.bt_devices.values()),
@@ -554,15 +555,18 @@ def get_bt_devices():
 
 
 @bluetooth_bp.route('/stream')
-def stream_bt():
+async def stream_bt():
     """SSE stream for Bluetooth events."""
-    def generate():
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         keepalive_interval = 30.0
 
         while True:
             try:
-                msg = app_module.bt_queue.get(timeout=1)
+                msg = await loop.run_in_executor(
+                    None, lambda: app_module.bt_queue.get(timeout=1)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('bluetooth', msg, msg.get('type'))

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import queue
 import time
+import asyncio
 from collections.abc import Generator
 from pathlib import Path
 
@@ -61,7 +62,7 @@ def _progress_callback(data: dict) -> None:
 
 
 @sstv_general_bp.route('/frequencies')
-def get_frequencies():
+async def get_frequencies():
     """Return the predefined SSTV frequency table."""
     return jsonify({
         'status': 'ok',
@@ -70,7 +71,7 @@ def get_frequencies():
 
 
 @sstv_general_bp.route('/status')
-def get_status():
+async def get_status():
     """Get general SSTV decoder status."""
     decoder = get_general_sstv_decoder()
 
@@ -83,7 +84,7 @@ def get_status():
 
 
 @sstv_general_bp.route('/start', methods=['POST'])
-def start_decoder():
+async def start_decoder():
     """
     Start general SSTV decoder.
 
@@ -114,7 +115,7 @@ def start_decoder():
         except queue.Empty:
             break
 
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
     frequency = data.get('frequency')
     modulation = data.get('modulation')
     device_index = data.get('device', 0)
@@ -173,7 +174,7 @@ def start_decoder():
 
 
 @sstv_general_bp.route('/stop', methods=['POST'])
-def stop_decoder():
+async def stop_decoder():
     """Stop general SSTV decoder."""
     decoder = get_general_sstv_decoder()
     decoder.stop()
@@ -181,7 +182,7 @@ def stop_decoder():
 
 
 @sstv_general_bp.route('/images')
-def list_images():
+async def list_images():
     """Get list of decoded SSTV images."""
     decoder = get_general_sstv_decoder()
     images = decoder.get_images()
@@ -198,7 +199,7 @@ def list_images():
 
 
 @sstv_general_bp.route('/images/<filename>')
-def get_image(filename: str):
+async def get_image(filename: str):
     """Get a decoded SSTV image file."""
     decoder = get_general_sstv_decoder()
 
@@ -225,11 +226,11 @@ def get_image(filename: str):
     if not image_path.exists():
         return jsonify({'status': 'error', 'message': 'Image not found'}), 404
 
-    return send_file(image_path, mimetype='image/png')
+    return await send_file(image_path, mimetype='image/png')
 
 
 @sstv_general_bp.route('/images/<filename>/download')
-def download_image(filename: str):
+async def download_image(filename: str):
     """Download a decoded SSTV image file."""
     decoder = get_general_sstv_decoder()
 
@@ -256,11 +257,11 @@ def download_image(filename: str):
     if not image_path.exists():
         return jsonify({'status': 'error', 'message': 'Image not found'}), 404
 
-    return send_file(image_path, mimetype='image/png', as_attachment=True, download_name=filename)
+    return await send_file(image_path, mimetype='image/png', as_attachment=True, download_name=filename)
 
 
 @sstv_general_bp.route('/images/<filename>', methods=['DELETE'])
-def delete_image(filename: str):
+async def delete_image(filename: str):
     """Delete a decoded SSTV image."""
     decoder = get_general_sstv_decoder()
 
@@ -278,7 +279,7 @@ def delete_image(filename: str):
 
 
 @sstv_general_bp.route('/images', methods=['DELETE'])
-def delete_all_images():
+async def delete_all_images():
     """Delete all decoded SSTV images."""
     decoder = get_general_sstv_decoder()
     count = decoder.delete_all_images()
@@ -286,15 +287,18 @@ def delete_all_images():
 
 
 @sstv_general_bp.route('/stream')
-def stream_progress():
+async def stream_progress():
     """SSE stream of SSTV decode progress."""
-    def generate() -> Generator[str, None, None]:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         keepalive_interval = 30.0
 
         while True:
             try:
-                progress = _sstv_general_queue.get(timeout=1)
+                progress = await loop.run_in_executor(
+                    None, lambda: _sstv_general_queue.get(timeout=1)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('sstv_general', progress, progress.get('type'))
@@ -315,15 +319,16 @@ def stream_progress():
 
 
 @sstv_general_bp.route('/decode-file', methods=['POST'])
-def decode_file():
+async def decode_file():
     """Decode SSTV from an uploaded audio file."""
-    if 'audio' not in request.files:
+    files = await request.files
+    if 'audio' not in files:
         return jsonify({
             'status': 'error',
             'message': 'No audio file provided',
         }), 400
 
-    audio_file = request.files['audio']
+    audio_file = files['audio']
 
     if not audio_file.filename:
         return jsonify({
@@ -333,7 +338,7 @@ def decode_file():
 
     import tempfile
     with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
-        audio_file.save(tmp.name)
+        await audio_file.save(tmp.name)
         tmp_path = tmp.name
 
     try:

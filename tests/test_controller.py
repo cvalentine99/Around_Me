@@ -33,17 +33,10 @@ def setup_db(tmp_path):
     db_module.DB_PATH = test_db_path
     db_module.DB_DIR = tmp_path
 
-    if hasattr(db_module._local, 'connection') and db_module._local.connection:
-        db_module._local.connection.close()
-        db_module._local.connection = None
-
     init_db()
 
     yield
 
-    if hasattr(db_module._local, 'connection') and db_module._local.connection:
-        db_module._local.connection.close()
-        db_module._local.connection = None
     db_module.DB_PATH = original_db_path
 
 

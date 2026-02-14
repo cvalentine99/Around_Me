@@ -48,7 +48,7 @@ def init_tle_auto_refresh():
     logger.info("TLE auto-refresh scheduled")
 
 
-def _fetch_iss_realtime(observer_lat: Optional[float] = None, observer_lon: Optional[float] = None) -> Optional[dict]:
+async def _fetch_iss_realtime(observer_lat: Optional[float] = None, observer_lon: Optional[float] = None) -> Optional[dict]:
     """
     Fetch real-time ISS position from external APIs.
 
@@ -61,7 +61,8 @@ def _fetch_iss_realtime(observer_lat: Optional[float] = None, observer_lon: Opti
 
     # Try primary API: Where The ISS At
     try:
-        response = httpx.get('https://api.wheretheiss.at/v1/satellites/25544', timeout=5)
+        async with httpx.AsyncClient() as client:
+            response = await client.get('https://api.wheretheiss.at/v1/satellites/25544', timeout=5)
         if response.status_code == 200:
             data = response.json()
             iss_lat = float(data['latitude'])
@@ -74,7 +75,8 @@ def _fetch_iss_realtime(observer_lat: Optional[float] = None, observer_lon: Opti
     # Try fallback API: Open Notify
     if iss_lat is None:
         try:
-            response = httpx.get('http://api.open-notify.org/iss-now.json', timeout=5)
+            async with httpx.AsyncClient() as client:
+                response = await client.get('http://api.open-notify.org/iss-now.json', timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 if data.get('message') == 'success':
@@ -137,16 +139,16 @@ def _fetch_iss_realtime(observer_lat: Optional[float] = None, observer_lon: Opti
 
 
 @satellite_bp.route('/dashboard')
-def satellite_dashboard():
+async def satellite_dashboard():
     """Popout satellite tracking dashboard."""
-    return render_template(
+    return await render_template(
         'satellite_dashboard.html',
         shared_observer_location=SHARED_OBSERVER_LOCATION_ENABLED,
     )
 
 
 @satellite_bp.route('/predict', methods=['POST'])
-def predict_passes():
+async def predict_passes():
     """Calculate satellite passes using skyfield."""
     try:
         from skyfield.api import load, wgs84, EarthSatellite
@@ -157,7 +159,7 @@ def predict_passes():
             'message': 'skyfield library not installed. Run: pip install skyfield'
         }), 503
 
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     # Validate inputs
     try:
@@ -308,14 +310,14 @@ def predict_passes():
 
 
 @satellite_bp.route('/position', methods=['POST'])
-def get_satellite_position():
+async def get_satellite_position():
     """Get real-time positions of satellites."""
     try:
         from skyfield.api import load, wgs84, EarthSatellite
     except ImportError:
         return jsonify({'status': 'error', 'message': 'skyfield not installed'}), 503
 
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     # Validate inputs
     try:
@@ -354,7 +356,7 @@ def get_satellite_position():
     for sat_name in satellites:
         # Special handling for ISS - use real-time API for accurate position
         if sat_name == 'ISS':
-            iss_data = _fetch_iss_realtime(lat, lon)
+            iss_data = await _fetch_iss_realtime(lat, lon)
             if iss_data:
                 # Add orbit track if requested (using TLE for track prediction)
                 if include_track and 'ISS' in _tle_cache:
@@ -489,7 +491,7 @@ def refresh_tle_data() -> list:
 
 
 @satellite_bp.route('/update-tle', methods=['POST'])
-def update_tle():
+async def update_tle():
     """Update TLE data from CelesTrak (API endpoint)."""
     try:
         updated = refresh_tle_data()
@@ -503,7 +505,7 @@ def update_tle():
 
 
 @satellite_bp.route('/celestrak/<category>')
-def fetch_celestrak(category):
+async def fetch_celestrak(category):
     """Fetch TLE data from CelesTrak for a category."""
     valid_categories = [
         'stations', 'weather', 'noaa', 'goes', 'resource', 'sarsat',

@@ -8,6 +8,7 @@ Airspy HF+ supports 9 kHz - 31 MHz and 60-260 MHz.
 
 from __future__ import annotations
 
+import shlex
 from typing import Optional
 
 from .base import CommandBuilder, SDRCapabilities, SDRDevice, SDRType
@@ -34,7 +35,7 @@ class AirspyCommandBuilder(CommandBuilder):
         """Build SoapySDR device string for Airspy."""
         driver = device.driver if device.driver in ('airspy', 'airspyhf') else 'airspy'
         if device.serial and device.serial != 'N/A':
-            return f'driver={driver},serial={device.serial}'
+            return f'driver={driver},serial={shlex.quote(str(device.serial))}'
         return f'driver={driver}'
 
     def _format_gain(self, gain: float) -> str:

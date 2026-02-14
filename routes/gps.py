@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import time
+import asyncio
 from typing import Generator
 
 from quart import Blueprint, jsonify, request, Response
@@ -40,7 +41,7 @@ def _position_callback(position: GPSPosition) -> None:
 
 
 @gps_bp.route('/auto-connect', methods=['POST'])
-def auto_connect_gps():
+async def auto_connect_gps():
     """
     Automatically connect to gpsd if available.
 
@@ -101,7 +102,7 @@ def auto_connect_gps():
 
 
 @gps_bp.route('/stop', methods=['POST'])
-def stop_gps_reader():
+async def stop_gps_reader():
     """Stop GPS client."""
     reader = get_gps_reader()
     if reader:
@@ -113,7 +114,7 @@ def stop_gps_reader():
 
 
 @gps_bp.route('/status')
-def get_gps_status():
+async def get_gps_status():
     """Get current GPS client status."""
     reader = get_gps_reader()
 
@@ -138,7 +139,7 @@ def get_gps_status():
 
 
 @gps_bp.route('/position')
-def get_position():
+async def get_position():
     """Get current GPS position."""
     position = get_current_position()
 
@@ -162,15 +163,18 @@ def get_position():
 
 
 @gps_bp.route('/stream')
-def stream_gps():
+async def stream_gps():
     """SSE stream of GPS position updates."""
-    def generate() -> Generator[str, None, None]:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         keepalive_interval = 30.0
 
         while True:
             try:
-                position = _gps_queue.get(timeout=1)
+                position = await loop.run_in_executor(
+                    None, lambda: _gps_queue.get(timeout=1)
+                )
                 last_keepalive = time.time()
                 yield format_sse({'type': 'position', **position})
             except queue.Empty:

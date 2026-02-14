@@ -14,7 +14,8 @@ import subprocess
 import threading
 import time
 from datetime import datetime
-from typing import Any, Generator
+import asyncio
+from typing import Any
 
 from quart import Blueprint, jsonify, request, Response
 
@@ -239,14 +240,14 @@ def stream_decoder(master_fd: int, process: subprocess.Popen[bytes]) -> None:
 
 
 @pager_bp.route('/start', methods=['POST'])
-def start_decoding() -> Response:
+async def start_decoding() -> Response:
     global pager_active_device
 
     with app_module.process_lock:
         if app_module.current_process:
             return jsonify({'status': 'error', 'message': 'Already running'}), 409
 
-        data = request.json or {}
+        data = await request.get_json(silent=True) or {}
 
         # Validate inputs
         try:
@@ -449,7 +450,7 @@ def start_decoding() -> Response:
 
 
 @pager_bp.route('/stop', methods=['POST'])
-def stop_decoding() -> Response:
+async def stop_decoding() -> Response:
     global pager_active_device
 
     with app_module.process_lock:
@@ -496,7 +497,7 @@ def stop_decoding() -> Response:
 
 
 @pager_bp.route('/status')
-def get_status() -> Response:
+async def get_status() -> Response:
     """Check if decoder is currently running."""
     with app_module.process_lock:
         if app_module.current_process and app_module.current_process.poll() is None:
@@ -505,9 +506,9 @@ def get_status() -> Response:
 
 
 @pager_bp.route('/logging', methods=['POST'])
-def toggle_logging() -> Response:
+async def toggle_logging() -> Response:
     """Toggle message logging."""
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
     if 'enabled' in data:
         app_module.logging_enabled = bool(data['enabled'])
 
@@ -539,16 +540,19 @@ def toggle_logging() -> Response:
 
 
 @pager_bp.route('/stream')
-def stream() -> Response:
+async def stream() -> Response:
     import json
 
-    def generate() -> Generator[str, None, None]:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         keepalive_interval = 30.0  # Send keepalive every 30 seconds instead of 1 second
 
         while True:
             try:
-                msg = app_module.output_queue.get(timeout=1)
+                msg = await loop.run_in_executor(
+                    None, lambda: app_module.output_queue.get(timeout=1)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('pager', msg, msg.get('type'))

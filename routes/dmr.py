@@ -11,6 +11,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+import asyncio
 from typing import Generator, Optional
 
 from quart import Blueprint, jsonify, request, Response
@@ -358,7 +359,7 @@ def stream_dsd_output(rtl_process: subprocess.Popen, dsd_process: subprocess.Pop
 # ============================================
 
 @dmr_bp.route('/tools')
-def check_tools() -> Response:
+async def check_tools() -> Response:
     """Check for required tools."""
     dsd_path, _ = find_dsd()
     rtl_fm = find_rtl_fm()
@@ -373,7 +374,7 @@ def check_tools() -> Response:
 
 
 @dmr_bp.route('/start', methods=['POST'])
-def start_dmr() -> Response:
+async def start_dmr() -> Response:
     """Start digital voice decoding."""
     global dmr_rtl_process, dmr_dsd_process, dmr_thread
     global dmr_running, dmr_has_audio, dmr_active_device
@@ -390,7 +391,7 @@ def start_dmr() -> Response:
     if not rtl_fm_path:
         return jsonify({'status': 'error', 'message': 'rtl_fm not found. Install rtl-sdr tools.'}), 503
 
-    data = request.json or {}
+    data = await request.get_json(silent=True) or {}
 
     try:
         frequency = validate_frequency(data.get('frequency', 462.5625))
@@ -571,7 +572,7 @@ def start_dmr() -> Response:
 
 
 @dmr_bp.route('/stop', methods=['POST'])
-def stop_dmr() -> Response:
+async def stop_dmr() -> Response:
     """Stop digital voice decoding."""
     global dmr_rtl_process, dmr_dsd_process
     global dmr_running, dmr_has_audio, dmr_active_device
@@ -604,7 +605,7 @@ def stop_dmr() -> Response:
 
 
 @dmr_bp.route('/status')
-def dmr_status() -> Response:
+async def dmr_status() -> Response:
     """Get DMR decoder status."""
     return jsonify({
         'running': dmr_running,
@@ -614,7 +615,7 @@ def dmr_status() -> Response:
 
 
 @dmr_bp.route('/audio/stream')
-def stream_dmr_audio() -> Response:
+async def stream_dmr_audio() -> Response:
     """Stream decoded digital voice audio as WAV.
 
     Starts a per-client ffmpeg encoder.  The global mux thread
@@ -656,13 +657,18 @@ def stream_dmr_audio() -> Response:
     # Tell the mux thread to start writing to this ffmpeg
     _active_ffmpeg_stdin = audio_proc.stdin
 
-    def generate():
+    async def generate():
         global _active_ffmpeg_stdin
+        loop = asyncio.get_running_loop()
         try:
             while dmr_running and audio_proc.poll() is None:
-                ready, _, _ = select.select([audio_proc.stdout], [], [], 2.0)
+                ready = await loop.run_in_executor(
+                    None, lambda: select.select([audio_proc.stdout], [], [], 2.0)[0]
+                )
                 if ready:
-                    chunk = audio_proc.stdout.read(4096)
+                    chunk = await loop.run_in_executor(
+                        None, audio_proc.stdout.read, 4096
+                    )
                     if chunk:
                         yield chunk
                     else:
@@ -703,13 +709,16 @@ def stream_dmr_audio() -> Response:
 
 
 @dmr_bp.route('/stream')
-def stream_dmr() -> Response:
+async def stream_dmr() -> Response:
     """SSE stream for DMR decoder events."""
-    def generate() -> Generator[str, None, None]:
+    async def generate():
+        loop = asyncio.get_running_loop()
         last_keepalive = time.time()
         while True:
             try:
-                msg = dmr_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                msg = await loop.run_in_executor(
+                    None, lambda: dmr_queue.get(timeout=SSE_QUEUE_TIMEOUT)
+                )
                 last_keepalive = time.time()
                 try:
                     process_event('dmr', msg, msg.get('type'))

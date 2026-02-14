@@ -194,7 +194,7 @@ def load_seen_device_ids() -> set[str]:
 
 
 @bluetooth_v2_bp.route('/capabilities', methods=['GET'])
-def get_capabilities():
+async def get_capabilities():
     """
     Get Bluetooth system capabilities.
 
@@ -206,7 +206,7 @@ def get_capabilities():
 
 
 @bluetooth_v2_bp.route('/scan/start', methods=['POST'])
-def start_scan():
+async def start_scan():
     """
     Start Bluetooth scanning.
 
@@ -220,7 +220,7 @@ def start_scan():
     Returns:
         JSON with scan status.
     """
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
 
     mode = data.get('mode', 'auto')
     duration_s = data.get('duration_s')
@@ -303,7 +303,7 @@ def start_scan():
 
 
 @bluetooth_v2_bp.route('/scan/stop', methods=['POST'])
-def stop_scan():
+async def stop_scan():
     """
     Stop Bluetooth scanning.
 
@@ -317,7 +317,7 @@ def stop_scan():
 
 
 @bluetooth_v2_bp.route('/scan/status', methods=['GET'])
-def get_scan_status():
+async def get_scan_status():
     """
     Get current scan status.
 
@@ -330,7 +330,7 @@ def get_scan_status():
 
 
 @bluetooth_v2_bp.route('/devices', methods=['GET'])
-def list_devices():
+async def list_devices():
     """
     List discovered Bluetooth devices.
 
@@ -375,7 +375,7 @@ def list_devices():
 
 
 @bluetooth_v2_bp.route('/devices/<device_id>', methods=['GET'])
-def get_device(device_id: str):
+async def get_device(device_id: str):
     """
     Get detailed information about a specific device.
 
@@ -400,7 +400,7 @@ def get_device(device_id: str):
 
 
 @bluetooth_v2_bp.route('/trackers', methods=['GET'])
-def list_trackers():
+async def list_trackers():
     """
     List detected tracker devices with enriched tracker data.
 
@@ -508,7 +508,7 @@ def list_trackers():
 
 
 @bluetooth_v2_bp.route('/trackers/<device_id>', methods=['GET'])
-def get_tracker_detail(device_id: str):
+async def get_tracker_detail(device_id: str):
     """
     Get detailed tracker information for investigation.
 
@@ -625,7 +625,7 @@ def get_tracker_detail(device_id: str):
 
 
 @bluetooth_v2_bp.route('/diagnostics', methods=['GET'])
-def get_diagnostics():
+async def get_diagnostics():
     """
     Get Bluetooth system diagnostics for troubleshooting.
 
@@ -722,7 +722,7 @@ def get_diagnostics():
 
 
 @bluetooth_v2_bp.route('/baseline/set', methods=['POST'])
-def set_baseline():
+async def set_baseline():
     """
     Set current devices as baseline.
 
@@ -732,7 +732,7 @@ def set_baseline():
     Returns:
         JSON with baseline info.
     """
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
     name = data.get('name', f'Baseline {datetime.now().strftime("%Y-%m-%d %H:%M")}')
 
     scanner = get_bluetooth_scanner()
@@ -756,7 +756,7 @@ def set_baseline():
 
 
 @bluetooth_v2_bp.route('/baseline/clear', methods=['POST'])
-def clear_baseline():
+async def clear_baseline():
     """
     Clear the active baseline.
 
@@ -778,7 +778,7 @@ def clear_baseline():
 
 
 @bluetooth_v2_bp.route('/baseline/list', methods=['GET'])
-def list_baselines():
+async def list_baselines():
     """
     List all saved baselines.
 
@@ -794,7 +794,7 @@ def list_baselines():
 
 
 @bluetooth_v2_bp.route('/export', methods=['GET'])
-def export_devices():
+async def export_devices():
     """
     Export devices in CSV or JSON format.
 
@@ -864,7 +864,7 @@ def export_devices():
 
 
 @bluetooth_v2_bp.route('/stream', methods=['GET'])
-def stream_events():
+async def stream_events():
     """
     SSE event stream for real-time device updates.
 
@@ -918,7 +918,7 @@ def stream_events():
 
 
 @bluetooth_v2_bp.route('/clear', methods=['POST'])
-def clear_devices():
+async def clear_devices():
     """
     Clear all tracked devices (does not affect baseline).
 
@@ -932,7 +932,7 @@ def clear_devices():
 
 
 @bluetooth_v2_bp.route('/prune', methods=['POST'])
-def prune_stale():
+async def prune_stale():
     """
     Prune stale devices.
 
@@ -942,7 +942,7 @@ def prune_stale():
     Returns:
         JSON with count of pruned devices.
     """
-    data = request.get_json() or {}
+    data = await request.get_json() or {}
     max_age = data.get('max_age', 300)
 
     scanner = get_bluetooth_scanner()
@@ -1070,7 +1070,7 @@ def get_tscm_bluetooth_snapshot(duration: int = 8) -> list[dict]:
 
 
 @bluetooth_v2_bp.route('/proximity/snapshot', methods=['GET'])
-def get_proximity_snapshot():
+async def get_proximity_snapshot():
     """
     Get proximity snapshot for radar visualization.
 
@@ -1137,7 +1137,7 @@ def get_proximity_snapshot():
 
 
 @bluetooth_v2_bp.route('/heatmap/data', methods=['GET'])
-def get_heatmap_data():
+async def get_heatmap_data():
     """
     Get heatmap data for timeline visualization.
 
@@ -1175,7 +1175,7 @@ def get_heatmap_data():
 
 
 @bluetooth_v2_bp.route('/devices/<path:device_key>/timeseries', methods=['GET'])
-def get_device_timeseries(device_key: str):
+async def get_device_timeseries(device_key: str):
     """
     Get timeseries data for a specific device.
 

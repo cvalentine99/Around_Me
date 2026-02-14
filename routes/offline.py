@@ -60,7 +60,7 @@ def get_offline_settings():
 
 
 @offline_bp.route('/settings', methods=['GET'])
-def get_settings():
+async def get_settings():
     """Get current offline settings."""
     settings = get_offline_settings()
     return jsonify({
@@ -70,9 +70,9 @@ def get_settings():
 
 
 @offline_bp.route('/settings', methods=['POST'])
-def save_setting():
+async def save_setting():
     """Save an offline setting."""
-    data = request.get_json()
+    data = await request.get_json(silent=True)
     if not data or 'key' not in data or 'value' not in data:
         return jsonify({'status': 'error', 'message': 'Missing key or value'}), 400
 
@@ -108,7 +108,7 @@ def save_setting():
 
 
 @offline_bp.route('/status', methods=['GET'])
-def get_status():
+async def get_status():
     """Check status of local assets."""
     # Get the app root directory
     app_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -142,7 +142,7 @@ def get_status():
 
 
 @offline_bp.route('/check-asset', methods=['GET'])
-def check_asset():
+async def check_asset():
     """Check if a specific asset file exists."""
     from utils.safe_path import resolve_safe
     path = request.args.get('path', '')
