@@ -1454,19 +1454,24 @@ async def stream_audio() -> Response:
     if not audio_running or not audio_process:
         return Response(b'', mimetype='audio/mpeg', status=204)
 
-    def generate():
+    async def generate():
         # Capture local reference to avoid race condition with stop
         proc = audio_process
         if not proc or not proc.stdout:
             return
+        loop = asyncio.get_running_loop()
         try:
             # First byte timeout to avoid hanging clients forever
             first_chunk_deadline = time.time() + 3.0
             while audio_running and proc.poll() is None:
-                # Use select to avoid blocking forever
-                ready, _, _ = select.select([proc.stdout], [], [], 2.0)
+                # Use run_in_executor to avoid blocking the event loop
+                ready = await loop.run_in_executor(
+                    None, lambda: select.select([proc.stdout], [], [], 2.0)[0]
+                )
                 if ready:
-                    chunk = proc.stdout.read(4096)
+                    chunk = await loop.run_in_executor(
+                        None, proc.stdout.read, 4096
+                    )
                     if chunk:
                         yield chunk
                     else:

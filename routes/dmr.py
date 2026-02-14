@@ -657,13 +657,18 @@ async def stream_dmr_audio() -> Response:
     # Tell the mux thread to start writing to this ffmpeg
     _active_ffmpeg_stdin = audio_proc.stdin
 
-    def generate():
+    async def generate():
         global _active_ffmpeg_stdin
+        loop = asyncio.get_running_loop()
         try:
             while dmr_running and audio_proc.poll() is None:
-                ready, _, _ = select.select([audio_proc.stdout], [], [], 2.0)
+                ready = await loop.run_in_executor(
+                    None, lambda: select.select([audio_proc.stdout], [], [], 2.0)[0]
+                )
                 if ready:
-                    chunk = audio_proc.stdout.read(4096)
+                    chunk = await loop.run_in_executor(
+                        None, audio_proc.stdout.read, 4096
+                    )
                     if chunk:
                         yield chunk
                     else:
