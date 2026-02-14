@@ -502,12 +502,16 @@ async def proxy_mode_stream(agent_id: int, mode: str):
 
     async def generate():
         try:
-            with httpx.stream('GET', url, headers=headers, timeout=httpx.Timeout(5.0, read=3600.0)) as resp:
-                resp.raise_for_status()
-                for chunk in resp.iter_bytes(chunk_size=1024):
-                    if not chunk:
-                        continue
-                    yield chunk.decode('utf-8', errors='ignore')
+            async with httpx.AsyncClient() as async_client:
+                async with async_client.stream(
+                    'GET', url, headers=headers,
+                    timeout=httpx.Timeout(5.0, read=3600.0)
+                ) as resp:
+                    resp.raise_for_status()
+                    async for chunk in resp.aiter_bytes(chunk_size=1024):
+                        if not chunk:
+                            continue
+                        yield chunk.decode('utf-8', errors='ignore')
         except Exception as e:
             logger.error(f"SSE proxy error for agent {agent_id}/{mode}: {e}")
             yield format_sse({
