@@ -627,9 +627,12 @@ install_satdump_from_source_debian() {
   info "Building SatDump v1.2.2 from source (weather satellite decoder)..."
 
   apt_install build-essential git cmake pkg-config \
-    libpng-dev libtiff-dev libjemalloc-dev libvolk-dev libnng-dev \
+    libpng-dev libtiff-dev libjemalloc-dev libnng-dev \
     libzstd-dev libsoapysdr-dev libhackrf-dev liblimesuite-dev \
     libsqlite3-dev libcurl4-openssl-dev zlib1g-dev libzmq3-dev libfftw3-dev
+
+  # libvolk-dev was renamed to libvolk2-dev in newer distros
+  apt_try_install_any libvolk-dev libvolk2-dev || warn "libvolk not available (SatDump may still build without it)"
 
   # Run in subshell to isolate EXIT trap
   (
@@ -1299,7 +1302,7 @@ final_summary_and_hard_fail() {
   echo "============================================"
   echo
   echo "To start VALENTINE RF:"
-  echo "  sudo -E venv/bin/python valentine-rf.py"
+  echo "  sudo -E venv/bin/python valentine.py"
   echo
   echo "Then open http://localhost:5050 in your browser"
   echo
