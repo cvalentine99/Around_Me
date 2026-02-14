@@ -2,6 +2,30 @@
 
 All notable changes to Valentine RF will be documented in this file.
 
+## [2.18.0] - 2026-02-14
+
+### Changed
+- **Complete Quart Async Migration** — All 386 route handlers across 34 files converted to `async def`
+  - `await` added to `request.form`, `request.get_json()`, `render_template()`, `send_file()`
+  - SSE generators converted to async with `run_in_executor` for non-blocking `queue.get()`
+  - `time.sleep()` replaced with `asyncio.sleep()` in all generators
+  - DMR and Listening Post audio stream generators use async `select.select()` via executor
+- **httpx AsyncClient** — `agent_client.py` fully async; SSE proxy in `controller.py` uses `AsyncClient.stream()` with `aiter_bytes()`
+- **Structured Logging** — All `print()` statements in `app.py` replaced with `logger.info()`/`logger.warning()`
+
+### Security
+- **SQL Injection Fix** — `update_tscm_schedule()` now validates column names against `_TSCM_SCHEDULE_COLUMNS` whitelist
+- **SDR Command Injection** — `shlex.quote()` applied to device serial/host/port in all 5 SDR command builders
+- **Content-Security-Policy** — CSP header added to all responses via `add_security_headers()`
+
+### Fixed
+- **Process Race Conditions** — `ProcessLookupError` caught in `safe_terminate()` and `cleanup_all_processes()`
+- **Thread-Local DB Removed** — `threading.local()` connections replaced with per-call connections (safe under async)
+- **UAT stderr Pipe Leak** — Explicit `proc.stderr.close()` in UAT cleanup
+- **Graceful Shutdown** — `@app.after_serving` handler cleans up subprocesses and DB connections
+
+---
+
 ## [2.17.0] - 2026-02-14
 
 ### Added

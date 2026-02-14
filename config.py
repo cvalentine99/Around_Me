@@ -8,10 +8,26 @@ import secrets
 import sys
 
 # Application version
-VERSION = "2.17.0"
+VERSION = "2.18.0"
 
 # Changelog - latest release notes (shown on welcome screen)
 CHANGELOG = [
+    {
+        "version": "2.18.0",
+        "date": "February 2026",
+        "highlights": [
+            "Complete Quart async migration: all 386 route handlers converted to async def",
+            "SSE generators converted to async with run_in_executor for non-blocking queue reads",
+            "httpx AsyncClient for agent_client.py and SSE proxy streaming",
+            "SQL injection fix in TSCM schedule updates (column name whitelist)",
+            "Process race condition fixes in safe_terminate/cleanup_all_processes",
+            "Thread-local DB connections removed (unsafe under async event loop)",
+            "shlex.quote() sanitization on all SDR command builders",
+            "Content-Security-Policy header added to all responses",
+            "Graceful shutdown handler for subprocess cleanup",
+            "Structured logging replaces all print() statements",
+        ]
+    },
     {
         "version": "2.17.0",
         "date": "February 2026",
