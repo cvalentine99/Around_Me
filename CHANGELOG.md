@@ -2,6 +2,28 @@
 
 All notable changes to Valentine RF will be documented in this file.
 
+## [2.17.0] - 2026-02-14
+
+### Added
+- **UAT 978 MHz ADS-B Decoder** — Full support for US general aviation traffic below FL180
+  - `routes/uat.py` blueprint with start/stop/status/tools endpoints
+  - dump978-fa + uat2json subprocess pipeline with pipe chaining
+  - UAT aircraft merged into existing `adsb_aircraft` DataStore with `source: 'uat'` tag
+  - 978 source badge in aircraft list and selected target panel
+  - UAT control group in ADS-B dashboard (auto-hidden when tools not available)
+  - `build_uat_command()` in `utils/sdr/rtlsdr.py` returning `(dump978_cmd, uat2json_cmd)` tuple
+  - UAT constants in `utils/constants.py` (port, timeouts, start wait)
+  - `VALENTINE_UAT_*` config vars in `config.py` and `docker-compose.yml`
+  - dump978-fa + uat2json build stage in Dockerfile (libboost dependencies)
+  - `tests/test_uat.py` with parser, tool discovery, and route tests
+  - UAT status in `/health` endpoint
+  - dump978 and uat2json added to `/killall` process list
+- **Dual-SDR Operation** — Run 1090 ES and 978 UAT simultaneously on separate dongles
+  - SDR device registry prevents conflicts between 1090 and 978 decoders
+  - Device selector defaults to SDR 1 for UAT (SDR 0 typically used for 1090)
+
+---
+
 ## [2.16.0] - 2026-02-14
 
 ### Changed

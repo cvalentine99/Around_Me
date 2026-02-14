@@ -103,6 +103,18 @@ class SDRPlayCommandBuilder(CommandBuilder):
 
         return cmd
 
+
+    def build_uat_command(
+        self,
+        device: SDRDevice,
+        gain: Optional[float] = None,
+    ) -> tuple[list[str], list[str]]:
+        """Build UAT decoder command. Returns (dump978_cmd, uat2json_cmd)."""
+        raise NotImplementedError(
+            "UAT decoding requires an RTL-SDR device. "
+            f"{self.__class__.__name__} does not support dump978."
+        )
+
     def build_ism_command(
         self,
         device: SDRDevice,

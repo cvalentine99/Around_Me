@@ -77,6 +77,7 @@ Each signal type has its own Quart blueprint:
 - `pager.py` - POCSAG/FLEX decoding via rtl_fm + multimon-ng
 - `sensor.py` - 433MHz IoT sensors via rtl_433
 - `adsb.py` - Aircraft tracking via readsb (preferred) or dump1090 fallback (SBS protocol on port 30003)
+- `uat.py` - UAT 978 MHz ADS-B decoding via dump978-fa + uat2json (US general aviation below FL180)
 - `acars.py` - Aircraft datalink messages via acarsdec
 - `wifi.py`, `wifi_v2.py` - WiFi scanning (legacy and unified APIs)
 - `bluetooth.py`, `bluetooth_v2.py` - Bluetooth scanning (legacy and unified APIs)
@@ -143,6 +144,8 @@ Each signal type has its own Quart blueprint:
 | rtl_433 | 433MHz sensors | JSON output parsing |
 | readsb | ADS-B decoding (preferred) | SBS protocol socket (port 30003) |
 | dump1090 | ADS-B decoding (fallback) | SBS protocol socket (port 30003) |
+| dump978-fa | UAT 978 MHz decoding | stdout JSON piped to uat2json |
+| uat2json | UAT frame → JSON conversion | stdin/stdout pipe with dump978 |
 | acarsdec | ACARS messages | Output parsing |
 | airmon-ng/airodump-ng | WiFi scanning | Monitor mode, CSV parsing |
 | bluetoothctl/hcitool | Bluetooth | Fallback when DBus unavailable |

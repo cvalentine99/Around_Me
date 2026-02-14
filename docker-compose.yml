@@ -56,6 +56,11 @@ services:
       # - VALENTINE_ADSB_DB_PASSWORD=valentine
       # ADS-B auto-start on dashboard load (default false)
       - VALENTINE_ADSB_AUTO_START=${VALENTINE_ADSB_AUTO_START:-false}
+      # UAT (978 MHz) settings — requires a second RTL-SDR dongle
+      - VALENTINE_UAT_ENABLED=${VALENTINE_UAT_ENABLED:-false}
+      - VALENTINE_UAT_AUTO_START=${VALENTINE_UAT_AUTO_START:-false}
+      - VALENTINE_UAT_DEFAULT_DEVICE=${VALENTINE_UAT_DEFAULT_DEVICE:-1}
+      - VALENTINE_UAT_DEFAULT_GAIN=${VALENTINE_UAT_DEFAULT_GAIN:-40}
       # Shared observer location across modules
       - VALENTINE_SHARED_OBSERVER_LOCATION=${VALENTINE_SHARED_OBSERVER_LOCATION:-true}
       # Default observer coordinates (set to your location to skip the GPS prompt)
@@ -111,6 +116,11 @@ services:
       - VALENTINE_ADSB_DB_PASSWORD=valentine
       # ADS-B auto-start on dashboard load (default false)
       - VALENTINE_ADSB_AUTO_START=${VALENTINE_ADSB_AUTO_START:-false}
+      # UAT (978 MHz) settings — requires a second RTL-SDR dongle
+      - VALENTINE_UAT_ENABLED=${VALENTINE_UAT_ENABLED:-false}
+      - VALENTINE_UAT_AUTO_START=${VALENTINE_UAT_AUTO_START:-false}
+      - VALENTINE_UAT_DEFAULT_DEVICE=${VALENTINE_UAT_DEFAULT_DEVICE:-1}
+      - VALENTINE_UAT_DEFAULT_GAIN=${VALENTINE_UAT_DEFAULT_GAIN:-40}
       # Shared observer location across modules
       - VALENTINE_SHARED_OBSERVER_LOCATION=${VALENTINE_SHARED_OBSERVER_LOCATION:-true}
       # Default observer coordinates (set to your location to skip the GPS prompt)

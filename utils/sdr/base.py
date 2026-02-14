@@ -136,6 +136,27 @@ class CommandBuilder(ABC):
         pass
 
     @abstractmethod
+    def build_uat_command(
+        self,
+        device: SDRDevice,
+        gain: Optional[float] = None,
+    ) -> tuple[list[str], list[str]]:
+        """
+        Build UAT (978 MHz) decoder command.
+
+        Returns two commands that must be piped together:
+            dump978-fa --sdr --sdr-device-index N | uat2json
+
+        Args:
+            device: The SDR device to use.
+            gain: Optional gain value. If None, uses auto-gain.
+
+        Returns:
+            Tuple of (dump978_cmd, uat2json_cmd) for subprocess piping.
+        """
+        pass
+
+    @abstractmethod
     def build_ism_command(
         self,
         device: SDRDevice,

@@ -715,6 +715,15 @@ def export_bluetooth() -> Response:
         })
 
 
+def _is_uat_running() -> bool:
+    """Check if UAT decoder is running."""
+    try:
+        from routes.uat import uat_running
+        return uat_running
+    except ImportError:
+        return False
+
+
 @app.route('/health')
 def health_check() -> Response:
     """Health check endpoint for monitoring."""
@@ -734,6 +743,7 @@ def health_check() -> Response:
             'bluetooth': bt_process is not None and (bt_process.poll() is None if bt_process else False),
             'dsc': dsc_process is not None and (dsc_process.poll() is None if dsc_process else False),
             'dmr': dmr_process is not None and (dmr_process.poll() is None if dmr_process else False),
+            'uat': _is_uat_running(),
         },
         'data': {
             'aircraft_count': len(adsb_aircraft),
@@ -764,7 +774,8 @@ def kill_all() -> Response:
         'airodump-ng', 'aireplay-ng', 'airmon-ng',
         'dump1090', 'acarsdec', 'direwolf', 'AIS-catcher',
         'hcitool', 'bluetoothctl', 'satdump', 'dsd',
-        'rtl_tcp', 'rtl_power', 'rtlamr', 'ffmpeg'
+        'rtl_tcp', 'rtl_power', 'rtlamr', 'ffmpeg',
+        'dump978', 'uat2json'
     ]
 
     for proc in processes_to_kill:
@@ -788,6 +799,12 @@ def kill_all() -> Response:
     with adsb_lock:
         adsb_process = None
         adsb_module.adsb_using_service = False
+
+    # Reset UAT state
+    from routes import uat as uat_module
+    uat_module.uat_running = False
+    uat_module._cleanup_uat_processes()
+    uat_module.uat_active_device = None
 
     # Reset AIS state
     with ais_lock:

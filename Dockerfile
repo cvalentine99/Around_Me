@@ -95,6 +95,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpulse-dev \
     liblapack-dev \
     libcodec2-dev \
+    libboost-system-dev \
+    libboost-program-options-dev \
+    libboost-regex-dev \
+    libboost-filesystem-dev \
     # ---- readsb (PREFERRED ADS-B decoder, pinned: 5831f91093ef) ----
     # readsb is the preferred decoder for all SDR types. It handles RTL-SDR
     # natively and supports SoapySDR for HackRF/LimeSDR/Airspy.
@@ -115,6 +119,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && cp dump1090 /usr/bin/dump1090-fa \
     && ln -s /usr/bin/dump1090-fa /usr/bin/dump1090 \
     && rm -rf /tmp/dump1090 \
+    # ---- dump978 (978 MHz UAT decoder, pinned: v9.0) ----
+    # dump978 decodes UAT (978 MHz) ADS-B used by US GA below FL180.
+    # Produces JSON via: dump978-fa --sdr | uat2json
+    && cd /tmp \
+    && git clone https://github.com/flightaware/dump978.git \
+    && cd dump978 \
+    && git checkout v9.0 \
+    && mkdir build && cd build \
+    && cmake .. -DCMAKE_INSTALL_PREFIX=/usr \
+    && make -j$(nproc) \
+    && cp dump978-fa /usr/bin/dump978-fa \
+    && cp uat2json /usr/bin/uat2json \
+    && cp uat2esnt /usr/bin/uat2esnt \
+    && ln -sf /usr/bin/dump978-fa /usr/bin/dump978 \
+    && rm -rf /tmp/dump978 \
     # ---- AIS-catcher (pinned: 5e34ea2363d5) ----
     && cd /tmp \
     && git clone https://github.com/jvde-github/AIS-catcher.git \
@@ -222,6 +241,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libfftw3-dev \
     liblapack-dev \
     libcodec2-dev \
+    libboost-system-dev \
+    libboost-program-options-dev \
+    libboost-regex-dev \
+    libboost-filesystem-dev \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 

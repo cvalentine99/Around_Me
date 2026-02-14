@@ -229,6 +229,22 @@ MAX_VESSEL_AGE_SECONDS = 600  # 10 minutes
 # AIS process termination timeout
 AIS_TERMINATE_TIMEOUT = 5
 
+# =============================================================================
+# UAT (978 MHz ADS-B)
+# =============================================================================
+
+# dump978 does not use a TCP port like dump1090's SBS.
+# Instead, it streams JSON to stdout. We pipe: dump978-fa | uat2json.
+# This constant is only needed if you later add uat2esnt SBS re-broadcast.
+UAT_ESNT_PORT = 30978
+
+# Wait time after launching dump978 before checking if it crashed
+UAT_START_WAIT = 2.0
+
+# UAT process termination timeout
+UAT_TERMINATE_TIMEOUT = 5
+
+
 # WiFi capture temp path prefix
 WIFI_CAPTURE_PATH_PREFIX = '/tmp/valentine_wifi'
 

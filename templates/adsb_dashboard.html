@@ -362,6 +362,18 @@
                 </div>
             </div>
 
+            <!-- UAT (978 MHz) Tracking Group -->
+            <div class="control-group uat-group" id="uatControlGroup" style="display: none;">
+                <span class="control-group-label">UAT 978</span>
+                <div class="control-group-items">
+                    <select id="uatDeviceSelect" title="SDR device for UAT (978 MHz)">
+                        <option value="1">SDR 1</option>
+                    </select>
+                    <input type="number" id="uatGain" value="40" min="0" max="50" step="1" style="width: 50px;" title="UAT gain">
+                    <button class="start-btn" id="uatStartBtn" onclick="toggleUat()">START</button>
+                    <span class="uat-status-badge" id="uatStatusBadge" style="display: none; background: #059669; color: #fff; padding: 1px 6px; border-radius: 3px; font-size: 9px;">978</span>
+                </div>
+            </div>
             <!-- Airband Listening Group -->
             <div class="control-group airband-group">
                 <span class="control-group-label">AIRBAND</span>
@@ -3201,6 +3213,10 @@ sudo make install</code>
             // Agent badge if aircraft came from remote agent
             const agentBadge = ac._agent ?
                 `<span class="agent-badge">${ac._agent}</span>` : '';
+            // Source badge: 978 (UAT) or 1090 (ES)
+            const sourceBadge = ac.source === 'uat'
+                ? `<span style="background:#059669;color:#fff;padding:1px 4px;border-radius:2px;font-size:8px;margin-left:4px;">978</span>`
+                : '';
             // Vertical rate indicator: arrow up (climbing), arrow down (descending), or dash (level)
             let vsIndicator = '-';
             let vsColor = '';
@@ -3211,7 +3227,7 @@ sudo make install</code>
 
             return `
                 <div class="aircraft-header">
-                    <span class="aircraft-callsign">${callsign}${badge}${agentBadge}</span>
+                    <span class="aircraft-callsign">${callsign}${badge}${sourceBadge}${agentBadge}</span>
                     <span class="aircraft-icao">${typeCode ? typeCode + ' • ' : ''}${ac.icao}</span>
                 </div>
                 <div class="aircraft-details">
@@ -4994,6 +5010,89 @@ sudo make install</code>
                 allAgentsEventSource = null;
             }
         }
+    // ================================================================
+    // UAT (978 MHz) Controls
+    // ================================================================
+    let uatTracking = false;
+
+    // Check if UAT tools are available on page load
+    async function checkUatAvailability() {
+        try {
+            const resp = await fetch('/uat/tools');
+            const data = await resp.json();
+            if (data.enabled && data.dump978 && data.uat2json) {
+                document.getElementById('uatControlGroup').style.display = '';
+                // Populate device selector with detected SDR devices
+                populateUatDevices();
+            }
+        } catch (e) {
+            // UAT not available, control group stays hidden
+        }
+    }
+
+    async function populateUatDevices() {
+        try {
+            const resp = await fetch('/devices');
+            const devices = await resp.json();
+            const select = document.getElementById('uatDeviceSelect');
+            select.innerHTML = '';
+            devices.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.index;
+                opt.textContent = `SDR ${d.index}`;
+                select.appendChild(opt);
+            });
+            // Default to device 1 if available (device 0 is typically used for 1090)
+            if (devices.length > 1) select.value = '1';
+        } catch (e) {
+            // Keep default option
+        }
+    }
+
+    async function toggleUat() {
+        const btn = document.getElementById('uatStartBtn');
+        const badge = document.getElementById('uatStatusBadge');
+
+        if (!uatTracking) {
+            const device = parseInt(document.getElementById('uatDeviceSelect').value) || 1;
+            const gain = parseInt(document.getElementById('uatGain').value) || 40;
+            try {
+                const resp = await fetch('/uat/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ device, gain })
+                });
+                const data = await resp.json();
+                if (data.status === 'started' || data.status === 'already_running') {
+                    uatTracking = true;
+                    btn.textContent = 'STOP';
+                    btn.classList.add('active');
+                    badge.style.display = '';
+                    document.getElementById('uatDeviceSelect').disabled = true;
+                    document.getElementById('uatGain').disabled = true;
+                } else {
+                    alert('UAT start failed: ' + (data.message || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('UAT start error: ' + e.message);
+            }
+        } else {
+            try {
+                await fetch('/uat/stop', { method: 'POST' });
+            } catch (e) {
+                // Ignore stop errors
+            }
+            uatTracking = false;
+            btn.textContent = 'START';
+            btn.classList.remove('active');
+            badge.style.display = 'none';
+            document.getElementById('uatDeviceSelect').disabled = false;
+            document.getElementById('uatGain').disabled = false;
+        }
+    }
+
+    // Check UAT availability on page load
+    checkUatAvailability();
     </script>
 </body>
 </html>

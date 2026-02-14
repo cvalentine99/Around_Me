@@ -157,6 +157,45 @@ class RTLSDRCommandBuilder(CommandBuilder):
 
         return cmd
 
+    def build_uat_command(
+        self,
+        device: SDRDevice,
+        gain: Optional[float] = None,
+    ) -> tuple[list[str], list[str]]:
+        """
+        Build dump978 pipeline commands for UAT decoding.
+
+        Returns two commands that must be piped together:
+            dump978-fa --sdr --sdr-device-index N | uat2json
+
+        Args:
+            device: The SDR device to use.
+            gain: Optional gain value. If None, uses auto-gain.
+
+        Returns:
+            Tuple of (dump978_cmd, uat2json_cmd) for subprocess piping.
+        """
+        if device.is_network:
+            raise ValueError(
+                "UAT decoding requires a local RTL-SDR device, not rtl_tcp."
+            )
+
+        dump978_path = get_tool_path('dump978-fa') or get_tool_path('dump978') or 'dump978-fa'
+        uat2json_path = get_tool_path('uat2json') or 'uat2json'
+
+        dump978_cmd = [
+            dump978_path,
+            '--sdr',
+            '--sdr-device-index', str(device.index),
+        ]
+
+        if gain is not None:
+            dump978_cmd.extend(['--sdr-gain', str(gain)])
+
+        uat2json_cmd = [uat2json_path]
+
+        return dump978_cmd, uat2json_cmd
+
     def build_ism_command(
         self,
         device: SDRDevice,

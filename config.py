@@ -8,10 +8,21 @@ import secrets
 import sys
 
 # Application version
-VERSION = "2.16.0"
+VERSION = "2.17.0"
 
 # Changelog - latest release notes (shown on welcome screen)
 CHANGELOG = [
+    {
+        "version": "2.17.0",
+        "date": "February 2026",
+        "highlights": [
+            "UAT 978 MHz ADS-B decoder support (dump978-fa + uat2json)",
+            "Dual-SDR operation: 1090 ES + 978 UAT simultaneously",
+            "UAT aircraft merged into existing ADS-B map with 978 source badge",
+            "Auto-discovery of dump978/uat2json tools with enable/disable config",
+            "UAT controls in ADS-B dashboard (hidden when tools not available)",
+        ]
+    },
     {
         "version": "2.16.0",
         "date": "February 2026",
@@ -222,6 +233,12 @@ ADSB_DB_PASSWORD = _get_env('ADSB_DB_PASSWORD', 'valentine')
 ADSB_HISTORY_BATCH_SIZE = _get_env_int('ADSB_HISTORY_BATCH_SIZE', 500)
 ADSB_HISTORY_FLUSH_INTERVAL = _get_env_float('ADSB_HISTORY_FLUSH_INTERVAL', 1.0)
 ADSB_HISTORY_QUEUE_SIZE = _get_env_int('ADSB_HISTORY_QUEUE_SIZE', 50000)
+
+# UAT (978 MHz) settings
+UAT_ENABLED = _get_env_bool('UAT_ENABLED', False)
+UAT_AUTO_START = _get_env_bool('UAT_AUTO_START', False)
+UAT_DEFAULT_DEVICE = _get_env_int('UAT_DEFAULT_DEVICE', 1)
+UAT_DEFAULT_GAIN = _get_env('UAT_DEFAULT_GAIN', '40')
 
 # Observer location settings
 SHARED_OBSERVER_LOCATION_ENABLED = _get_env_bool('SHARED_OBSERVER_LOCATION', True)
