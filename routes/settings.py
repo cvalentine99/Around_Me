@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 
-from flask import Blueprint, jsonify, request, Response
+from quart import Blueprint, jsonify, request, Response
 
 from utils.database import (
     get_setting,

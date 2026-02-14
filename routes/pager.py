@@ -16,7 +16,7 @@ import time
 from datetime import datetime
 from typing import Any, Generator
 
-from flask import Blueprint, jsonify, request, Response
+from quart import Blueprint, jsonify, request, Response
 
 import app as app_module
 from utils.logging import pager_logger as logger

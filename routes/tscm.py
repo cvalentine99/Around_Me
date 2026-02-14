@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from flask import Blueprint, Response, jsonify, request
+from quart import Blueprint, Response, jsonify, request
 
 from data.tscm_frequencies import (
     SWEEP_PRESETS,
@@ -990,7 +990,7 @@ def get_tscm_devices():
 
     # Check if running as root
     import os
-    from flask import current_app
+    from quart import current_app
     running_as_root = current_app.config.get('RUNNING_AS_ROOT', os.geteuid() == 0)
 
     warnings = []

@@ -50,10 +50,10 @@ def setup_db(tmp_path):
 @pytest.fixture
 def app(setup_db):
     """Create Flask app with controller blueprint."""
-    from flask import Flask
+    from quart import Quart
     from routes.controller import controller_bp
 
-    app = Flask(__name__)
+    app = Quart(__name__)
     app.config['TESTING'] = True
     app.register_blueprint(controller_bp)
 

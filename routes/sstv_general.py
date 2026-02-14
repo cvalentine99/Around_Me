@@ -11,7 +11,7 @@ import time
 from collections.abc import Generator
 from pathlib import Path
 
-from flask import Blueprint, Response, jsonify, request, send_file
+from quart import Blueprint, Response, jsonify, request, send_file
 
 from utils.logging import get_logger
 from utils.sse import format_sse

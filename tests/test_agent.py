@@ -148,7 +148,7 @@ class TestAgentClient:
         headers = client._headers()
         assert headers['X-API-Key'] == 'test-key'
 
-    @patch('utils.agent_client.requests.get')
+    @patch('utils.agent_client.httpx.get')
     def test_get_capabilities(self, mock_get):
         """get_capabilities should parse JSON response."""
         mock_response = Mock()
@@ -168,7 +168,7 @@ class TestAgentClient:
         assert len(caps['devices']) == 1
         mock_get.assert_called_once()
 
-    @patch('utils.agent_client.requests.get')
+    @patch('utils.agent_client.httpx.get')
     def test_get_status(self, mock_get):
         """get_status should return status dict."""
         mock_response = Mock()
@@ -187,7 +187,7 @@ class TestAgentClient:
         assert 'adsb' in status['running_modes']
         assert status['uptime'] == 3600
 
-    @patch('utils.agent_client.requests.get')
+    @patch('utils.agent_client.httpx.get')
     def test_health_check_healthy(self, mock_get):
         """health_check should return True for healthy agent."""
         mock_response = Mock()
@@ -199,16 +199,16 @@ class TestAgentClient:
         client = AgentClient('http://localhost:8020')
         assert client.health_check() is True
 
-    @patch('utils.agent_client.requests.get')
+    @patch('utils.agent_client.httpx.get')
     def test_health_check_unhealthy(self, mock_get):
         """health_check should return False for connection error."""
-        import requests
-        mock_get.side_effect = requests.ConnectionError("Connection refused")
+        import httpx
+        mock_get.side_effect = httpx.ConnectError("Connection refused")
 
         client = AgentClient('http://localhost:8020')
         assert client.health_check() is False
 
-    @patch('utils.agent_client.requests.post')
+    @patch('utils.agent_client.httpx.post')
     def test_start_mode(self, mock_post):
         """start_mode should POST to correct endpoint."""
         mock_response = Mock()
@@ -225,7 +225,7 @@ class TestAgentClient:
         call_url = mock_post.call_args[0][0]
         assert '/adsb/start' in call_url
 
-    @patch('utils.agent_client.requests.post')
+    @patch('utils.agent_client.httpx.post')
     def test_stop_mode(self, mock_post):
         """stop_mode should POST to stop endpoint."""
         mock_response = Mock()
@@ -239,7 +239,7 @@ class TestAgentClient:
 
         assert result['status'] == 'stopped'
 
-    @patch('utils.agent_client.requests.get')
+    @patch('utils.agent_client.httpx.get')
     def test_get_mode_data(self, mock_get):
         """get_mode_data should return data snapshot."""
         mock_response = Mock()
@@ -260,11 +260,11 @@ class TestAgentClient:
         assert len(result['data']) == 2
         assert result['data'][0]['icao'] == 'ABC123'
 
-    @patch('utils.agent_client.requests.get')
+    @patch('utils.agent_client.httpx.get')
     def test_connection_error_handling(self, mock_get):
         """Client should raise AgentConnectionError on connection failure."""
-        import requests
-        mock_get.side_effect = requests.ConnectionError("Connection refused")
+        import httpx
+        mock_get.side_effect = httpx.ConnectError("Connection refused")
 
         client = AgentClient('http://localhost:8020')
 
@@ -272,11 +272,11 @@ class TestAgentClient:
             client.get_capabilities()
         assert 'Cannot connect' in str(exc_info.value)
 
-    @patch('utils.agent_client.requests.get')
+    @patch('utils.agent_client.httpx.get')
     def test_timeout_error_handling(self, mock_get):
         """Client should raise AgentConnectionError on timeout."""
-        import requests
-        mock_get.side_effect = requests.Timeout("Request timed out")
+        import httpx
+        mock_get.side_effect = httpx.TimeoutException("Request timed out")
 
         client = AgentClient('http://localhost:8020', timeout=5.0)
 
@@ -284,13 +284,13 @@ class TestAgentClient:
             client.get_status()
         assert 'timed out' in str(exc_info.value)
 
-    @patch('utils.agent_client.requests.get')
+    @patch('utils.agent_client.httpx.get')
     def test_http_error_handling(self, mock_get):
         """Client should raise AgentHTTPError on HTTP errors."""
-        import requests
+        import httpx
         mock_response = Mock()
         mock_response.status_code = 500
-        mock_response.raise_for_status.side_effect = requests.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(response=mock_response)
         mock_get.return_value = mock_response
 
         client = AgentClient('http://localhost:8020')

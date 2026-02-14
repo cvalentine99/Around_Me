@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import Blueprint, jsonify, request, send_file
+from quart import Blueprint, jsonify, request, send_file
 
 from utils.recording import get_recording_manager, RECORDING_ROOT
 

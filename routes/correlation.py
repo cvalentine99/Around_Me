@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request, Response
+from quart import Blueprint, jsonify, request, Response
 
 import app as app_module
 from utils.correlation import get_correlations

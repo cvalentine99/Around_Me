@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Generator
 
-from flask import Blueprint, jsonify, request, Response, send_file
+from quart import Blueprint, jsonify, request, Response, send_file
 
 import app as app_module
 from utils.logging import get_logger
@@ -567,7 +567,7 @@ def iss_position():
     Returns:
         JSON with ISS current position.
     """
-    import requests
+    import httpx
     from datetime import datetime
 
     observer_lat = request.args.get('latitude', type=float)
@@ -575,7 +575,7 @@ def iss_position():
 
     # Try primary API: Where The ISS At
     try:
-        response = requests.get('https://api.wheretheiss.at/v1/satellites/25544', timeout=5)
+        response = httpx.get('https://api.wheretheiss.at/v1/satellites/25544', timeout=5)
         if response.status_code == 200:
             data = response.json()
             iss_lat = float(data['latitude'])
@@ -600,7 +600,7 @@ def iss_position():
 
     # Try fallback API: Open Notify
     try:
-        response = requests.get('http://api.open-notify.org/iss-now.json', timeout=5)
+        response = httpx.get('http://api.open-notify.org/iss-now.json', timeout=5)
         if response.status_code == 200:
             data = response.json()
             if data.get('message') == 'success':

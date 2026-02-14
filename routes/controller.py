@@ -17,9 +17,9 @@ import time
 from datetime import datetime, timezone
 from typing import Generator
 
-import requests
+import httpx
 
-from flask import Blueprint, jsonify, request, Response
+from quart import Blueprint, jsonify, request, Response
 
 from utils.database import (
     create_agent, get_agent, get_agent_by_name, list_agents,
@@ -501,9 +501,9 @@ def proxy_mode_stream(agent_id: int, mode: str):
 
     def generate() -> Generator[str, None, None]:
         try:
-            with requests.get(url, headers=headers, stream=True, timeout=(5, 3600)) as resp:
+            with httpx.stream('GET', url, headers=headers, timeout=httpx.Timeout(5.0, read=3600.0)) as resp:
                 resp.raise_for_status()
-                for chunk in resp.iter_content(chunk_size=1024):
+                for chunk in resp.iter_bytes(chunk_size=1024):
                     if not chunk:
                         continue
                     yield chunk.decode('utf-8', errors='ignore')
@@ -710,7 +710,7 @@ def stream_all_agents():
 @controller_bp.route('/manage')
 def agent_management_page():
     """Render the agent management page."""
-    from flask import render_template
+    from quart import render_template
     from config import VERSION
     return render_template('agents.html', version=VERSION)
 
@@ -718,7 +718,7 @@ def agent_management_page():
 @controller_bp.route('/monitor')
 def network_monitor_page():
     """Render the network monitor page for multi-agent aggregated view."""
-    from flask import render_template
+    from quart import render_template
     return render_template('network_monitor.html')
 
 

@@ -2,7 +2,7 @@
 Offline mode routes - Asset management and settings for offline operation.
 """
 
-from flask import Blueprint, jsonify, request
+from quart import Blueprint, jsonify, request
 from utils.database import get_setting, set_setting
 import os
 

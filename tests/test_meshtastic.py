@@ -260,10 +260,10 @@ class TestMeshtasticRoutes:
     @pytest.fixture
     def app(self):
         """Create Flask test app."""
-        from flask import Flask
+        from quart import Quart
         from routes.meshtastic import meshtastic_bp
 
-        app = Flask(__name__)
+        app = Quart(__name__)
         app.config['TESTING'] = True
         app.register_blueprint(meshtastic_bp)
 

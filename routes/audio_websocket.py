@@ -1,20 +1,16 @@
-"""WebSocket-based audio streaming for SDR."""
+"""WebSocket-based audio streaming for SDR.
 
+Migrated from flask-sock to Quart's native websocket support.
+Quart provides built-in WebSocket handling via @app.websocket() decorator,
+eliminating the flask-sock dependency entirely.
+"""
+
+import asyncio
 import json
 import shutil
-import socket
 import subprocess
 import threading
 import time
-from flask import Flask
-
-# Try to import flask-sock
-try:
-    from flask_sock import Sock
-    WEBSOCKET_AVAILABLE = True
-except ImportError:
-    WEBSOCKET_AVAILABLE = False
-    Sock = None
 
 from utils.logging import get_logger
 
@@ -49,10 +45,10 @@ def kill_audio_processes():
         try:
             audio_process.terminate()
             audio_process.wait(timeout=0.5)
-        except:
+        except Exception:
             try:
                 audio_process.kill()
-            except:
+            except Exception:
                 pass
         audio_process = None
 
@@ -60,10 +56,10 @@ def kill_audio_processes():
         try:
             rtl_process.terminate()
             rtl_process.wait(timeout=0.5)
-        except:
+        except Exception:
             try:
                 rtl_process.kill()
-            except:
+            except Exception:
                 pass
         rtl_process = None
 
@@ -164,17 +160,18 @@ def start_audio_stream(config):
         return None
 
 
-def init_audio_websocket(app: Flask):
-    """Initialize WebSocket audio streaming."""
-    if not WEBSOCKET_AVAILABLE:
-        logger.warning("flask-sock not installed, WebSocket audio disabled")
-        return
+def init_audio_websocket(app):
+    """Initialize WebSocket audio streaming using Quart's native websocket support."""
+    from quart import websocket
 
-    sock = Sock(app)
+    @app.websocket('/ws/audio')
+    async def audio_stream():
+        """WebSocket endpoint for audio streaming.
 
-    @sock.route('/ws/audio')
-    def audio_stream(ws):
-        """WebSocket endpoint for audio streaming."""
+        Quart's native websocket replaces flask-sock. The websocket object
+        is accessed via `quart.websocket` context variable instead of being
+        passed as a function argument.
+        """
         logger.info("WebSocket audio client connected")
 
         proc = None
@@ -184,7 +181,7 @@ def init_audio_websocket(app: Flask):
             while True:
                 # Check for messages from client (non-blocking with timeout)
                 try:
-                    msg = ws.receive(timeout=0.01)
+                    msg = await asyncio.wait_for(websocket.receive(), timeout=0.01)
                     if msg:
                         data = json.loads(msg)
                         cmd = data.get('cmd')
@@ -196,9 +193,9 @@ def init_audio_websocket(app: Flask):
                                 proc = start_audio_stream(config)
                             if proc:
                                 streaming = True
-                                ws.send(json.dumps({'status': 'started'}))
+                                await websocket.send(json.dumps({'status': 'started'}))
                             else:
-                                ws.send(json.dumps({'status': 'error', 'message': 'Failed to start'}))
+                                await websocket.send(json.dumps({'status': 'error', 'message': 'Failed to start'}))
 
                         elif cmd == 'stop':
                             logger.info("Stopping audio")
@@ -206,7 +203,7 @@ def init_audio_websocket(app: Flask):
                             with process_lock:
                                 kill_audio_processes()
                             proc = None
-                            ws.send(json.dumps({'status': 'stopped'}))
+                            await websocket.send(json.dumps({'status': 'stopped'}))
 
                         elif cmd == 'tune':
                             # Change frequency/modulation - restart stream
@@ -216,55 +213,43 @@ def init_audio_websocket(app: Flask):
                                 proc = start_audio_stream(config)
                             if proc:
                                 streaming = True
-                                ws.send(json.dumps({'status': 'tuned'}))
+                                await websocket.send(json.dumps({'status': 'tuned'}))
                             else:
                                 streaming = False
-                                ws.send(json.dumps({'status': 'error', 'message': 'Failed to tune'}))
+                                await websocket.send(json.dumps({'status': 'error', 'message': 'Failed to tune'}))
 
-                except TimeoutError:
+                except asyncio.TimeoutError:
                     pass
                 except Exception as e:
-                    msg = str(e).lower()
-                    if "connection closed" in msg:
+                    msg_str = str(e).lower()
+                    if "connection closed" in msg_str or "1000" in msg_str:
                         logger.info("WebSocket closed by client")
                         break
-                    if "timed out" not in msg:
+                    if "timed out" not in msg_str:
                         logger.error(f"WebSocket receive error: {e}")
 
                 # Stream audio data if active
                 if streaming and proc and proc.poll() is None:
                     try:
-                        chunk = proc.stdout.read(4096)
+                        # Use asyncio to read from subprocess without blocking event loop
+                        chunk = await asyncio.get_event_loop().run_in_executor(
+                            None, lambda: proc.stdout.read(4096)
+                        )
                         if chunk:
-                            ws.send(chunk)
+                            await websocket.send(chunk)
                     except Exception as e:
                         logger.error(f"Audio read error: {e}")
                         streaming = False
                 elif streaming:
                     # Process died
                     streaming = False
-                    ws.send(json.dumps({'status': 'error', 'message': 'Audio process died'}))
+                    await websocket.send(json.dumps({'status': 'error', 'message': 'Audio process died'}))
                 else:
-                    time.sleep(0.01)
+                    await asyncio.sleep(0.01)
 
         except Exception as e:
             logger.info(f"WebSocket closed: {e}")
         finally:
             with process_lock:
                 kill_audio_processes()
-            # Complete WebSocket close handshake, then shut down the
-            # raw socket so Werkzeug cannot write its HTTP 200 response
-            # on top of the WebSocket stream.
-            try:
-                ws.close()
-            except Exception:
-                pass
-            try:
-                ws.sock.shutdown(socket.SHUT_RDWR)
-            except Exception:
-                pass
-            try:
-                ws.sock.close()
-            except Exception:
-                pass
             logger.info("WebSocket audio client disconnected")

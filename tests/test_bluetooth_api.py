@@ -4,7 +4,7 @@ import pytest
 import json
 from unittest.mock import MagicMock, patch, PropertyMock
 from datetime import datetime
-from flask import Flask
+from quart import Quart
 
 from routes.bluetooth_v2 import bluetooth_v2_bp
 from utils.bluetooth.models import BTDeviceAggregate, ScanStatus, SystemCapabilities
@@ -13,7 +13,7 @@ from utils.bluetooth.models import BTDeviceAggregate, ScanStatus, SystemCapabili
 @pytest.fixture
 def app():
     """Create Flask application for testing."""
-    app = Flask(__name__)
+    app = Quart(__name__)
     app.register_blueprint(bluetooth_v2_bp)
     app.config['TESTING'] = True
     return app

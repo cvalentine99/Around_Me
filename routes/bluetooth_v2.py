@@ -16,7 +16,7 @@ import time
 from datetime import datetime
 from typing import Generator
 
-from flask import Blueprint, Response, jsonify, request, session
+from quart import Blueprint, Response, jsonify, request, session
 
 from utils.bluetooth import (
     BluetoothScanner,

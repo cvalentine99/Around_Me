@@ -2,6 +2,28 @@
 
 All notable changes to Valentine RF will be documented in this file.
 
+## [2.16.0] - 2026-02-14
+
+### Changed
+- **Flask → Quart** - Migrated from Flask (WSGI) to Quart (ASGI) for async-native request handling. Eliminates thread-per-SSE-connection bottleneck via Hypercorn.
+- **requests → httpx** - All HTTP client calls (agent communication, TLE updates, ISS position, SSTV) now use httpx. Sync API is identical; async upgrade path available.
+- **flask-sock → Quart native websocket** - Audio streaming, waterfall FFT, and KiwiSDR proxy use `@app.websocket()` decorator instead of flask-sock dependency.
+- **flask-limiter → quart-rate-limiter** - Login rate limiting uses Quart-native rate limiter.
+- **black → ruff format** - Code formatting now handled by ruff (single tool for lint + format). Removed `[tool.black]` from pyproject.toml.
+- **ADS-B decoder preference** - readsb is now preferred over dump1090 for all SDR types (RTL-SDR included). dump1090 kept as fallback.
+- **Dockerfile build order** - readsb built before dump1090 to reflect preference.
+
+### Removed
+- `flask` dependency (replaced by `quart`)
+- `flask-limiter` dependency (replaced by `quart-rate-limiter`)
+- `flask-sock` dependency (replaced by Quart native websocket)
+- `requests` dependency (replaced by `httpx`)
+- `black` dev dependency (replaced by `ruff format`)
+- `types-flask` dev dependency (replaced by `types-Werkzeug`)
+- slowrx build from Dockerfile (pure Python SSTV decoder used since v2.15.0)
+
+---
+
 ## [2.15.0] - 2026-02-09
 
 ### Added

@@ -9,9 +9,9 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-import requests
+import httpx
 
-from flask import Blueprint, jsonify, request, render_template, Response
+from quart import Blueprint, jsonify, request, render_template, Response
 
 from config import SHARED_OBSERVER_LOCATION_ENABLED
 
@@ -61,7 +61,7 @@ def _fetch_iss_realtime(observer_lat: Optional[float] = None, observer_lon: Opti
 
     # Try primary API: Where The ISS At
     try:
-        response = requests.get('https://api.wheretheiss.at/v1/satellites/25544', timeout=5)
+        response = httpx.get('https://api.wheretheiss.at/v1/satellites/25544', timeout=5)
         if response.status_code == 200:
             data = response.json()
             iss_lat = float(data['latitude'])
@@ -74,7 +74,7 @@ def _fetch_iss_realtime(observer_lat: Optional[float] = None, observer_lon: Opti
     # Try fallback API: Open Notify
     if iss_lat is None:
         try:
-            response = requests.get('http://api.open-notify.org/iss-now.json', timeout=5)
+            response = httpx.get('http://api.open-notify.org/iss-now.json', timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 if data.get('message') == 'success':

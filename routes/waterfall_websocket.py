@@ -1,20 +1,14 @@
-"""WebSocket-based waterfall streaming with I/Q capture and server-side FFT."""
+"""WebSocket-based waterfall streaming with I/Q capture and server-side FFT.
 
+Migrated from flask-sock to Quart's native websocket support.
+"""
+
+import asyncio
 import json
 import queue
-import socket
 import subprocess
 import threading
 import time
-
-from flask import Flask
-
-try:
-    from flask_sock import Sock
-    WEBSOCKET_AVAILABLE = True
-except ImportError:
-    WEBSOCKET_AVAILABLE = False
-    Sock = None
 
 from utils.logging import get_logger
 from utils.process import safe_terminate, register_process, unregister_process
@@ -67,17 +61,16 @@ def _build_dummy_device(device_index: int, sdr_type: SDRType) -> SDRDevice:
     )
 
 
-def init_waterfall_websocket(app: Flask):
-    """Initialize WebSocket waterfall streaming."""
-    if not WEBSOCKET_AVAILABLE:
-        logger.warning("flask-sock not installed, WebSocket waterfall disabled")
-        return
+def init_waterfall_websocket(app):
+    """Initialize WebSocket waterfall streaming using Quart's native websocket support."""
+    from quart import websocket
 
-    sock = Sock(app)
+    @app.websocket('/ws/waterfall')
+    async def waterfall_stream():
+        """WebSocket endpoint for real-time waterfall streaming.
 
-    @sock.route('/ws/waterfall')
-    def waterfall_stream(ws):
-        """WebSocket endpoint for real-time waterfall streaming."""
+        Quart's native websocket replaces flask-sock.
+        """
         logger.info("WebSocket waterfall client connected")
 
         # Import app module for device claiming
@@ -87,7 +80,7 @@ def init_waterfall_websocket(app: Flask):
         reader_thread = None
         stop_event = threading.Event()
         claimed_device = None
-        # Queue for outgoing messages — only the main loop touches ws.send()
+        # Queue for outgoing messages — only the main loop touches websocket.send()
         send_queue = queue.Queue(maxsize=120)
 
         try:
@@ -99,26 +92,26 @@ def init_waterfall_websocket(app: Flask):
                     except queue.Empty:
                         break
                     try:
-                        ws.send(outgoing)
+                        await websocket.send(outgoing)
                     except Exception:
                         stop_event.set()
                         break
 
                 try:
-                    msg = ws.receive(timeout=0.1)
+                    msg = await asyncio.wait_for(websocket.receive(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    if stop_event.is_set():
+                        break
+                    continue
                 except Exception as e:
                     err = str(e).lower()
-                    if "closed" in err:
+                    if "closed" in err or "1000" in err:
                         break
                     if "timed out" not in err:
                         logger.error(f"WebSocket receive error: {e}")
                     continue
 
                 if msg is None:
-                    # simple-websocket returns None on timeout AND on
-                    # close; check ws.connected to tell them apart.
-                    if not ws.connected:
-                        break
                     if stop_event.is_set():
                         break
                     continue
@@ -152,7 +145,7 @@ def init_waterfall_websocket(app: Flask):
                             break
                     # Allow USB device to be released by the kernel
                     if was_restarting:
-                        time.sleep(0.5)
+                        await asyncio.sleep(0.5)
 
                     # Parse config
                     center_freq = float(data.get('center_freq', 100.0))
@@ -187,7 +180,7 @@ def init_waterfall_websocket(app: Flask):
                     # Claim the device
                     claim_err = app_module.claim_sdr_device(device_index, 'waterfall')
                     if claim_err:
-                        ws.send(json.dumps({
+                        await websocket.send(json.dumps({
                             'status': 'error',
                             'message': claim_err,
                             'error_type': 'DEVICE_BUSY',
@@ -210,7 +203,7 @@ def init_waterfall_websocket(app: Flask):
                     except NotImplementedError as e:
                         app_module.release_sdr_device(device_index)
                         claimed_device = None
-                        ws.send(json.dumps({
+                        await websocket.send(json.dumps({
                             'status': 'error',
                             'message': str(e),
                         }))
@@ -234,7 +227,7 @@ def init_waterfall_websocket(app: Flask):
                             register_process(iq_process)
 
                             # Brief check that process started
-                            time.sleep(0.3)
+                            await asyncio.sleep(0.3)
                             if iq_process.poll() is not None:
                                 unregister_process(iq_process)
                                 iq_process = None
@@ -243,7 +236,7 @@ def init_waterfall_websocket(app: Flask):
                                         f"I/Q process exited immediately, "
                                         f"retrying ({attempt + 1}/{max_attempts})..."
                                     )
-                                    time.sleep(0.5)
+                                    await asyncio.sleep(0.5)
                                     continue
                                 raise RuntimeError(
                                     "I/Q capture process exited immediately"
@@ -257,14 +250,14 @@ def init_waterfall_websocket(app: Flask):
                             iq_process = None
                         app_module.release_sdr_device(device_index)
                         claimed_device = None
-                        ws.send(json.dumps({
+                        await websocket.send(json.dumps({
                             'status': 'error',
                             'message': f'Failed to start I/Q capture: {e}',
                         }))
                         continue
 
                     # Send started confirmation
-                    ws.send(json.dumps({
+                    await websocket.send(json.dumps({
                         'status': 'started',
                         'start_freq': start_freq,
                         'end_freq': end_freq,
@@ -272,7 +265,7 @@ def init_waterfall_websocket(app: Flask):
                         'sample_rate': sample_rate,
                     }))
 
-                    # Start reader thread — puts frames on queue, never calls ws.send()
+                    # Start reader thread — puts frames on queue, never calls websocket.send()
                     def fft_reader(
                         proc, _send_q, stop_evt,
                         _fft_size, _avg_count, _fps,
@@ -353,7 +346,7 @@ def init_waterfall_websocket(app: Flask):
                         app_module.release_sdr_device(claimed_device)
                         claimed_device = None
                     stop_event.clear()
-                    ws.send(json.dumps({'status': 'stopped'}))
+                    await websocket.send(json.dumps({'status': 'stopped'}))
 
         except Exception as e:
             logger.info(f"WebSocket waterfall closed: {e}")
@@ -367,20 +360,4 @@ def init_waterfall_websocket(app: Flask):
                 unregister_process(iq_process)
             if claimed_device is not None:
                 app_module.release_sdr_device(claimed_device)
-            # Complete WebSocket close handshake, then shut down the
-            # raw socket so Werkzeug cannot write its HTTP 200 response
-            # on top of the WebSocket stream (which browsers see as
-            # "Invalid frame header").
-            try:
-                ws.close()
-            except Exception:
-                pass
-            try:
-                ws.sock.shutdown(socket.SHUT_RDWR)
-            except Exception:
-                pass
-            try:
-                ws.sock.close()
-            except Exception:
-                pass
             logger.info("WebSocket waterfall client disconnected")

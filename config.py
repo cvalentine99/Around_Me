@@ -8,10 +8,23 @@ import secrets
 import sys
 
 # Application version
-VERSION = "2.15.0"
+VERSION = "2.16.0"
 
 # Changelog - latest release notes (shown on welcome screen)
 CHANGELOG = [
+    {
+        "version": "2.16.0",
+        "date": "February 2026",
+        "highlights": [
+            "Flask → Quart migration (async-native ASGI server via Hypercorn)",
+            "requests → httpx for all HTTP client calls",
+            "flask-sock → Quart native websocket for audio/waterfall/KiwiSDR",
+            "flask-limiter → quart-rate-limiter for login rate limiting",
+            "black → ruff format for code formatting",
+            "ADS-B decoder preference changed to readsb-first (dump1090 fallback)",
+            "slowrx removed from Docker build (pure Python SSTV decoder used)",
+        ]
+    },
     {
         "version": "2.15.0",
         "date": "February 2026",

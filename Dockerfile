@@ -95,7 +95,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpulse-dev \
     liblapack-dev \
     libcodec2-dev \
-    # ---- dump1090 (pinned: 4f47d12a18db) ----
+    # ---- readsb (PREFERRED ADS-B decoder, pinned: 5831f91093ef) ----
+    # readsb is the preferred decoder for all SDR types. It handles RTL-SDR
+    # natively and supports SoapySDR for HackRF/LimeSDR/Airspy.
+    && cd /tmp \
+    && git clone https://github.com/wiedehopf/readsb.git \
+    && cd readsb \
+    && git checkout 5831f91093ef \
+    && make BLADERF=no PLUTOSDR=no SOAPYSDR=yes \
+    && cp readsb /usr/bin/readsb \
+    && rm -rf /tmp/readsb \
+    # ---- dump1090 (fallback for RTL-SDR, pinned: 4f47d12a18db) ----
     && cd /tmp \
     && git clone https://github.com/flightaware/dump1090.git \
     && cd dump1090 \
@@ -115,14 +125,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && make \
     && cp AIS-catcher /usr/bin/AIS-catcher \
     && rm -rf /tmp/AIS-catcher \
-    # ---- readsb (pinned: 5831f91093ef) ----
-    && cd /tmp \
-    && git clone https://github.com/wiedehopf/readsb.git \
-    && cd readsb \
-    && git checkout 5831f91093ef \
-    && make BLADERF=no PLUTOSDR=no SOAPYSDR=yes \
-    && cp readsb /usr/bin/readsb \
-    && rm -rf /tmp/readsb \
     # ---- rx_tools (pinned: 811b21c4c8a5) ----
     && cd /tmp \
     && git clone https://github.com/rxseger/rx_tools.git \
@@ -143,14 +145,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && make \
     && cp acarsdec /usr/bin/acarsdec \
     && rm -rf /tmp/acarsdec \
-    # ---- slowrx (pinned: ca6d7012) ----
-    && cd /tmp \
-    && git clone https://github.com/windytan/slowrx.git \
-    && cd slowrx \
-    && git checkout ca6d7012 \
-    && make \
-    && install -m 0755 slowrx /usr/local/bin/slowrx \
-    && rm -rf /tmp/slowrx \
+    # slowrx removed — replaced by pure Python SSTV decoder (utils/sstv/) \
     # ---- SatDump (pinned: tag 1.2.2) ----
     && cd /tmp \
     && git clone --depth 1 --branch 1.2.2 https://github.com/SatDump/SatDump.git \

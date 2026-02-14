@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, Response, jsonify, request
+from quart import Blueprint, Response, jsonify, request
 
 from utils.logging import get_logger
 from utils.updater import (

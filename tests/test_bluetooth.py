@@ -2,7 +2,7 @@ import pytest
 import json
 import subprocess
 from unittest.mock import MagicMock, patch
-from flask import Flask
+from quart import Quart
 from routes.bluetooth import bluetooth_bp, classify_bt_device, detect_tracker
 
 
@@ -21,7 +21,7 @@ def mock_app_module(mocker):
 
 @pytest.fixture
 def app():
-    app = Flask(__name__)
+    app = Quart(__name__)
     app.register_blueprint(bluetooth_bp)
     return app
 

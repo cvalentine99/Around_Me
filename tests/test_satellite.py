@@ -1,13 +1,13 @@
 import pytest
 import json
 from unittest.mock import patch, MagicMock
-from flask import Flask
+from quart import Quart
 from routes.satellite import satellite_bp
 
 
 @pytest.fixture
 def app():
-    app = Flask(__name__)
+    app = Quart(__name__)
     app.register_blueprint(satellite_bp)
     app.config['TESTING'] = True
     return app

@@ -15,7 +15,7 @@ import time
 from datetime import datetime
 from typing import Generator, Optional, List, Dict
 
-from flask import Blueprint, jsonify, request, Response
+from quart import Blueprint, jsonify, request, Response
 
 import app as app_module
 from utils.logging import get_logger

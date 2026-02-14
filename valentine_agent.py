@@ -275,7 +275,7 @@ class ControllerPushClient(threading.Thread):
 
     def run(self):
         """Main push loop."""
-        import requests
+        import httpx
 
         self.running = True
         logger.info(f"Push client started, target: {self.cfg.controller_url}")
@@ -303,7 +303,7 @@ class ControllerPushClient(threading.Thread):
             }
 
             try:
-                response = requests.post(endpoint, json=body, headers=headers, timeout=5)
+                response = httpx.post(endpoint, json=body, headers=headers, timeout=5)
                 if response.status_code >= 400:
                     raise RuntimeError(f"HTTP {response.status_code}")
                 logger.debug(f"Pushed {item['scan_type']} data to controller")

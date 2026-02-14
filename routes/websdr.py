@@ -11,13 +11,8 @@ import threading
 import time
 from typing import Optional
 
-from flask import Blueprint, Flask, jsonify, request, Response
-
-try:
-    from flask_sock import Sock
-    WEBSOCKET_AVAILABLE = True
-except ImportError:
-    WEBSOCKET_AVAILABLE = False
+import asyncio
+from quart import Blueprint, jsonify, request, Response
 
 from utils.kiwisdr import KiwiSDRClient, KIWI_SAMPLE_RATE, VALID_MODES, parse_host_port
 from utils.logging import get_logger
@@ -358,8 +353,12 @@ def _disconnect_kiwi() -> None:
             break
 
 
-def _handle_kiwi_command(ws, cmd: str, data: dict) -> None:
-    """Handle a command from the browser client."""
+async def _handle_kiwi_command(cmd: str, data: dict) -> None:
+    """Handle a command from the browser client.
+
+    Uses Quart's websocket context variable instead of a ws parameter.
+    """
+    from quart import websocket
     global _kiwi_client
 
     if cmd == 'connect':
@@ -375,11 +374,11 @@ def _handle_kiwi_command(ws, cmd: str, data: dict) -> None:
             host, port = parse_host_port(receiver_url)
 
         if mode not in VALID_MODES:
-            ws.send(json.dumps({'type': 'error', 'message': f'Invalid mode: {mode}'}))
+            await websocket.send(json.dumps({'type': 'error', 'message': f'Invalid mode: {mode}'}))
             return
 
         if not host or ';' in host or '&' in host or '|' in host:
-            ws.send(json.dumps({'type': 'error', 'message': 'Invalid host'}))
+            await websocket.send(json.dumps({'type': 'error', 'message': 'Invalid host'}))
             return
 
         _disconnect_kiwi()
@@ -400,16 +399,12 @@ def _handle_kiwi_command(ws, cmd: str, data: dict) -> None:
                     pass
 
         def on_error(msg):
-            try:
-                ws.send(json.dumps({'type': 'error', 'message': msg}))
-            except Exception:
-                pass
+            # Note: callbacks from KiwiSDR thread cannot await;
+            # errors are logged and queued for the async loop.
+            logger.warning(f"KiwiSDR error: {msg}")
 
         def on_disconnect():
-            try:
-                ws.send(json.dumps({'type': 'disconnected'}))
-            except Exception:
-                pass
+            logger.info("KiwiSDR disconnected")
 
         with _kiwi_lock:
             _kiwi_client = KiwiSDRClient(
@@ -422,7 +417,7 @@ def _handle_kiwi_command(ws, cmd: str, data: dict) -> None:
             success = _kiwi_client.connect(freq_khz, mode)
 
         if success:
-            ws.send(json.dumps({
+            await websocket.send(json.dumps({
                 'type': 'connected',
                 'host': host,
                 'port': port,
@@ -431,7 +426,7 @@ def _handle_kiwi_command(ws, cmd: str, data: dict) -> None:
                 'sample_rate': KIWI_SAMPLE_RATE,
             }))
         else:
-            ws.send(json.dumps({'type': 'error', 'message': 'Connection to KiwiSDR failed'}))
+            await websocket.send(json.dumps({'type': 'error', 'message': 'Connection to KiwiSDR failed'}))
             _disconnect_kiwi()
 
     elif cmd == 'tune':
@@ -445,31 +440,27 @@ def _handle_kiwi_command(ws, cmd: str, data: dict) -> None:
                     mode or _kiwi_client.mode
                 )
                 if success:
-                    ws.send(json.dumps({
+                    await websocket.send(json.dumps({
                         'type': 'tuned',
                         'freq_khz': freq_khz,
                         'mode': mode or _kiwi_client.mode,
                     }))
                 else:
-                    ws.send(json.dumps({'type': 'error', 'message': 'Retune failed'}))
+                    await websocket.send(json.dumps({'type': 'error', 'message': 'Retune failed'}))
             else:
-                ws.send(json.dumps({'type': 'error', 'message': 'Not connected'}))
+                await websocket.send(json.dumps({'type': 'error', 'message': 'Not connected'}))
 
     elif cmd == 'disconnect':
         _disconnect_kiwi()
-        ws.send(json.dumps({'type': 'disconnected'}))
+        await websocket.send(json.dumps({'type': 'disconnected'}))
 
 
-def init_websdr_audio(app: Flask) -> None:
-    """Initialize WebSocket audio proxy for KiwiSDR. Called from app.py."""
-    if not WEBSOCKET_AVAILABLE:
-        logger.warning("flask-sock not installed, KiwiSDR audio proxy disabled")
-        return
+def init_websdr_audio(app) -> None:
+    """Initialize WebSocket audio proxy for KiwiSDR using Quart native websocket."""
+    from quart import websocket
 
-    sock = Sock(app)
-
-    @sock.route('/ws/kiwi-audio')
-    def kiwi_audio_stream(ws):
+    @app.websocket('/ws/kiwi-audio')
+    async def kiwi_audio_stream():
         """WebSocket endpoint: proxy audio between browser and KiwiSDR."""
         logger.info("KiwiSDR audio client connected")
 
@@ -477,15 +468,15 @@ def init_websdr_audio(app: Flask) -> None:
             while True:
                 # Check for commands from browser
                 try:
-                    msg = ws.receive(timeout=0.005)
+                    msg = await asyncio.wait_for(websocket.receive(), timeout=0.005)
                     if msg:
                         data = json.loads(msg)
                         cmd = data.get('cmd', '')
-                        _handle_kiwi_command(ws, cmd, data)
-                except TimeoutError:
+                        await _handle_kiwi_command(cmd, data)
+                except asyncio.TimeoutError:
                     pass
                 except Exception as e:
-                    if 'closed' in str(e).lower():
+                    if 'closed' in str(e).lower() or '1000' in str(e):
                         break
                     if 'timed out' not in str(e).lower():
                         logger.error(f"KiwiSDR WS receive error: {e}")
@@ -493,9 +484,9 @@ def init_websdr_audio(app: Flask) -> None:
                 # Forward audio from KiwiSDR to browser
                 try:
                     audio_data = _kiwi_audio_queue.get_nowait()
-                    ws.send(audio_data)
+                    await websocket.send(audio_data)
                 except queue.Empty:
-                    time.sleep(0.005)
+                    await asyncio.sleep(0.005)
 
         except Exception as e:
             logger.info(f"KiwiSDR WS closed: {e}")

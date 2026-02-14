@@ -12,7 +12,7 @@ import threading
 import time
 from typing import Generator
 
-from flask import Blueprint, jsonify, request, Response, render_template
+from quart import Blueprint, jsonify, request, Response, render_template
 
 import app as app_module
 from config import SHARED_OBSERVER_LOCATION_ENABLED

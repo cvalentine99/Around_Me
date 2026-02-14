@@ -18,9 +18,9 @@ import string
 import threading
 import time
 from datetime import datetime, timezone
-from flask import Flask, jsonify, request
+from quart import Quart, jsonify, request
 
-app = Flask(__name__)
+app = Quart(__name__)
 
 # State
 running_modes: set[str] = set()

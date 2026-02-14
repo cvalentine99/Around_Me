@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 from typing import Generator
 
-from flask import Blueprint, jsonify, request, Response
+from quart import Blueprint, jsonify, request, Response
 
 from utils.wifi import (
     get_wifi_scanner,

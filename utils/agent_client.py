@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import requests
+import httpx
 
 logger = logging.getLogger('valentine.agent_client')
 
@@ -70,7 +70,7 @@ class AgentClient:
         """
         url = f"{self.base_url}{path}"
         try:
-            response = requests.get(
+            response = httpx.get(
                 url,
                 headers=self._headers(),
                 params=params,
@@ -78,11 +78,11 @@ class AgentClient:
             )
             response.raise_for_status()
             return response.json() if response.content else {}
-        except requests.ConnectionError as e:
+        except httpx.ConnectError as e:
             raise AgentConnectionError(f"Cannot connect to agent at {self.base_url}: {e}")
-        except requests.Timeout:
+        except httpx.TimeoutException:
             raise AgentConnectionError(f"Request to agent timed out after {self.timeout}s")
-        except requests.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             # Try to extract error message from response body
             error_msg = f"Agent returned error: {e.response.status_code}"
             try:
@@ -94,7 +94,7 @@ class AgentClient:
             except Exception:
                 pass
             raise AgentHTTPError(error_msg, status_code=e.response.status_code)
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             raise AgentHTTPError(f"Request failed: {e}")
 
     def _post(self, path: str, data: dict | None = None) -> dict:
@@ -114,7 +114,7 @@ class AgentClient:
         """
         url = f"{self.base_url}{path}"
         try:
-            response = requests.post(
+            response = httpx.post(
                 url,
                 json=data or {},
                 headers=self._headers(),
@@ -122,11 +122,11 @@ class AgentClient:
             )
             response.raise_for_status()
             return response.json() if response.content else {}
-        except requests.ConnectionError as e:
+        except httpx.ConnectError as e:
             raise AgentConnectionError(f"Cannot connect to agent at {self.base_url}: {e}")
-        except requests.Timeout:
+        except httpx.TimeoutException:
             raise AgentConnectionError(f"Request to agent timed out after {self.timeout}s")
-        except requests.HTTPError as e:
+        except httpx.HTTPStatusError as e:
             # Try to extract error message from response body
             error_msg = f"Agent returned error: {e.response.status_code}"
             try:
@@ -138,7 +138,7 @@ class AgentClient:
             except Exception:
                 pass
             raise AgentHTTPError(error_msg, status_code=e.response.status_code)
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             raise AgentHTTPError(f"Request failed: {e}")
 
     def post(self, path: str, data: dict | None = None) -> dict:

@@ -16,7 +16,7 @@ from datetime import datetime
 from subprocess import PIPE, STDOUT
 from typing import Generator, Optional
 
-from flask import Blueprint, jsonify, request, Response
+from quart import Blueprint, jsonify, request, Response
 
 import app as app_module
 from utils.logging import sensor_logger as logger

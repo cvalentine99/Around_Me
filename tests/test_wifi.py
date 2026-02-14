@@ -2,7 +2,7 @@ import pytest
 import sys
 import os
 from unittest.mock import MagicMock, patch, mock_open
-from flask import Flask
+from quart import Quart
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from routes.wifi import wifi_bp, parse_airodump_csv
 
@@ -20,7 +20,7 @@ def mock_app_module(mocker):
 
 @pytest.fixture
 def app():
-    app = Flask(__name__)
+    app = Quart(__name__)
     app.register_blueprint(wifi_bp)
     return app
 

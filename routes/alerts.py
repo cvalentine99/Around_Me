@@ -6,7 +6,7 @@ import queue
 import time
 from typing import Generator
 
-from flask import Blueprint, Response, jsonify, request
+from quart import Blueprint, Response, jsonify, request
 
 from utils.alerts import get_alert_manager
 from utils.sse import format_sse

@@ -1,6 +1,6 @@
 """Spy Stations routes - Number stations and diplomatic HF networks."""
 
-from flask import Blueprint, jsonify, request
+from quart import Blueprint, jsonify, request
 
 spy_stations_bp = Blueprint('spy_stations', __name__, url_prefix='/spy-stations')
 

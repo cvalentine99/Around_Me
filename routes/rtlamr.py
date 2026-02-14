@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 from typing import Generator
 
-from flask import Blueprint, jsonify, request, Response
+from quart import Blueprint, jsonify, request, Response
 
 import app as app_module
 from utils.logging import sensor_logger as logger

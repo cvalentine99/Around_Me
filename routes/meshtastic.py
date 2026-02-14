@@ -14,7 +14,7 @@ import queue
 import time
 from typing import Generator
 
-from flask import Blueprint, jsonify, request, Response
+from quart import Blueprint, jsonify, request, Response
 
 from utils.logging import get_logger
 from utils.sse import format_sse

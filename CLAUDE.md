@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-VALENTINE RF is a web-based Signal Intelligence (SIGINT) platform providing a unified Flask interface for software-defined radio (SDR) tools. It supports pager decoding, 433MHz sensors, ADS-B aircraft tracking, ACARS messaging, WiFi/Bluetooth scanning, satellite tracking, ISS SSTV decoding, AIS vessel tracking, weather satellite imagery (NOAA APT & Meteor LRPT), and Meshtastic mesh networking.
+VALENTINE RF is a web-based Signal Intelligence (SIGINT) platform providing a unified Quart (async Flask replacement) interface for software-defined radio (SDR) tools. It supports pager decoding, 433MHz sensors, ADS-B aircraft tracking, ACARS messaging, WiFi/Bluetooth scanning, satellite tracking, ISS SSTV decoding, AIS vessel tracking, weather satellite imagery (NOAA APT & Meteor LRPT), and Meshtastic mesh networking.
 
 ## Common Commands
 
@@ -59,8 +59,8 @@ ruff check .
 # Auto-fix linting issues
 ruff check --fix .
 
-# Format with black
-black .
+# Format with ruff (replaces black)
+ruff format .
 
 # Type checking
 mypy .
@@ -70,18 +70,18 @@ mypy .
 
 ### Entry Points
 - `valentine.py` - Main entry point script
-- `app.py` - Flask application initialization, global state management, process lifecycle, SSE streaming infrastructure
+- `app.py` - Quart application initialization, global state management, process lifecycle, SSE streaming infrastructure
 
 ### Route Blueprints (routes/)
-Each signal type has its own Flask blueprint:
+Each signal type has its own Quart blueprint:
 - `pager.py` - POCSAG/FLEX decoding via rtl_fm + multimon-ng
 - `sensor.py` - 433MHz IoT sensors via rtl_433
-- `adsb.py` - Aircraft tracking via dump1090 (SBS protocol on port 30003)
+- `adsb.py` - Aircraft tracking via readsb (preferred) or dump1090 fallback (SBS protocol on port 30003)
 - `acars.py` - Aircraft datalink messages via acarsdec
 - `wifi.py`, `wifi_v2.py` - WiFi scanning (legacy and unified APIs)
 - `bluetooth.py`, `bluetooth_v2.py` - Bluetooth scanning (legacy and unified APIs)
 - `satellite.py` - Pass prediction using TLE data
-- `sstv.py` - ISS SSTV image decoding via slowrx
+- `sstv.py` - ISS SSTV image decoding via pure Python decoder (utils/sstv/)
 - `weather_sat.py` - NOAA APT & Meteor LRPT via SatDump
 - `ais.py` - AIS vessel tracking and VHF DSC distress monitoring
 - `aprs.py` - Amateur packet radio via direwolf
@@ -115,17 +115,22 @@ Each signal type has its own Flask blueprint:
 - Subprocess management with stdout parsing, image watcher via rglob
 - Pass prediction using skyfield TLE data
 
-**SSTV Decoder** (`utils/sstv.py`):
-- ISS SSTV reception via slowrx with Doppler tracking
+**SSTV Decoder** (`utils/sstv/`):
+- Pure Python SSTV decoder using numpy/scipy + Pillow (replaced external slowrx)
+- ISS SSTV reception with Doppler tracking
 - Singleton pattern, image gallery with timestamped filenames
 
 ### Key Patterns
 
 **Server-Sent Events (SSE)**: All real-time features stream via SSE endpoints (`/stream_pager`, `/stream_sensor`, etc.). Pattern uses `queue.Queue` with timeout and keepalive messages.
 
+**WebSocket**: Audio streaming (SDR audio, KiwiSDR proxy, waterfall FFT) uses Quart's native websocket support. No external WebSocket library needed — Quart provides `@app.websocket()` decorator.
+
 **Process Management**: External decoders run as subprocesses with output threads feeding queues. Use `safe_terminate()` for cleanup. Global locks prevent race conditions.
 
 **Data Stores**: `DataStore` class with TTL-based automatic cleanup (WiFi: 10min, Bluetooth: 5min, Aircraft: 5min).
+
+**HTTP Client**: External API calls (TLE updates, ISS position, agent communication) use `httpx` (replaced `requests`). Sync usage via `httpx.get()`/`httpx.post()`.
 
 **Input Validation**: Centralized in `utils/validation.py` - always validate frequencies, gains, device indices before spawning processes.
 
@@ -136,11 +141,11 @@ Each signal type has its own Flask blueprint:
 | rtl_fm | FM demodulation | Subprocess, pipes to multimon-ng |
 | multimon-ng | Pager decoding | Reads from rtl_fm stdout |
 | rtl_433 | 433MHz sensors | JSON output parsing |
-| dump1090 | ADS-B decoding | SBS protocol socket (port 30003) |
+| readsb | ADS-B decoding (preferred) | SBS protocol socket (port 30003) |
+| dump1090 | ADS-B decoding (fallback) | SBS protocol socket (port 30003) |
 | acarsdec | ACARS messages | Output parsing |
 | airmon-ng/airodump-ng | WiFi scanning | Monitor mode, CSV parsing |
 | bluetoothctl/hcitool | Bluetooth | Fallback when DBus unavailable |
-| slowrx | SSTV decoding | Subprocess with audio pipe |
 | SatDump | Weather satellites | CLI live mode, NOAA APT + Meteor LRPT |
 | AIS-catcher | AIS vessel tracking | JSON output parsing |
 | direwolf | APRS | TNC modem for packet radio |
@@ -152,7 +157,7 @@ Each signal type has its own Flask blueprint:
 - **Mode Integration**: Each mode needs entries in `index.html` at ~12 points: CSS include, welcome card, partial include, visuals container, JS include, `validModes` set, `modeGroups` map, classList toggle, `modeNames`, visuals display toggle, titles, and init call in `switchMode()`
 
 ### Docker
-- `Dockerfile` - Single-stage build with all SDR tools compiled from source (dump1090, AIS-catcher, slowrx, SatDump, etc.)
+- `Dockerfile` - Single-stage build with all SDR tools compiled from source (readsb, dump1090, AIS-catcher, SatDump, etc.)
 - `docker-compose.yml` - Two profiles: `basic` (standalone) and `history` (with Postgres for ADS-B)
 - `build-multiarch.sh` - Multi-arch build script for amd64 + arm64 (RPi5)
 - Data persisted via `./data:/app/data` volume mount
@@ -160,6 +165,12 @@ Each signal type has its own Flask blueprint:
 ### Configuration
 - `config.py` - Environment variable support with `VALENTINE_` prefix (e.g., `VALENTINE_PORT`, `VALENTINE_WEATHER_SAT_GAIN`)
 - Database: SQLite in `instance/` directory for settings, baselines, history
+
+### Key Dependencies
+- **Quart** (async Flask replacement) — ASGI server via Hypercorn
+- **httpx** — HTTP client (replaced requests)
+- **quart-rate-limiter** — Rate limiting (replaced flask-limiter)
+- **ruff** — Linting + formatting (replaced black)
 
 ## Testing Notes
 

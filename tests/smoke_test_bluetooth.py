@@ -23,7 +23,7 @@ import time
 from typing import Any
 
 try:
-    import requests
+    import httpx
 except ImportError:
     print("Error: requests library required. Install with: pip install requests")
     sys.exit(1)
@@ -127,7 +127,7 @@ class SmokeTests:
         """Test GET /api/bluetooth/capabilities"""
         print("\n=== Test: Capabilities Endpoint ===")
         try:
-            resp = requests.get(f"{self.base_url}/api/bluetooth/capabilities", timeout=5)
+            resp = httpx.get(f"{self.base_url}/api/bluetooth/capabilities", timeout=5)
             self._check("Status code 200", resp.status_code == 200, f"Got {resp.status_code}")
 
             data = resp.json()
@@ -135,14 +135,14 @@ class SmokeTests:
             self._check("Has 'adapters' field", 'adapters' in data)
             self._check("Has 'recommended_backend' field", 'recommended_backend' in data or 'preferred_backend' in data)
 
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             self._check("Request succeeded", False, str(e))
 
     def test_devices_endpoint(self):
         """Test GET /api/bluetooth/devices (backwards compatibility)"""
         print("\n=== Test: Devices Endpoint (v2) ===")
         try:
-            resp = requests.get(f"{self.base_url}/api/bluetooth/devices", timeout=5)
+            resp = httpx.get(f"{self.base_url}/api/bluetooth/devices", timeout=5)
             self._check("Status code 200", resp.status_code == 200, f"Got {resp.status_code}")
 
             data = resp.json()
@@ -159,14 +159,14 @@ class SmokeTests:
                 self._check("Has tracker fields", 'is_tracker' in device,
                            "New tracker field missing (backwards compat issue)")
 
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             self._check("Request succeeded", False, str(e))
 
     def test_trackers_endpoint(self):
         """Test GET /api/bluetooth/trackers (new v2 endpoint)"""
         print("\n=== Test: Trackers Endpoint (NEW) ===")
         try:
-            resp = requests.get(f"{self.base_url}/api/bluetooth/trackers", timeout=5)
+            resp = httpx.get(f"{self.base_url}/api/bluetooth/trackers", timeout=5)
             self._check("Status code 200", resp.status_code == 200, f"Got {resp.status_code}")
 
             data = resp.json()
@@ -180,14 +180,14 @@ class SmokeTests:
                 errors = validate_tracker_schema(tracker, "First tracker: ")
                 self._check("Tracker schema valid", len(errors) == 0, "; ".join(errors))
 
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             self._check("Request succeeded", False, str(e))
 
     def test_diagnostics_endpoint(self):
         """Test GET /api/bluetooth/diagnostics (new endpoint)"""
         print("\n=== Test: Diagnostics Endpoint (NEW) ===")
         try:
-            resp = requests.get(f"{self.base_url}/api/bluetooth/diagnostics", timeout=5)
+            resp = httpx.get(f"{self.base_url}/api/bluetooth/diagnostics", timeout=5)
             self._check("Status code 200", resp.status_code == 200, f"Got {resp.status_code}")
 
             data = resp.json()
@@ -196,20 +196,20 @@ class SmokeTests:
 
             self._check("Has recommendations", 'recommendations' in data)
 
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             self._check("Request succeeded", False, str(e))
 
     def test_scan_status_endpoint(self):
         """Test GET /api/bluetooth/scan/status"""
         print("\n=== Test: Scan Status Endpoint ===")
         try:
-            resp = requests.get(f"{self.base_url}/api/bluetooth/scan/status", timeout=5)
+            resp = httpx.get(f"{self.base_url}/api/bluetooth/scan/status", timeout=5)
             self._check("Status code 200", resp.status_code == 200, f"Got {resp.status_code}")
 
             data = resp.json()
             self._check("Has 'is_scanning' field", 'is_scanning' in data)
 
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             self._check("Request succeeded", False, str(e))
 
     def test_baseline_endpoints(self):
@@ -217,13 +217,13 @@ class SmokeTests:
         print("\n=== Test: Baseline Endpoints ===")
         try:
             # List baselines
-            resp = requests.get(f"{self.base_url}/api/bluetooth/baseline/list", timeout=5)
+            resp = httpx.get(f"{self.base_url}/api/bluetooth/baseline/list", timeout=5)
             self._check("List baselines: Status 200", resp.status_code == 200, f"Got {resp.status_code}")
 
             data = resp.json()
             self._check("Has 'baselines' array", 'baselines' in data)
 
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             self._check("Request succeeded", False, str(e))
 
     def test_tscm_integration(self):
@@ -231,11 +231,11 @@ class SmokeTests:
         print("\n=== Test: TSCM Integration ===")
         try:
             # Get TSCM sweep presets
-            resp = requests.get(f"{self.base_url}/tscm/devices", timeout=5)
+            resp = httpx.get(f"{self.base_url}/tscm/devices", timeout=5)
             # This might 404 if no devices, which is ok
             self._check("TSCM devices endpoint accessible", resp.status_code in (200, 404))
 
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             self._check("Request succeeded", False, str(e))
 
     def test_export_endpoint(self):
@@ -243,16 +243,16 @@ class SmokeTests:
         print("\n=== Test: Export Endpoint ===")
         try:
             # JSON export
-            resp = requests.get(f"{self.base_url}/api/bluetooth/export?format=json", timeout=5)
+            resp = httpx.get(f"{self.base_url}/api/bluetooth/export?format=json", timeout=5)
             self._check("JSON export: Status 200", resp.status_code == 200, f"Got {resp.status_code}")
             self._check("JSON export: Content-Type", 'application/json' in resp.headers.get('Content-Type', ''))
 
             # CSV export
-            resp = requests.get(f"{self.base_url}/api/bluetooth/export?format=csv", timeout=5)
+            resp = httpx.get(f"{self.base_url}/api/bluetooth/export?format=csv", timeout=5)
             self._check("CSV export: Status 200", resp.status_code == 200, f"Got {resp.status_code}")
             self._check("CSV export: Content-Type", 'text/csv' in resp.headers.get('Content-Type', ''))
 
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             self._check("Request succeeded", False, str(e))
 
     def run_all(self):
@@ -298,9 +298,9 @@ def main():
     # Check server is reachable
     print(f"Checking server at {base_url}...")
     try:
-        resp = requests.get(f"{base_url}/api/bluetooth/capabilities", timeout=5)
+        resp = httpx.get(f"{base_url}/api/bluetooth/capabilities", timeout=5)
         print(f"Server responded: {resp.status_code}")
-    except requests.RequestException as e:
+    except httpx.HTTPError as e:
         print(f"ERROR: Cannot reach server at {base_url}")
         print(f"Details: {e}")
         print("\nMake sure VALENTINE RF is running:")

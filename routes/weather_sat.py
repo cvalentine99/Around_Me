@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import queue
 
-from flask import Blueprint, jsonify, request, Response, send_file
+from quart import Blueprint, jsonify, request, Response, send_file
 
 from utils.logging import get_logger
 from utils.sse import sse_stream

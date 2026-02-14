@@ -1,7 +1,7 @@
 # Core dependencies — pinned to exact versions for reproducible builds
-flask==3.1.1
-flask-limiter==3.12
-requests==2.32.3
+quart==0.20.0
+quart-rate-limiter==0.11.0
+httpx==0.28.1
 Werkzeug==3.1.3
 
 # ADS-B history (optional - only needed for Postgres persistence)
@@ -32,6 +32,5 @@ scapy==2.6.1
 # QR code generation for Meshtastic channels (optional)
 qrcode[pil]==8.0
 
-# WebSocket support for in-app audio streaming (KiwiSDR, Listening Post)
-flask-sock==0.7.0
+# WebSocket support for KiwiSDR client (browser → KiwiSDR proxy)
 websocket-client==1.8.0

@@ -1,7 +1,7 @@
 """
 VALENTINE RF - Signal Intelligence Platform
 
-Flask application and shared state.
+Quart application and shared state (async-native Flask replacement).
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ import subprocess
 
 from typing import Any
 
-from flask import Flask, render_template, jsonify, send_file, Response, request,redirect, url_for, flash, session
+from quart import Quart, render_template, jsonify, send_file, Response, request, redirect, url_for, flash, session
 from werkzeug.security import check_password_hash
 from config import (
     VERSION, CHANGELOG, SHARED_OBSERVER_LOCATION_ENABLED,
@@ -46,23 +46,19 @@ from utils.constants import (
     QUEUE_MAX_SIZE,
 )
 import logging
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+from quart_rate_limiter import RateLimiter, rate_limit
+from datetime import timedelta
 # Track application start time for uptime calculation
 import time as _time
 _app_start_time = _time.time()
 logger = logging.getLogger('valentine.database')
 
-# Create Flask app
-app = Flask(__name__)
+# Create Quart app (async-native Flask replacement)
+app = Quart(__name__)
 app.secret_key = SECRET_KEY  # Generated randomly or from VALENTINE_SECRET_KEY env var
 
-# Set up rate limiting
-limiter = Limiter(
-    key_func=get_remote_address, # Identifies the user by their IP
-    app=app,
-    storage_uri="memory://", # Use RAM memory (change to redis:// etc. for distributed setups)
-)
+# Set up rate limiting (Quart-native rate limiter)
+rate_limiter = RateLimiter(app)
 
 # Disable Werkzeug debugger PIN (not needed for local development tool)
 os.environ['WERKZEUG_DEBUG_PIN'] = 'off'
@@ -360,7 +356,7 @@ def _verify_api_token(token: str) -> bool:
 
 
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")  # Limit to 5 login attempts per minute per IP
+@rate_limit(5, timedelta(minutes=1))  # Limit to 5 login attempts per minute per IP
 def login():
     if request.method == 'POST':
         username = request.form.get('username')
@@ -976,7 +972,7 @@ def main() -> None:
         init_audio_websocket(app)
         print("WebSocket audio streaming enabled")
     except ImportError as e:
-        print(f"WebSocket audio disabled (install flask-sock): {e}")
+        print(f"WebSocket audio disabled: {e}")
 
     # Initialize KiwiSDR WebSocket audio proxy
     try:
@@ -999,11 +995,10 @@ def main() -> None:
     print("Press Ctrl+C to stop")
     print()
 
-# Avoid loading a global ~/.env when running the script directly.
+# Quart uses Hypercorn as its ASGI server (replaces Flask's threaded Werkzeug).
+    # This eliminates the thread-per-SSE-connection bottleneck.
     app.run(
         host=args.host,
         port=args.port,
         debug=args.debug,
-        threaded=True,
-        load_dotenv=False,
     )

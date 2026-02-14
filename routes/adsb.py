@@ -13,8 +13,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Generator
 
-from flask import Blueprint, jsonify, request, Response, render_template
-from flask import make_response
+from quart import Blueprint, jsonify, request, Response, render_template
+from quart import make_response
 
 # psycopg2 is optional - only needed for PostgreSQL history persistence
 try:
@@ -661,16 +661,16 @@ def start_adsb():
     except ValueError:
         sdr_type = SDRType.RTL_SDR
 
-    # For RTL-SDR, use dump1090. For other hardware, need readsb with SoapySDR
-    if sdr_type == SDRType.RTL_SDR:
-        dump1090_path = find_dump1090()
-        if not dump1090_path:
-            return jsonify({'status': 'error', 'message': 'dump1090 not found. Install dump1090/dump1090-fa or ensure it is in /usr/local/bin/'})
-    else:
-        # For LimeSDR/HackRF, check for readsb (dump1090 with SoapySDR support)
-        dump1090_path = shutil.which('readsb') or find_dump1090()
-        if not dump1090_path:
-            return jsonify({'status': 'error', 'message': f'readsb or dump1090 not found for {sdr_type.value}. Install readsb with SoapySDR support.'})
+    # Prefer readsb for all SDR types — it handles RTL-SDR natively and
+    # supports SoapySDR for HackRF/LimeSDR/Airspy.  dump1090 is kept as
+    # a fallback for RTL-SDR only.
+    decoder_path = shutil.which('readsb') or find_dump1090()
+    if not decoder_path:
+        if sdr_type == SDRType.RTL_SDR:
+            return jsonify({'status': 'error', 'message': 'Neither readsb nor dump1090 found. Install readsb (preferred) or dump1090-fa.'})
+        else:
+            return jsonify({'status': 'error', 'message': f'readsb not found for {sdr_type.value}. Install readsb with SoapySDR support.'})
+    dump1090_path = decoder_path  # Keep variable name for downstream compatibility
 
     # Kill any stale app-started process (use process group to ensure full cleanup)
     if app_module.adsb_process:
@@ -1065,7 +1065,7 @@ def aircraft_db_delete():
 @adsb_bp.route('/aircraft-photo/<registration>')
 def aircraft_photo(registration: str):
     """Fetch aircraft photo from Planespotters.net API."""
-    import requests
+    import httpx
 
     # Validate registration format (alphanumeric with dashes)
     if not registration or not all(c.isalnum() or c == '-' for c in registration):
@@ -1074,7 +1074,7 @@ def aircraft_photo(registration: str):
     try:
         # Planespotters.net public API
         url = f'https://api.planespotters.net/pub/photos/reg/{registration}'
-        resp = requests.get(url, timeout=5, headers={
+        resp = httpx.get(url, timeout=5, headers={
             'User-Agent': 'VALENTINE RF-ADS-B/1.0'
         })
 
@@ -1091,7 +1091,7 @@ def aircraft_photo(registration: str):
 
         return jsonify({'success': False, 'error': 'No photo found'})
 
-    except requests.Timeout:
+    except httpx.TimeoutException:
         return jsonify({'success': False, 'error': 'Request timeout'}), 504
     except Exception as e:
         logger.debug(f"Error fetching aircraft photo: {e}")
