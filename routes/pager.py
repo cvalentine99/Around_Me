@@ -365,13 +365,45 @@ def start_decoding() -> Response:
             )
             register_process(rtl_process)
 
+            # Brief check: did rtl_fm start or die immediately?
+            time.sleep(0.3)
+            if rtl_process.poll() is not None:
+                stderr_out = ''
+                try:
+                    stderr_out = rtl_process.stderr.read().decode('utf-8', errors='replace').strip()
+                except Exception:
+                    pass
+                unregister_process(rtl_process)
+                if pager_active_device is not None:
+                    app_module.release_sdr_device(pager_active_device)
+                    pager_active_device = None
+                error_msg = 'rtl_fm failed to start'
+                if stderr_out:
+                    error_msg += f': {stderr_out[:300]}'
+                return jsonify({'status': 'error', 'message': error_msg}), 500
+
             # Start a thread to monitor rtl_fm stderr for errors
             def monitor_rtl_stderr():
+                _SDR_ERROR_PATTERNS = (
+                    'usb_claim_interface',
+                    'failed to open',
+                    'no supported devices',
+                    'permission denied',
+                    'device or resource busy',
+                )
                 for line in rtl_process.stderr:
                     err_text = line.decode('utf-8', errors='replace').strip()
                     if err_text:
-                        logger.debug(f"[RTL_FM] {err_text}")
-                        app_module.output_queue.put({'type': 'raw', 'text': f'[rtl_fm] {err_text}'})
+                        err_lower = err_text.lower()
+                        if any(p in err_lower for p in _SDR_ERROR_PATTERNS):
+                            logger.error(f"[RTL_FM] {err_text}")
+                            app_module.output_queue.put({
+                                'type': 'error',
+                                'text': f'SDR error: {err_text}',
+                            })
+                        else:
+                            logger.debug(f"[RTL_FM] {err_text}")
+                            app_module.output_queue.put({'type': 'raw', 'text': f'[rtl_fm] {err_text}'})
 
             rtl_stderr_thread = threading.Thread(target=monitor_rtl_stderr)
             rtl_stderr_thread.daemon = True

@@ -44,8 +44,12 @@ def validate_longitude(lon: Any) -> float:
         raise ValueError(f"Invalid longitude: {lon}") from e
 
 
-def validate_frequency(freq: Any, min_mhz: float = 24.0, max_mhz: float = 1766.0) -> float:
-    """Validate and return frequency in MHz."""
+def validate_frequency(freq: Any, min_mhz: float = 0.001, max_mhz: float = 6000.0) -> float:
+    """Validate and return frequency in MHz.
+
+    The default range covers all supported SDR hardware (SDRPlay 1 kHz
+    through HackRF 6 GHz).  Callers may narrow via *min_mhz*/*max_mhz*.
+    """
     try:
         freq_float = float(freq)
         if not min_mhz <= freq_float <= max_mhz:
@@ -92,12 +96,16 @@ def validate_rtl_tcp_port(port: Any) -> int:
         raise ValueError(f"Invalid rtl_tcp port: {port}") from e
 
 
-def validate_gain(gain: Any) -> float:
-    """Validate and return gain value."""
+def validate_gain(gain: Any, max_gain: float = 73.0) -> float:
+    """Validate and return gain value.
+
+    The default *max_gain* covers LimeSDR (73 dB).  Callers may narrow
+    for specific hardware via *max_gain*.
+    """
     try:
         gain_float = float(gain)
-        if not 0 <= gain_float <= 50:
-            raise ValueError(f"Gain must be between 0 and 50, got {gain_float}")
+        if not 0 <= gain_float <= max_gain:
+            raise ValueError(f"Gain must be between 0 and {max_gain}, got {gain_float}")
         return gain_float
     except (ValueError, TypeError) as e:
         raise ValueError(f"Invalid gain: {gain}") from e

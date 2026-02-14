@@ -722,7 +722,16 @@ def start_adsb():
             start_new_session=True  # Create new process group for clean shutdown
         )
 
-        time.sleep(DUMP1090_START_WAIT)
+        # Poll until dump1090 dies, opens the SBS port, or we time out.
+        # This replaces a fixed 3 s sleep and returns as soon as
+        # possible (typically < 0.5 s for immediate failures).
+        _deadline = time.monotonic() + DUMP1090_START_WAIT
+        while time.monotonic() < _deadline:
+            if app_module.adsb_process.poll() is not None:
+                break  # crashed – fall through to error handling
+            if check_dump1090_service() is not None:
+                break  # SBS port is open – success
+            time.sleep(0.2)
 
         if app_module.adsb_process.poll() is not None:
             # Process exited - release device and get error message

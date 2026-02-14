@@ -10,11 +10,22 @@ import logging
 import re
 import shutil
 import subprocess
+import threading
+import time
 from typing import Optional
 
 from .base import SDRCapabilities, SDRDevice, SDRType
 
 logger = logging.getLogger(__name__)
+
+# ── Device detection cache ──────────────────────────────────────────────
+# Avoids re-running expensive subprocess probes (up to 20 s) on every
+# HTTP request.  The cache is invalidated after _CACHE_TTL seconds so
+# hot-plug changes are eventually picked up.
+_CACHE_TTL = 10.0  # seconds
+_cache_lock = threading.Lock()
+_cached_devices: list[SDRDevice] | None = None
+_cache_time: float = 0.0
 
 
 def _check_tool(name: str) -> bool:
@@ -410,12 +421,24 @@ def probe_rtlsdr_device(device_index: int) -> str | None:
     return None
 
 
-def detect_all_devices() -> list[SDRDevice]:
+def detect_all_devices(force_refresh: bool = False) -> list[SDRDevice]:
     """
     Detect all connected SDR devices across all supported hardware types.
 
+    Results are cached for ``_CACHE_TTL`` seconds to avoid blocking every
+    HTTP request with slow subprocess calls.  Pass *force_refresh=True*
+    to bypass the cache (e.g. after a user plugs in a new device).
+
     Returns a unified list of SDRDevice objects sorted by type and index.
     """
+    global _cached_devices, _cache_time
+
+    # Fast path: return cached results if still fresh
+    if not force_refresh:
+        with _cache_lock:
+            if _cached_devices is not None and (time.monotonic() - _cache_time) < _CACHE_TTL:
+                return list(_cached_devices)
+
     devices: list[SDRDevice] = []
     skip_in_soapy: set[SDRType] = set()
 
@@ -442,6 +465,19 @@ def detect_all_devices() -> list[SDRDevice]:
     for d in devices:
         logger.debug(f"  {d.sdr_type.value}:{d.index} - {d.name} (serial: {d.serial})")
 
+    # Update cache
+    with _cache_lock:
+        _cached_devices = list(devices)
+        _cache_time = time.monotonic()
+
     return devices
+
+
+def invalidate_device_cache() -> None:
+    """Force the next ``detect_all_devices`` call to re-probe hardware."""
+    global _cached_devices, _cache_time
+    with _cache_lock:
+        _cached_devices = None
+        _cache_time = 0.0
 
 

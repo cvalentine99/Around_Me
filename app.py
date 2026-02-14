@@ -259,20 +259,28 @@ def claim_sdr_device(device_index: int, mode_name: str) -> str | None:
     Returns:
         Error message if device is in use, None if successfully claimed
     """
+    # Quick check under the lock first (no blocking I/O).
     with sdr_device_registry_lock:
         if device_index in sdr_device_registry:
             in_use_by = sdr_device_registry[device_index]
             return f'SDR device {device_index} is in use by {in_use_by}. Stop {in_use_by} first or use a different device.'
 
-        # Probe the USB device to catch external processes holding the handle
-        try:
-            from utils.sdr.detection import probe_rtlsdr_device
-            usb_error = probe_rtlsdr_device(device_index)
-            if usb_error:
-                return usb_error
-        except Exception:
-            pass  # If probe fails, let the caller proceed normally
+    # Probe USB *outside* the lock so other device claims are not
+    # serialised behind this (up to 3 s) subprocess call.
+    try:
+        from utils.sdr.detection import probe_rtlsdr_device
+        usb_error = probe_rtlsdr_device(device_index)
+        if usb_error:
+            return usb_error
+    except Exception:
+        pass  # If probe fails, let the caller proceed normally
 
+    # Re-acquire lock and register – re-check in case another thread
+    # claimed the device while we were probing.
+    with sdr_device_registry_lock:
+        if device_index in sdr_device_registry:
+            in_use_by = sdr_device_registry[device_index]
+            return f'SDR device {device_index} is in use by {in_use_by}. Stop {in_use_by} first or use a different device.'
         sdr_device_registry[device_index] = mode_name
         return None
 
@@ -459,14 +467,16 @@ def favicon() -> Response:
 @app.route('/devices')
 def get_devices() -> Response:
     """Get all detected SDR devices with hardware type info."""
-    devices = SDRFactory.detect_devices()
+    force = request.args.get('refresh', '').lower() in ('1', 'true')
+    devices = SDRFactory.detect_devices(force_refresh=force)
     return jsonify([d.to_dict() for d in devices])
 
 
 @app.route('/devices/status')
 def get_devices_status() -> Response:
     """Get all SDR devices with usage status."""
-    devices = SDRFactory.detect_devices()
+    force = request.args.get('refresh', '').lower() in ('1', 'true')
+    devices = SDRFactory.detect_devices(force_refresh=force)
     registry = get_sdr_device_status()
 
     result = []

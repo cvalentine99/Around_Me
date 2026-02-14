@@ -26,7 +26,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .base import CommandBuilder, SDRCapabilities, SDRDevice, SDRType
-from .detection import detect_all_devices, probe_rtlsdr_device
+from .detection import detect_all_devices, invalidate_device_cache, probe_rtlsdr_device
 from .rtlsdr import RTLSDRCommandBuilder
 from .limesdr import LimeSDRCommandBuilder
 from .hackrf import HackRFCommandBuilder
@@ -88,14 +88,17 @@ class SDRFactory:
         return cls.get_builder(device.sdr_type)
 
     @classmethod
-    def detect_devices(cls) -> list[SDRDevice]:
+    def detect_devices(cls, force_refresh: bool = False) -> list[SDRDevice]:
         """
         Detect all available SDR devices.
+
+        Results are cached briefly to avoid blocking every HTTP request
+        with slow subprocess calls.  Pass *force_refresh=True* to bypass.
 
         Returns:
             List of detected SDR devices
         """
-        return detect_all_devices()
+        return detect_all_devices(force_refresh=force_refresh)
 
     @classmethod
     def get_supported_types(cls) -> list[SDRType]:
@@ -229,6 +232,7 @@ __all__ = [
     'validate_device_index',
     'validate_squelch',
     'get_capabilities_for_type',
-    # Device probing
+    # Device probing / cache
     'probe_rtlsdr_device',
+    'invalidate_device_cache',
 ]

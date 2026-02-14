@@ -407,8 +407,13 @@ def start_ais():
             start_new_session=True
         )
 
-        # Wait for process to start
-        time.sleep(2.0)
+        # Poll until AIS-catcher dies or stabilises.  Most failures
+        # (device busy, not found) surface within the first 0.3 s.
+        _deadline = time.monotonic() + 2.0
+        while time.monotonic() < _deadline:
+            if app_module.ais_process.poll() is not None:
+                break
+            time.sleep(0.2)
 
         if app_module.ais_process.poll() is not None:
             # Release device on failure

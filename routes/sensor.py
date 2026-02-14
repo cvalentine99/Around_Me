@@ -193,18 +193,51 @@ def start_sensor() -> Response:
             )
             register_process(app_module.sensor_process)
 
+            # Brief check: did rtl_433 start or die immediately?
+            time.sleep(0.3)
+            if app_module.sensor_process.poll() is not None:
+                stderr_out = ''
+                try:
+                    stderr_out = app_module.sensor_process.stderr.read().decode('utf-8', errors='replace').strip()
+                except Exception:
+                    pass
+                unregister_process(app_module.sensor_process)
+                app_module.sensor_process = None
+                if sensor_active_device is not None:
+                    app_module.release_sdr_device(sensor_active_device)
+                    sensor_active_device = None
+                error_msg = 'rtl_433 failed to start'
+                if stderr_out:
+                    error_msg += f': {stderr_out[:300]}'
+                return jsonify({'status': 'error', 'message': error_msg}), 500
+
             # Start output thread
             thread = threading.Thread(target=stream_sensor_output, args=(app_module.sensor_process,))
             thread.daemon = True
             thread.start()
 
-            # Monitor stderr
+            # Monitor stderr — escalate known SDR failures to 'error' type
             def monitor_stderr():
+                _SDR_ERROR_PATTERNS = (
+                    'usb_claim_interface',
+                    'failed to open',
+                    'no supported devices',
+                    'permission denied',
+                    'device or resource busy',
+                )
                 for line in app_module.sensor_process.stderr:
                     err = line.decode('utf-8', errors='replace').strip()
                     if err:
-                        logger.debug(f"[rtl_433] {err}")
-                        app_module.sensor_queue.put({'type': 'info', 'text': f'[rtl_433] {err}'})
+                        err_lower = err.lower()
+                        if any(p in err_lower for p in _SDR_ERROR_PATTERNS):
+                            logger.error(f"[rtl_433] {err}")
+                            app_module.sensor_queue.put({
+                                'type': 'error',
+                                'text': f'SDR error: {err}',
+                            })
+                        else:
+                            logger.debug(f"[rtl_433] {err}")
+                            app_module.sensor_queue.put({'type': 'info', 'text': f'[rtl_433] {err}'})
 
             stderr_thread = threading.Thread(target=monitor_stderr)
             stderr_thread.daemon = True
