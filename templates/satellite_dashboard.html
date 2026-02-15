@@ -286,7 +286,7 @@
         function onSatelliteChange() {
             const select = document.getElementById('satSelect');
             selectedSatellite = parseInt(select.value);
-            const satName = satellites[selectedSatellite]?.name || 'Unknown';
+            const satName = (satellites[selectedSatellite] ? satellites[selectedSatellite].name : null) || 'Unknown';
 
             document.getElementById('trackingStatus').textContent = 'ACQUIRING';
             document.getElementById('trackingDot').style.background = 'var(--accent-orange)';
@@ -463,8 +463,10 @@
                 }).addTo(groundMap);
             }
 
-            const lat = parseFloat(document.getElementById('obsLat')?.value);
-            const lon = parseFloat(document.getElementById('obsLon')?.value);
+            var obsLatEl = document.getElementById('obsLat');
+            const lat = parseFloat(obsLatEl ? obsLatEl.value : '');
+            var obsLonEl = document.getElementById('obsLon');
+            const lon = parseFloat(obsLonEl ? obsLonEl.value : '');
             if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
                 groundMap.setView([lat, lon], 3);
             }
@@ -492,7 +494,7 @@
         async function calculatePasses() {
             const lat = parseFloat(document.getElementById('obsLat').value);
             const lon = parseFloat(document.getElementById('obsLon').value);
-            const satName = satellites[selectedSatellite]?.name || 'Unknown';
+            const satName = (satellites[selectedSatellite] ? satellites[selectedSatellite].name : null) || 'Unknown';
 
             try {
                 const response = await fetch('/satellite/predict', {
@@ -725,7 +727,7 @@
 
                     satMarker = L.marker([pass.currentPos.lat, pass.currentPos.lon], { icon: satIcon })
                         .addTo(groundMap)
-                        .bindPopup(`<b>${pass.name}</b><br>Alt: ${pass.currentPos.alt?.toFixed(0)} km`);
+                        .bindPopup(`<b>${pass.name}</b><br>Alt: ${(pass.currentPos.alt != null ? pass.currentPos.alt.toFixed(0) : '?')} km`);
                 }
 
                 if (allCoords.length > 0) {
@@ -848,7 +850,7 @@
             const lon = parseFloat(document.getElementById('obsLon').value);
 
             let targetSatellite = selectedSatellite;
-            let satColor = satellites[selectedSatellite]?.color || '#a78bfa';
+            let satColor = (satellites[selectedSatellite] ? satellites[selectedSatellite].color : null) || '#a78bfa';
 
             if (selectedPass !== null && passes[selectedPass]) {
                 const pass = passes[selectedPass];
@@ -1032,7 +1034,7 @@
                 ctx.font = 'bold 11px Orbitron';
                 ctx.fillStyle = '#fff';
                 ctx.textAlign = 'center';
-                ctx.fillText(satellites[selectedSatellite]?.name || 'SAT', x, y - 20);
+                ctx.fillText((satellites[selectedSatellite] ? satellites[selectedSatellite].name : null) || 'SAT', x, y - 20);
 
                 ctx.font = '10px Space Mono';
                 ctx.fillStyle = el > 0 ? '#34d399' : '#ff4444';
@@ -1081,7 +1083,7 @@
                 ctx.font = 'bold 11px Orbitron';
                 ctx.fillStyle = '#fff';
                 ctx.textAlign = 'center';
-                ctx.fillText(satellites[selectedSatellite]?.name || 'SAT', x, y - 20);
+                ctx.fillText((satellites[selectedSatellite] ? satellites[selectedSatellite].name : null) || 'SAT', x, y - 20);
 
                 ctx.font = '10px Space Mono';
                 ctx.fillStyle = el > 0 ? '#34d399' : '#ff4444';

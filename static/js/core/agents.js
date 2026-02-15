@@ -113,7 +113,7 @@ function updateAgentHealthUI() {
             const health = agentHealthStatus[agent.id];
             const isHealthy = health ? health.healthy : agent.healthy !== false;
             const status = isHealthy ? '●' : '○';
-            const latency = health?.response_time_ms ? ` (${health.response_time_ms}ms)` : '';
+            const latency = (health && health.response_time_ms) ? (' (' + health.response_time_ms + 'ms)') : '';
             option.textContent = `${status} ${agent.name}${latency}`;
             option.dataset.healthy = isHealthy;
         }
@@ -141,8 +141,8 @@ function updateHealthPanel() {
     const html = agents.map(agent => {
         const health = agentHealthStatus[agent.id];
         const isHealthy = health ? health.healthy : agent.healthy !== false;
-        const latency = health?.response_time_ms ? `${health.response_time_ms}ms` : '--';
-        const modes = health?.running_modes?.length || 0;
+        const latency = (health && health.response_time_ms) ? (health.response_time_ms + 'ms') : '--';
+        const modes = (health && health.running_modes && health.running_modes.length) || 0;
         const statusColor = isHealthy ? 'var(--accent-green)' : 'var(--accent-red)';
         const statusIcon = isHealthy ? '●' : '○';
 
@@ -249,7 +249,7 @@ function updateAgentStatus() {
 
             // Show latency if available
             if (latencyText) {
-                if (health?.response_time_ms) {
+                if (health && health.response_time_ms) {
                     latencyText.textContent = `${health.response_time_ms}ms`;
                 } else {
                     latencyText.textContent = '';
@@ -381,7 +381,7 @@ function selectAgent(agentId) {
         if (typeof updateListenButtonState === 'function') {
             updateListenButtonState(true);
         }
-        const agentName = agents.find(a => a.id == agentId)?.name || 'Unknown';
+        const agentName = (function(){ var a = agents.find(function(a){ return a.id == agentId; }); return a ? a.name : 'Unknown'; })();
         console.log(`Agent selected: ${agentName}`);
 
         // Show visual feedback
@@ -585,7 +585,7 @@ function checkAgentAudioMode(modeToStart) {
 
     if (isAudioMode(modeToStart)) {
         const agentHost = getAgentHost(currentAgent);
-        const agentName = agents.find(a => a.id == currentAgent)?.name || 'remote agent';
+        const agentName = (function(){ var a = agents.find(function(a){ return a.id == currentAgent; }); return a ? a.name : 'remote agent'; })();
 
         alert(
             `Audio streaming is not supported via remote agents.\n\n` +

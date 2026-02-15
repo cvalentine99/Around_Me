@@ -65,8 +65,8 @@ const WeatherSat = (function() {
         const latInput = document.getElementById('wxsatObsLat');
         const lonInput = document.getElementById('wxsatObsLon');
 
-        const lat = parseFloat(latInput?.value);
-        const lon = parseFloat(lonInput?.value);
+        const lat = parseFloat(latInput ? latInput.value : '');
+        const lon = parseFloat(lonInput ? lonInput.value : '');
 
         if (!isNaN(lat) && lat >= -90 && lat <= 90 &&
             !isNaN(lon) && lon >= -180 && lon <= 180) {
@@ -160,10 +160,10 @@ const WeatherSat = (function() {
         const biasTInput = document.getElementById('weatherSatBiasT');
         const deviceSelect = document.getElementById('deviceSelect');
 
-        const satellite = satSelect?.value || 'NOAA-18';
-        const gain = parseFloat(gainInput?.value || '40');
-        const biasT = biasTInput?.checked || false;
-        const device = parseInt(deviceSelect?.value || '0', 10);
+        const satellite = (satSelect ? satSelect.value : '') || 'NOAA-18';
+        const gain = parseFloat((gainInput ? gainInput.value : '') || '40');
+        const biasT = biasTInput ? biasTInput.checked : false;
+        const device = parseInt((deviceSelect ? deviceSelect.value : '') || '0', 10);
 
         clearConsole();
         showConsole(true);
@@ -237,9 +237,9 @@ const WeatherSat = (function() {
         const fileInput = document.getElementById('wxsatTestFilePath');
         const rateSelect = document.getElementById('wxsatTestSampleRate');
 
-        const satellite = satSelect?.value || 'NOAA-18';
-        const inputFile = (fileInput?.value || '').trim();
-        const sampleRate = parseInt(rateSelect?.value || '1000000', 10);
+        const satellite = (satSelect ? satSelect.value : '') || 'NOAA-18';
+        const inputFile = ((fileInput ? fileInput.value : '') || '').trim();
+        const sampleRate = parseInt((rateSelect ? rateSelect.value : '') || '1000000', 10);
 
         if (!inputFile) {
             showNotification('Weather Sat', 'Enter a file path');
@@ -451,8 +451,8 @@ const WeatherSat = (function() {
         // Use ObserverLocation if available, otherwise fall back to localStorage
         if (window.ObserverLocation && ObserverLocation.isSharedEnabled()) {
             const shared = ObserverLocation.getShared();
-            storedLat = shared?.lat?.toString();
-            storedLon = shared?.lon?.toString();
+            storedLat = (shared && shared.lat != null) ? shared.lat.toString() : undefined;
+            storedLon = (shared && shared.lon != null) ? shared.lon.toString() : undefined;
         } else {
             storedLat = localStorage.getItem('observerLat');
             storedLon = localStorage.getItem('observerLon');
@@ -929,7 +929,7 @@ const WeatherSat = (function() {
     async function toggleScheduler() {
         const stripCheckbox = document.getElementById('wxsatAutoSchedule');
         const sidebarCheckbox = document.getElementById('wxsatSidebarAutoSchedule');
-        const checked = stripCheckbox?.checked || sidebarCheckbox?.checked;
+        const checked = (stripCheckbox ? stripCheckbox.checked : false) || (sidebarCheckbox ? sidebarCheckbox.checked : false);
 
         // Sync both checkboxes
         if (stripCheckbox) stripCheckbox.checked = checked;
@@ -969,9 +969,9 @@ const WeatherSat = (function() {
                 body: JSON.stringify({
                     latitude: lat,
                     longitude: lon,
-                    device: parseInt(deviceSelect?.value || '0', 10),
-                    gain: parseFloat(gainInput?.value || '40'),
-                    bias_t: biasTInput?.checked || false,
+                    device: parseInt((deviceSelect ? deviceSelect.value : '') || '0', 10),
+                    gain: parseFloat((gainInput ? gainInput.value : '') || '40'),
+                    bias_t: biasTInput ? biasTInput.checked : false,
                 }),
             });
 

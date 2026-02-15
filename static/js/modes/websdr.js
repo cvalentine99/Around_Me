@@ -76,7 +76,8 @@ function initWebSDR() {
 // ============== RECEIVER SEARCH ==============
 
 function searchReceivers(refresh) {
-    const freqKhz = parseFloat(document.getElementById('websdrFrequency')?.value || 0);
+    var wsFreqEl = document.getElementById('websdrFrequency');
+    const freqKhz = parseFloat(wsFreqEl ? wsFreqEl.value : 0);
 
     let url = '/websdr/receivers?available=true';
     if (freqKhz > 0) url += `&freq_khz=${freqKhz}`;
@@ -170,8 +171,10 @@ function selectReceiver(index) {
     const rx = websdrReceivers[index];
     if (!rx) return;
 
-    const freqKhz = parseFloat(document.getElementById('websdrFrequency')?.value || 7000);
-    const mode = document.getElementById('websdrMode_select')?.value || 'am';
+    var wsFreqEl2 = document.getElementById('websdrFrequency');
+    const freqKhz = parseFloat(wsFreqEl2 ? wsFreqEl2.value : 7000);
+    var wsModeEl = document.getElementById('websdrMode_select');
+    const mode = wsModeEl ? wsModeEl.value : 'am';
 
     kiwiReceiverName = rx.name;
 
@@ -383,8 +386,10 @@ function tuneKiwi(freqKhz, mode) {
 }
 
 function tuneFromBar() {
-    const freq = parseFloat(document.getElementById('kiwiBarFrequency')?.value || 0);
-    const mode = document.getElementById('kiwiBarMode')?.value || kiwiCurrentMode;
+    var kbFreqEl = document.getElementById('kiwiBarFrequency');
+    const freq = parseFloat(kbFreqEl ? kbFreqEl.value : 0);
+    var kbModeEl = document.getElementById('kiwiBarMode');
+    const mode = kbModeEl ? kbModeEl.value : kiwiCurrentMode;
     if (freq > 0) {
         tuneKiwi(freq, mode);
         // Also update sidebar frequency
@@ -507,8 +512,9 @@ function loadSpyStationPresets() {
             }
 
             container.innerHTML = stations.slice(0, 30).map(s => {
-                const primaryFreq = s.frequencies?.find(f => f.primary) || s.frequencies?.[0];
-                const freqKhz = primaryFreq?.freq_khz || 0;
+                var freqs = s.frequencies || [];
+                var primaryFreq = freqs.find(function(f){ return f.primary; }) || freqs[0];
+                const freqKhz = (primaryFreq && primaryFreq.freq_khz) ? primaryFreq.freq_khz : 0;
                 return `
                     <div style="padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer; display: flex; justify-content: space-between; align-items: center;"
                          onclick="tuneToSpyStation('${escapeHtmlWebsdr(s.id)}', ${freqKhz})"
@@ -533,7 +539,8 @@ function tuneToSpyStation(stationId, freqKhz) {
 
     // If already connected, just retune
     if (kiwiConnected) {
-        const mode = document.getElementById('websdrMode_select')?.value || kiwiCurrentMode;
+        var wsModeEl2 = document.getElementById('websdrMode_select');
+        const mode = wsModeEl2 ? wsModeEl2.value : kiwiCurrentMode;
         tuneKiwi(freqKhz, mode);
         return;
     }
@@ -548,7 +555,7 @@ function tuneToSpyStation(stationId, freqKhz) {
                 plotReceiversOnMap(websdrReceivers);
 
                 const countEl = document.getElementById('websdrReceiverCount');
-                if (countEl) countEl.textContent = `${websdrReceivers.length} for ${data.station?.name || stationId}`;
+                if (countEl) countEl.textContent = websdrReceivers.length + ' for ' + ((data.station && data.station.name) ? data.station.name : stationId);
 
                 if (typeof showNotification === 'function' && data.station) {
                     showNotification('WebSDR', `Found ${websdrReceivers.length} receivers for ${data.station.name} at ${freqKhz} kHz`);

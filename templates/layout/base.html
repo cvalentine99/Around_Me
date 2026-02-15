@@ -116,15 +116,15 @@
         if (hamburgerBtn) {
             hamburgerBtn.addEventListener('click', function() {
                 this.classList.toggle('open');
-                document.querySelector('.app-sidebar')?.classList.toggle('open');
-                drawerOverlay?.classList.toggle('visible');
+                var sidebar = document.querySelector('.app-sidebar'); if (sidebar) sidebar.classList.toggle('open');
+                if (drawerOverlay) drawerOverlay.classList.toggle('visible');
             });
         }
 
         if (drawerOverlay) {
             drawerOverlay.addEventListener('click', function() {
-                hamburgerBtn?.classList.remove('open');
-                document.querySelector('.app-sidebar')?.classList.remove('open');
+                if (hamburgerBtn) hamburgerBtn.classList.remove('open');
+                var sidebarEl = document.querySelector('.app-sidebar'); if (sidebarEl) sidebarEl.classList.remove('open');
                 this.classList.remove('visible');
             });
         }

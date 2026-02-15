@@ -65,11 +65,16 @@ function checkDmrTools() {
 // ============== START / STOP ==============
 
 function startDmr() {
-    const frequency = parseFloat(document.getElementById('dmrFrequency')?.value || 462.5625);
-    const protocol = document.getElementById('dmrProtocol')?.value || 'auto';
-    const gain = parseInt(document.getElementById('dmrGain')?.value || 40);
-    const ppm = parseInt(document.getElementById('dmrPPM')?.value || 0);
-    const relaxCrc = document.getElementById('dmrRelaxCrc')?.checked || false;
+    var dmrFreqEl = document.getElementById('dmrFrequency');
+    const frequency = parseFloat(dmrFreqEl ? dmrFreqEl.value : 462.5625);
+    var dmrProtoEl = document.getElementById('dmrProtocol');
+    const protocol = dmrProtoEl ? dmrProtoEl.value : 'auto';
+    var dmrGainEl = document.getElementById('dmrGain');
+    const gain = parseInt(dmrGainEl ? dmrGainEl.value : 40);
+    var dmrPpmEl = document.getElementById('dmrPPM');
+    const ppm = parseInt(dmrPpmEl ? dmrPpmEl.value : 0);
+    var dmrCrcEl = document.getElementById('dmrRelaxCrc');
+    const relaxCrc = dmrCrcEl ? dmrCrcEl.checked : false;
     const device = typeof getSelectedDevice === 'function' ? getSelectedDevice() : 0;
 
     // Use protocol name for device reservation so panel shows "D-STAR", "P25", etc.
@@ -656,8 +661,9 @@ function addDmrBookmark() {
         return;
     }
 
-    const protocol = document.getElementById('dmrProtocol')?.value || 'auto';
-    const label = (labelInput?.value || '').trim() || `${freq.toFixed(4)} MHz`;
+    var dmrProtoEl2 = document.getElementById('dmrProtocol');
+    const protocol = dmrProtoEl2 ? dmrProtoEl2.value : 'auto';
+    const label = (labelInput ? labelInput.value : '').trim() || `${freq.toFixed(4)} MHz`;
 
     // Duplicate check
     if (dmrBookmarks.some(b => b.freq === freq && b.protocol === protocol)) {

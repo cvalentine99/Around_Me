@@ -190,7 +190,7 @@ const Meshtastic = (function() {
     async function start() {
         // Get connection type
         const connTypeSelect = document.getElementById('meshStripConnType');
-        const connectionType = connTypeSelect?.value || 'serial';
+        const connectionType = connTypeSelect ? connTypeSelect.value : 'serial';
 
         // Get connection parameters based on type
         let device = null;
@@ -199,7 +199,8 @@ const Meshtastic = (function() {
         if (connectionType === 'tcp') {
             // TCP connection - get hostname
             const hostnameInput = document.getElementById('meshStripHostname');
-            hostname = hostnameInput?.value?.trim() || null;
+            hostname = (hostnameInput && hostnameInput.value) ? hostnameInput.value.trim() : null;
+            hostname = hostname || null;
 
             if (!hostname) {
                 showStatusMessage('Please enter a hostname or IP address for TCP connection', 'error');
@@ -210,7 +211,7 @@ const Meshtastic = (function() {
             // Serial connection - get device
             const stripDeviceSelect = document.getElementById('meshStripDevice');
             const sidebarDeviceSelect = document.getElementById('meshDeviceSelect');
-            device = stripDeviceSelect?.value || sidebarDeviceSelect?.value || null;
+            device = (stripDeviceSelect ? stripDeviceSelect.value : '') || (sidebarDeviceSelect ? sidebarDeviceSelect.value : '') || null;
 
             // Check if auto-detect is selected but multiple ports exist
             if (!device && stripDeviceSelect && stripDeviceSelect.options.length > 2) {
@@ -483,7 +484,7 @@ const Meshtastic = (function() {
         const pskFormat = document.getElementById('meshModalPskFormat');
 
         if (indexEl) indexEl.textContent = index;
-        if (nameInput) nameInput.value = channel?.name || '';
+        if (nameInput) nameInput.value = (channel && channel.name) ? channel.name : '';
         if (pskFormat) pskFormat.value = 'keep';
 
         onPskFormatChange();
@@ -504,7 +505,8 @@ const Meshtastic = (function() {
      * Handle PSK format change
      */
     function onPskFormatChange() {
-        const format = document.getElementById('meshModalPskFormat')?.value;
+        var pskFormatEl = document.getElementById('meshModalPskFormat');
+        const format = pskFormatEl ? pskFormatEl.value : undefined;
         const inputContainer = document.getElementById('meshModalPskInputContainer');
         const pskInput = document.getElementById('meshModalPskValue');
         const warning = document.getElementById('meshModalPskWarning');
@@ -535,11 +537,13 @@ const Meshtastic = (function() {
         if (editingChannelIndex === null) return;
 
         const nameInput = document.getElementById('meshModalChannelName');
-        const pskFormat = document.getElementById('meshModalPskFormat')?.value;
-        const pskValue = document.getElementById('meshModalPskValue')?.value;
+        var pskFmtEl = document.getElementById('meshModalPskFormat');
+        const pskFormat = pskFmtEl ? pskFmtEl.value : undefined;
+        var pskValEl = document.getElementById('meshModalPskValue');
+        const pskValue = pskValEl ? pskValEl.value : undefined;
 
         const body = {};
-        const name = nameInput?.value.trim();
+        const name = nameInput ? nameInput.value.trim() : '';
         if (name) body.name = name;
 
         // Build PSK value based on format
@@ -1027,7 +1031,7 @@ const Meshtastic = (function() {
         const visualsFilter = document.getElementById('meshVisualsFilter');
 
         // Use whichever one has a value, preferring the one that was just changed
-        const value = sidebarFilter?.value || visualsFilter?.value || '';
+        const value = (sidebarFilter ? sidebarFilter.value : '') || (visualsFilter ? visualsFilter.value : '') || '';
         currentFilter = value;
 
         // Sync both dropdowns
@@ -1169,11 +1173,11 @@ const Meshtastic = (function() {
         const toInput = document.getElementById('meshComposeTo');
         const sendBtn = document.querySelector('.mesh-compose-send');
 
-        const text = textInput?.value.trim();
+        const text = textInput ? textInput.value.trim() : '';
         if (!text) return;
 
-        const channel = parseInt(channelSelect?.value || '0', 10);
-        const toValue = toInput?.value.trim();
+        const channel = parseInt(channelSelect ? channelSelect.value : '0', 10);
+        const toValue = toInput ? toInput.value.trim() : '';
         // Convert empty or "^all" to null for broadcast
         const to = (toValue && toValue !== '^all') ? toValue : null;
 
@@ -1184,7 +1188,7 @@ const Meshtastic = (function() {
         }
 
         // Optimistically add message to feed immediately
-        const localNodeName = nodeInfo?.short_name || nodeInfo?.long_name || null;
+        const localNodeName = (nodeInfo && nodeInfo.short_name) ? nodeInfo.short_name : ((nodeInfo && nodeInfo.long_name) ? nodeInfo.long_name : null);
         const localNodeIdStr = nodeInfo ? formatNodeId(nodeInfo.num) : '!local';
         const optimisticMsg = {
             type: 'meshtastic',
@@ -1256,7 +1260,7 @@ const Meshtastic = (function() {
                 sendBtn.disabled = false;
                 sendBtn.classList.remove('sending');
             }
-            textInput?.focus();
+            if (textInput) textInput.focus();
         }
     }
 
@@ -1665,7 +1669,7 @@ const Meshtastic = (function() {
         }
 
         const channel = channels.find(ch => ch.index === channelIndex);
-        const channelName = channel?.name || `Channel ${channelIndex}`;
+        const channelName = (channel && channel.name) ? channel.name : ('Channel ' + channelIndex);
 
         // Show loading state
         modal.innerHTML = `
@@ -2059,8 +2063,8 @@ const Meshtastic = (function() {
         const stopBtn = document.getElementById('rangeTestStopBtn');
         const statusDiv = document.getElementById('rangeTestStatus');
 
-        const count = parseInt(countInput?.value || '10', 10);
-        const interval = parseInt(intervalInput?.value || '5', 10);
+        const count = parseInt(countInput ? countInput.value : '10', 10);
+        const interval = parseInt(intervalInput ? intervalInput.value : '5', 10);
 
         try {
             const response = await fetch('/meshtastic/range-test/start', {
@@ -2224,7 +2228,7 @@ const Meshtastic = (function() {
      */
     async function requestStoreForward() {
         const select = document.getElementById('sfWindowMinutes');
-        const windowMinutes = parseInt(select?.value || '60', 10);
+        const windowMinutes = parseInt(select ? select.value : '60', 10);
 
         try {
             const response = await fetch('/meshtastic/store-forward/request', {

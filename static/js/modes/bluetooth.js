@@ -722,11 +722,11 @@ const BluetoothMode = (function() {
             return;
         }
 
-        const adapter = adapterSelect?.value || '';
-        const mode = scanModeSelect?.value || 'auto';
-        const transport = transportSelect?.value || 'auto';
-        const duration = parseInt(durationInput?.value || '0', 10);
-        const minRssi = parseInt(minRssiInput?.value || '-100', 10);
+        const adapter = (adapterSelect ? adapterSelect.value : '');
+        const mode = (scanModeSelect ? scanModeSelect.value : 'auto');
+        const transport = (transportSelect ? transportSelect.value : 'auto');
+        const duration = parseInt((durationInput ? durationInput.value : '0'), 10);
+        const minRssi = parseInt((minRssiInput ? minRssiInput.value : '-100'), 10);
 
         const isAgentMode = typeof currentAgent !== 'undefined' && currentAgent !== 'local';
 

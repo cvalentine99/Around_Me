@@ -127,22 +127,22 @@ const TimelineHeatmap = (function() {
         const sortSelect = container.querySelector('#heatmapSort');
         const pauseBtn = container.querySelector('#heatmapPauseBtn');
 
-        windowSelect?.addEventListener('change', (e) => {
+        if (windowSelect) windowSelect.addEventListener('change', (e) => {
             settings.windowMinutes = parseInt(e.target.value, 10);
             refresh();
         });
 
-        bucketSelect?.addEventListener('change', (e) => {
+        if (bucketSelect) bucketSelect.addEventListener('change', (e) => {
             settings.bucketSeconds = parseInt(e.target.value, 10);
             refresh();
         });
 
-        sortSelect?.addEventListener('change', (e) => {
+        if (sortSelect) sortSelect.addEventListener('change', (e) => {
             settings.sortBy = e.target.value;
             refresh();
         });
 
-        pauseBtn?.addEventListener('click', () => {
+        if (pauseBtn) pauseBtn.addEventListener('click', () => {
             isPaused = !isPaused;
             pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
             pauseBtn.classList.toggle('active', isPaused);
@@ -326,7 +326,8 @@ const TimelineHeatmap = (function() {
 
         // Callback
         if (onDeviceSelect && selectedDeviceKey) {
-            const device = data?.devices?.find(d => d.device_key === selectedDeviceKey);
+            var devicesArr = (data && data.devices) ? data.devices : [];
+            const device = devicesArr.find(function(d) { return d.device_key === selectedDeviceKey; });
             onDeviceSelect(selectedDeviceKey, device);
         }
     }
@@ -345,7 +346,7 @@ const TimelineHeatmap = (function() {
      */
     function setPaused(paused) {
         isPaused = paused;
-        const pauseBtn = container?.querySelector('#heatmapPauseBtn');
+        const pauseBtn = container ? container.querySelector('#heatmapPauseBtn') : null;
         if (pauseBtn) {
             pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
             pauseBtn.classList.toggle('active', isPaused);

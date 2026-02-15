@@ -87,9 +87,12 @@ const WiFiMode = (function() {
     }
 
     function buildChannelConfig() {
-        const preset = document.getElementById('wifiChannelPreset')?.value || '';
-        const listInput = document.getElementById('wifiChannelList')?.value || '';
-        const singleInput = document.getElementById('wifiChannel')?.value || '';
+        var presetEl = document.getElementById('wifiChannelPreset');
+        const preset = presetEl ? presetEl.value : '';
+        var listEl = document.getElementById('wifiChannelList');
+        const listInput = listEl ? listEl.value : '';
+        var singleEl = document.getElementById('wifiChannel');
+        const singleInput = singleEl ? singleEl.value : '';
 
         const listValue = listInput.trim();
         const presetValue = getChannelPresetList(preset);
@@ -403,7 +406,7 @@ const WiFiMode = (function() {
         setScanning(true, 'quick');
 
         try {
-            const iface = elements.interfaceSelect?.value || null;
+            const iface = (elements.interfaceSelect ? elements.interfaceSelect.value : '') || null;
             const isAgentMode = typeof currentAgent !== 'undefined' && currentAgent !== 'local';
             const agentName = getCurrentAgentName();
 
@@ -495,8 +498,9 @@ const WiFiMode = (function() {
         setScanning(true, 'deep');
 
         try {
-            const iface = elements.interfaceSelect?.value || null;
-            const band = document.getElementById('wifiBand')?.value || 'all';
+            const iface = (elements.interfaceSelect ? elements.interfaceSelect.value : '') || null;
+            var bandEl = document.getElementById('wifiBand');
+            const band = bandEl ? bandEl.value : 'all';
             const channelConfig = buildChannelConfig();
             const isAgentMode = typeof currentAgent !== 'undefined' && currentAgent !== 'local';
 
@@ -665,7 +669,7 @@ const WiFiMode = (function() {
             }
 
             try {
-                const iface = elements.interfaceSelect?.value || null;
+                const iface = (elements.interfaceSelect ? elements.interfaceSelect.value : '') || null;
                 const response = await fetch(`${CONFIG.apiBase}/scan/quick`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -764,7 +768,7 @@ const WiFiMode = (function() {
                     });
                 }
 
-                console.debug(`[WiFiMode] Agent poll: ${data.networks?.length || 0} networks, ${data.clients?.length || 0} clients`);
+                console.debug('[WiFiMode] Agent poll: ' + ((data.networks && data.networks.length) || 0) + ' networks, ' + ((data.clients && data.clients.length) || 0) + ' clients');
 
             } catch (error) {
                 console.debug('[WiFiMode] Agent poll error:', error);
@@ -1100,7 +1104,7 @@ const WiFiMode = (function() {
     }
 
     function updateNetworkRow(network) {
-        const row = elements.networkTableBody?.querySelector(`tr[data-bssid="${network.bssid}"]`);
+        const row = elements.networkTableBody ? elements.networkTableBody.querySelector('tr[data-bssid="' + network.bssid + '"]') : null;
         if (row) {
             row.outerHTML = createNetworkRow(network);
         } else {
@@ -1113,7 +1117,7 @@ const WiFiMode = (function() {
         selectedNetwork = bssid;
 
         // Update row selection
-        elements.networkTableBody?.querySelectorAll('.wifi-network-row').forEach(row => {
+        (elements.networkTableBody ? elements.networkTableBody.querySelectorAll('.wifi-network-row') : []).forEach(row => {
             row.classList.toggle('selected', row.dataset.bssid === bssid);
         });
 
@@ -1185,7 +1189,7 @@ const WiFiMode = (function() {
         if (elements.detailDrawer) {
             elements.detailDrawer.classList.remove('open');
         }
-        elements.networkTableBody?.querySelectorAll('.wifi-network-row').forEach(row => {
+        (elements.networkTableBody ? elements.networkTableBody.querySelectorAll('.wifi-network-row') : []).forEach(row => {
             row.classList.remove('selected');
         });
     }
@@ -1232,7 +1236,7 @@ const WiFiMode = (function() {
     }
 
     function renderClientList(clientList, bssid) {
-        const container = elements.detailClientList?.querySelector('.wifi-client-list');
+        const container = (elements.detailClientList ? elements.detailClientList.querySelector('.wifi-client-list') : null);
         const countBadge = document.getElementById('wifiClientCountBadge');
 
         if (!container) return;
@@ -1286,7 +1290,7 @@ const WiFiMode = (function() {
             return;
         }
 
-        const container = elements.detailClientList?.querySelector('.wifi-client-list');
+        const container = (elements.detailClientList ? elements.detailClientList.querySelector('.wifi-client-list') : null);
         if (!container) return;
 
         const existingCard = container.querySelector(`[data-mac="${client.mac}"]`);

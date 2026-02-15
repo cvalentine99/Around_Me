@@ -132,7 +132,7 @@ function checkScannerTools() {
  */
 function getSelectedDevice() {
     const select = document.getElementById('deviceSelect');
-    return parseInt(select?.value || '0');
+    return parseInt(select ? select.value : '0');
 }
 
 /**
@@ -140,7 +140,7 @@ function getSelectedDevice() {
  */
 function getSelectedSDRTypeForScanner() {
     const select = document.getElementById('sdrTypeSelect');
-    return select?.value || 'rtlsdr';
+    return select ? select.value : 'rtlsdr';
 }
 
 // ============== SCANNER PRESETS ==============
@@ -168,13 +168,17 @@ function toggleScanner() {
 
 function startScanner() {
     // Use unified radio controls - read all current UI values
-    const startFreq = parseFloat(document.getElementById('radioScanStart')?.value || 118);
-    const endFreq = parseFloat(document.getElementById('radioScanEnd')?.value || 137);
+    var scanStartEl = document.getElementById('radioScanStart');
+    const startFreq = parseFloat(scanStartEl ? scanStartEl.value : 118);
+    var scanEndEl = document.getElementById('radioScanEnd');
+    const endFreq = parseFloat(scanEndEl ? scanEndEl.value : 137);
     const stepSelect = document.getElementById('radioScanStep');
     const step = stepSelect ? parseFloat(stepSelect.value) : 25;
     const modulation = currentModulation || 'am';
-    const squelch = parseInt(document.getElementById('radioSquelchValue')?.textContent) || 30;
-    const gain = parseInt(document.getElementById('radioGainValue')?.textContent) || 40;
+    var squelchEl = document.getElementById('radioSquelchValue');
+    const squelch = parseInt(squelchEl ? squelchEl.textContent : 30) || 30;
+    var gainEl = document.getElementById('radioGainValue');
+    const gain = parseInt(gainEl ? gainEl.textContent : 40) || 40;
     const dwellSelect = document.getElementById('radioScanDwell');
     const dwell = dwellSelect ? parseInt(dwellSelect.value) : 10;
     const device = getSelectedDevice();
@@ -1888,7 +1892,8 @@ function stopSynthesizer() {
  * Streams directly from Flask - no Icecast needed
  */
 function getStreamUrl(freq, mod) {
-    const frequency = freq || parseFloat(document.getElementById('radioScanStart')?.value) || 118.0;
+    var radioStartEl = document.getElementById('radioScanStart');
+    const frequency = freq || parseFloat(radioStartEl ? radioStartEl.value : 0) || 118.0;
     const modulation = mod || currentModulation || 'am';
     return `/listening/audio/stream?fresh=1&freq=${frequency}&mod=${modulation}&t=${Date.now()}`;
 }
@@ -2283,9 +2288,11 @@ async function _startDirectListenInternal() {
 
         const freqInput = document.getElementById('radioScanStart');
         const freq = freqInput ? parseFloat(freqInput.value) : 118.0;
-        const squelchValue = parseInt(document.getElementById('radioSquelchValue')?.textContent);
+        var sqEl2 = document.getElementById('radioSquelchValue');
+        const squelchValue = parseInt(sqEl2 ? sqEl2.textContent : '');
         const squelch = Number.isFinite(squelchValue) ? squelchValue : 0;
-        const gain = parseInt(document.getElementById('radioGainValue')?.textContent) || 40;
+        var gnEl2 = document.getElementById('radioGainValue');
+        const gain = parseInt(gnEl2 ? gnEl2.textContent : '40') || 40;
         const device = typeof getSelectedDevice === 'function' ? getSelectedDevice() : 0;
         const sdrType = typeof getSelectedSDRType === 'function'
             ? getSelectedSDRType()
@@ -3212,8 +3219,8 @@ function setWaterfallControlButtons(running) {
 function getWaterfallRangeFromInputs() {
     const startInput = document.getElementById('waterfallStartFreq');
     const endInput = document.getElementById('waterfallEndFreq');
-    const startVal = parseFloat(startInput?.value);
-    const endVal = parseFloat(endInput?.value);
+    const startVal = parseFloat(startInput ? startInput.value : '');
+    const endVal = parseFloat(endInput ? endInput.value : '');
     const start = Number.isFinite(startVal) ? startVal : waterfallStartFreq;
     const end = Number.isFinite(endVal) ? endVal : waterfallEndFreq;
     return { start, end };
@@ -3262,7 +3269,8 @@ function setWaterfallRange(center, span) {
 }
 
 function getWaterfallCenterForZoom(start, end) {
-    const tuned = parseFloat(document.getElementById('radioScanStart')?.value || '');
+    var tunedEl = document.getElementById('radioScanStart');
+    const tuned = parseFloat(tunedEl ? tunedEl.value : '');
     if (Number.isFinite(tuned) && tuned > 0) return tuned;
     return (start + end) / 2;
 }
@@ -3285,10 +3293,10 @@ async function syncWaterfallToFrequency(freq, options = {}) {
     if (isWaterfallRunning && waterfallMode === 'rf' && restartIfRunning) {
         // Reuse existing WebSocket to avoid USB device release race
         if (waterfallUseWebSocket && waterfallWebSocket && waterfallWebSocket.readyState === WebSocket.OPEN) {
-            const sf = parseFloat(document.getElementById('waterfallStartFreq')?.value || 88);
-            const ef = parseFloat(document.getElementById('waterfallEndFreq')?.value || 108);
-            const fft = parseInt(document.getElementById('waterfallFftSize')?.value || document.getElementById('waterfallBinSize')?.value || 1024);
-            const g = parseInt(document.getElementById('waterfallGain')?.value || 40);
+            const sf = parseFloat((function(){ var e = document.getElementById('waterfallStartFreq'); return e ? e.value : ''; })() || 88);
+            const ef = parseFloat((function(){ var e = document.getElementById('waterfallEndFreq'); return e ? e.value : ''; })() || 108);
+            const fft = parseInt((function(){ var e = document.getElementById('waterfallFftSize'); return e ? e.value : ''; })() || (function(){ var e = document.getElementById('waterfallBinSize'); return e ? e.value : ''; })() || 1024);
+            const g = parseInt((function(){ var e = document.getElementById('waterfallGain'); return e ? e.value : ''; })() || 40);
             const dev = typeof getSelectedDevice === 'function' ? getSelectedDevice() : 0;
             waterfallWebSocket.send(JSON.stringify({
                 cmd: 'start',
@@ -3330,10 +3338,10 @@ async function zoomWaterfall(direction) {
     if (isWaterfallRunning && waterfallMode === 'rf' && !isDirectListening) {
         // Reuse existing WebSocket to avoid USB device release race
         if (waterfallUseWebSocket && waterfallWebSocket && waterfallWebSocket.readyState === WebSocket.OPEN) {
-            const sf = parseFloat(document.getElementById('waterfallStartFreq')?.value || 88);
-            const ef = parseFloat(document.getElementById('waterfallEndFreq')?.value || 108);
-            const fft = parseInt(document.getElementById('waterfallFftSize')?.value || document.getElementById('waterfallBinSize')?.value || 1024);
-            const g = parseInt(document.getElementById('waterfallGain')?.value || 40);
+            const sf = parseFloat((function(){ var e = document.getElementById('waterfallStartFreq'); return e ? e.value : ''; })() || 88);
+            const ef = parseFloat((function(){ var e = document.getElementById('waterfallEndFreq'); return e ? e.value : ''; })() || 108);
+            const fft = parseInt((function(){ var e = document.getElementById('waterfallFftSize'); return e ? e.value : ''; })() || (function(){ var e = document.getElementById('waterfallBinSize'); return e ? e.value : ''; })() || 1024);
+            const g = parseInt((function(){ var e = document.getElementById('waterfallGain'); return e ? e.value : ''; })() || 40);
             const dev = typeof getSelectedDevice === 'function' ? getSelectedDevice() : 0;
             waterfallWebSocket.send(JSON.stringify({
                 cmd: 'start',
@@ -3792,10 +3800,10 @@ function drawSpectrumLineBinary(bins, startFreq, endFreq) {
 
 async function startWaterfall(options = {}) {
     const { silent = false, resume = false } = options;
-    const startFreq = parseFloat(document.getElementById('waterfallStartFreq')?.value || 88);
-    const endFreq = parseFloat(document.getElementById('waterfallEndFreq')?.value || 108);
-    const fftSize = parseInt(document.getElementById('waterfallFftSize')?.value || document.getElementById('waterfallBinSize')?.value || 1024);
-    const gain = parseInt(document.getElementById('waterfallGain')?.value || 40);
+    const startFreq = parseFloat((function(){ var e = document.getElementById('waterfallStartFreq'); return e ? e.value : ''; })() || 88);
+    const endFreq = parseFloat((function(){ var e = document.getElementById('waterfallEndFreq'); return e ? e.value : ''; })() || 108);
+    const fftSize = parseInt((function(){ var e = document.getElementById('waterfallFftSize'); return e ? e.value : ''; })() || (function(){ var e = document.getElementById('waterfallBinSize'); return e ? e.value : ''; })() || 1024);
+    const gain = parseInt((function(){ var e = document.getElementById('waterfallGain'); return e ? e.value : ''; })() || 40);
     const device = typeof getSelectedDevice === 'function' ? getSelectedDevice() : 0;
     initWaterfallCanvas();
     const maxBins = Math.min(4096, Math.max(128, waterfallCanvas ? waterfallCanvas.width : 800));

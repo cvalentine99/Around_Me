@@ -2542,6 +2542,17 @@
 
     <script>
         // ============================================
+        // ES5-SAFE HELPERS (compatibility shim)
+        // ============================================
+        function _el(id) { var e = document.getElementById(id); return e || null; }
+        function _val(id, fallback) { var e = document.getElementById(id); return e ? e.value : (fallback !== undefined ? fallback : ''); }
+        function _text(id, fallback) { var e = document.getElementById(id); return e && e.textContent ? e.textContent : (fallback !== undefined ? fallback : ''); }
+        function _checked(id) { var e = document.getElementById(id); return e ? !!e.checked : false; }
+        function _toggleClass(id, cls, force) { var e = document.getElementById(id); if (e) e.classList.toggle(cls, force); }
+        function _prop(obj, key) { return obj != null ? obj[key] : undefined; }
+        function _coalesce(a, b) { return (a !== null && a !== undefined) ? a : b; }
+
+        // ============================================
         // ACTIVITY TIMELINE MANAGEMENT
         // ============================================
         const modeTimelines = {};
@@ -2839,22 +2850,22 @@
             // Sensor stats
             const headerSensorCount = document.getElementById('headerSensorCount');
             const headerDeviceTypeCount = document.getElementById('headerDeviceTypeCount');
-            if (headerSensorCount) headerSensorCount.textContent = document.getElementById('sensorCount')?.textContent || '0';
-            if (headerDeviceTypeCount) headerDeviceTypeCount.textContent = document.getElementById('deviceCount')?.textContent || '0';
+            if (headerSensorCount) headerSensorCount.textContent = _text('sensorCount', '0');
+            if (headerDeviceTypeCount) headerDeviceTypeCount.textContent = _text('deviceCount', '0');
 
             // WiFi stats
             const headerApCount = document.getElementById('headerApCount');
             const headerClientCount = document.getElementById('headerClientCount');
             const headerHandshakeCount = document.getElementById('headerHandshakeCount');
             const headerDroneCount = document.getElementById('headerDroneCount');
-            if (headerApCount) headerApCount.textContent = document.getElementById('apCount')?.textContent || '0';
-            if (headerClientCount) headerClientCount.textContent = document.getElementById('clientCount')?.textContent || '0';
-            if (headerHandshakeCount) headerHandshakeCount.textContent = document.getElementById('handshakeCount')?.textContent || '0';
-            if (headerDroneCount) headerDroneCount.textContent = document.getElementById('droneCount')?.textContent || '0';
+            if (headerApCount) headerApCount.textContent = _text('apCount', '0');
+            if (headerClientCount) headerClientCount.textContent = _text('clientCount', '0');
+            if (headerHandshakeCount) headerHandshakeCount.textContent = _text('handshakeCount', '0');
+            if (headerDroneCount) headerDroneCount.textContent = _text('droneCount', '0');
 
             // Satellite stats
             const headerPassCount = document.getElementById('headerPassCount');
-            if (headerPassCount) headerPassCount.textContent = document.getElementById('passCount')?.textContent || '0';
+            if (headerPassCount) headerPassCount.textContent = _text('passCount', '0');
         }
         // Sync stats periodically
         setInterval(syncHeaderStats, 500);
@@ -3174,23 +3185,23 @@
                     btn.classList.add('active');
                 }
             });
-            document.getElementById('pagerMode')?.classList.toggle('active', mode === 'pager');
-            document.getElementById('sensorMode')?.classList.toggle('active', mode === 'sensor');
-            document.getElementById('rtlamrMode')?.classList.toggle('active', mode === 'rtlamr');
-            document.getElementById('satelliteMode')?.classList.toggle('active', mode === 'satellite');
-            document.getElementById('sstvMode')?.classList.toggle('active', mode === 'sstv');
-            document.getElementById('weatherSatMode')?.classList.toggle('active', mode === 'weathersat');
-            document.getElementById('sstvGeneralMode')?.classList.toggle('active', mode === 'sstv_general');
-            document.getElementById('wifiMode')?.classList.toggle('active', mode === 'wifi');
-            document.getElementById('bluetoothMode')?.classList.toggle('active', mode === 'bluetooth');
-            document.getElementById('listeningPostMode')?.classList.toggle('active', mode === 'listening');
-            document.getElementById('aprsMode')?.classList.toggle('active', mode === 'aprs');
-            document.getElementById('tscmMode')?.classList.toggle('active', mode === 'tscm');
-            document.getElementById('aisMode')?.classList.toggle('active', mode === 'ais');
-            document.getElementById('spystationsMode')?.classList.toggle('active', mode === 'spystations');
-            document.getElementById('meshtasticMode')?.classList.toggle('active', mode === 'meshtastic');
-            document.getElementById('dmrMode')?.classList.toggle('active', mode === 'dmr');
-            document.getElementById('websdrMode')?.classList.toggle('active', mode === 'websdr');
+            _toggleClass('pagerMode', 'active', mode === 'pager');
+            _toggleClass('sensorMode', 'active', mode === 'sensor');
+            _toggleClass('rtlamrMode', 'active', mode === 'rtlamr');
+            _toggleClass('satelliteMode', 'active', mode === 'satellite');
+            _toggleClass('sstvMode', 'active', mode === 'sstv');
+            _toggleClass('weatherSatMode', 'active', mode === 'weathersat');
+            _toggleClass('sstvGeneralMode', 'active', mode === 'sstv_general');
+            _toggleClass('wifiMode', 'active', mode === 'wifi');
+            _toggleClass('bluetoothMode', 'active', mode === 'bluetooth');
+            _toggleClass('listeningPostMode', 'active', mode === 'listening');
+            _toggleClass('aprsMode', 'active', mode === 'aprs');
+            _toggleClass('tscmMode', 'active', mode === 'tscm');
+            _toggleClass('aisMode', 'active', mode === 'ais');
+            _toggleClass('spystationsMode', 'active', mode === 'spystations');
+            _toggleClass('meshtasticMode', 'active', mode === 'meshtastic');
+            _toggleClass('dmrMode', 'active', mode === 'dmr');
+            _toggleClass('websdrMode', 'active', mode === 'websdr');
             const pagerStats = document.getElementById('pagerStats');
             const sensorStats = document.getElementById('sensorStats');
             const satelliteStats = document.getElementById('satelliteStats');
@@ -3201,10 +3212,10 @@
             if (wifiStats) wifiStats.style.display = mode === 'wifi' ? 'flex' : 'none';
 
             // Update header stats groups
-            document.getElementById('headerPagerStats')?.classList.toggle('active', mode === 'pager');
-            document.getElementById('headerSensorStats')?.classList.toggle('active', mode === 'sensor');
-            document.getElementById('headerSatelliteStats')?.classList.toggle('active', mode === 'satellite');
-            document.getElementById('headerWifiStats')?.classList.toggle('active', mode === 'wifi');
+            _toggleClass('headerPagerStats', 'active', mode === 'pager');
+            _toggleClass('headerSensorStats', 'active', mode === 'sensor');
+            _toggleClass('headerSatelliteStats', 'active', mode === 'satellite');
+            _toggleClass('headerWifiStats', 'active', mode === 'wifi');
 
             // Show/hide dashboard buttons in nav bar
             const satelliteDashboardBtn = document.getElementById('satelliteDashboardBtn');
@@ -4312,7 +4323,7 @@
             }
 
             const meter = document.getElementById('signalMeter');
-            const bars = meter?.querySelectorAll('.signal-bar');
+            const bars = meter ? meter.querySelectorAll('.signal-bar') : null;
             if (bars) {
                 const activeBars = Math.ceil(signalActivity * bars.length);
                 bars.forEach((bar, i) => {
@@ -4534,7 +4545,7 @@
             );
 
             if (filteredDevices.length === 0) {
-                select.innerHTML = `<option value="0">No ${sdrCapabilities[sdrType]?.name || sdrType} devices found</option>`;
+                select.innerHTML = `<option value="0">No ${_prop(sdrCapabilities[sdrType], 'name') || sdrType} devices found</option>`;
             } else {
                 select.innerHTML = filteredDevices.map(d => {
                     const serialSuffix = d.serial && d.serial !== 'N/A' && d.serial !== 'Unknown' ? ` (SN: ${d.serial})` : '';
@@ -4656,12 +4667,12 @@
 
         // Bias-T power setting
         function saveBiasTSetting() {
-            const enabled = document.getElementById('biasT')?.checked || false;
+            const enabled = _checked('biasT');
             localStorage.setItem('biasTEnabled', enabled);
         }
 
         function getBiasTEnabled() {
-            return document.getElementById('biasT')?.checked || false;
+            return _checked('biasT');
         }
 
         function loadBiasTSetting() {
@@ -6191,7 +6202,7 @@
             channels5g.forEach(ch => channelCounts[ch] = 0);
 
             Object.values(wifiNetworks).forEach(net => {
-                const ch = net.channel?.toString().trim();
+                const ch = net.channel != null ? net.channel.toString().trim() : null;
                 if (channels5g.includes(ch)) {
                     channelCounts[ch]++;
                 }
@@ -6404,8 +6415,8 @@
                         deviceCorrelations.push({
                             wifi_mac: wifiMac,
                             bt_mac: btMac,
-                            wifi_name: wifiDev?.essid || wifiDev?.mac || wifiMac,
-                            bt_name: btDev?.name || btMac,
+                            wifi_name: _prop(wifiDev, 'essid') || _prop(wifiDev, 'mac') || wifiMac,
+                            bt_name: _prop(btDev, 'name') || btMac,
                             confidence: 0.5,
                             reason: 'same OUI'
                         });
@@ -6557,7 +6568,7 @@
                         return r.json();
                     })
                     .then(data => {
-                        const interfaces = data.agent?.interfaces?.wifi_interfaces || [];
+                        const interfaces = (data.agent && data.agent.interfaces && data.agent.interfaces.wifi_interfaces) || [];
                         if (interfaces.length === 0) {
                             select.innerHTML = '<option value="">No WiFi interfaces on agent</option>';
                             showNotification('WiFi', 'No WiFi interfaces found on remote agent.');
@@ -6622,8 +6633,8 @@
                     const statusDiv = document.getElementById('wifiToolStatus');
                     if (statusDiv) {
                         statusDiv.innerHTML = `
-                            <span>airmon-ng:</span><span class="tool-status ${data.tools?.airmon ? 'ok' : 'missing'}">${data.tools?.airmon ? 'OK' : 'Missing'}</span>
-                            <span>airodump-ng:</span><span class="tool-status ${data.tools?.airodump ? 'ok' : 'missing'}">${data.tools?.airodump ? 'OK' : 'Missing'}</span>
+                            <span>airmon-ng:</span><span class="tool-status ${(data.tools && data.tools.airmon) ? 'ok' : 'missing'}">${(data.tools && data.tools.airmon) ? 'OK' : 'Missing'}</span>
+                            <span>airodump-ng:</span><span class="tool-status ${(data.tools && data.tools.airodump) ? 'ok' : 'missing'}">${(data.tools && data.tools.airodump) ? 'OK' : 'Missing'}</span>
                         `;
                     }
 
@@ -6741,9 +6752,9 @@
         }
 
         function buildWifiChannelConfig() {
-            const preset = document.getElementById('wifiChannelPreset')?.value || '';
-            const listInput = document.getElementById('wifiChannelList')?.value || '';
-            const singleInput = document.getElementById('wifiChannel')?.value || '';
+            const preset = _val('wifiChannelPreset', '');
+            const listInput = _val('wifiChannelList', '');
+            const singleInput = _val('wifiChannel', '');
 
             const listValue = listInput.trim();
             const presetValue = getWifiChannelPresetList(preset);
@@ -8121,7 +8132,7 @@
         }
 
         function resetBtAdapter() {
-            const iface = document.getElementById('btInterfaceSelect')?.value || 'hci0';
+            const iface = _val('btInterfaceSelect', 'hci0');
             fetch('/bt/reset', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -9001,9 +9012,9 @@
             if (!mapContainer) return;
 
             // Use GPS location if available, otherwise default to center of US
-            const initialLat = aprsUserLocation.lat || gpsLastPosition?.latitude || 39.8283;
-            const initialLon = aprsUserLocation.lon || gpsLastPosition?.longitude || -98.5795;
-            const initialZoom = (aprsUserLocation.lat || gpsLastPosition?.latitude) ? 8 : 4;
+            const initialLat = aprsUserLocation.lat || _prop(gpsLastPosition, 'latitude') || 39.8283;
+            const initialLon = aprsUserLocation.lon || _prop(gpsLastPosition, 'longitude') || -98.5795;
+            const initialZoom = (aprsUserLocation.lat || _prop(gpsLastPosition, 'latitude')) ? 8 : 4;
 
             aprsMap = L.map('aprsMap').setView([initialLat, initialLon], initialZoom);
             window.aprsMap = aprsMap;
@@ -11461,7 +11472,7 @@
                     // Update progress (simple time-based estimate)
                     if (tscmSweepStartTime) {
                         const elapsed = (Date.now() - tscmSweepStartTime) / 1000;
-                        const sweepType = document.getElementById('tscmSweepType')?.value || 'standard';
+                        const sweepType = _val('tscmSweepType', 'standard');
                         const durations = { quick: 120, standard: 300, full: 900 };
                         const maxDuration = durations[sweepType] || 300;
                         const progress = Math.min(95, (elapsed / maxDuration) * 100);
@@ -11653,7 +11664,7 @@
             tscmRfStatusMessage = null;
             // Check if already exists (within 0.1 MHz)
             const exists = tscmRfSignals.some(s => Math.abs(s.frequency - signal.frequency) < 0.1);
-            const powerDbm = signal.power_dbm ?? signal.power ?? signal.level;
+            const powerDbm = _coalesce(_coalesce(signal.power_dbm, signal.power), signal.level);
             const strength = powerDbm !== undefined && powerDbm !== null
                 ? Math.min(5, Math.max(1, Math.ceil((powerDbm + 60) / 15)))
                 : 3;
@@ -12018,9 +12029,9 @@
                 `;
             } else if (protocol === 'rf') {
                 html += `
-                    <tr><td>Frequency</td><td>${device.frequency?.toFixed(3) || 'Unknown'} MHz</td></tr>
+                    <tr><td>Frequency</td><td>${device.frequency != null ? device.frequency.toFixed(3) : 'Unknown'} MHz</td></tr>
                     <tr><td>Band</td><td>${device.band || 'Unknown'}</td></tr>
-                    <tr><td>Power</td><td>${device.power?.toFixed(1) || '--'} dBm</td></tr>
+                    <tr><td>Power</td><td>${device.power != null ? device.power.toFixed(1) : '--'} dBm</td></tr>
                     <tr><td>Signal Strength</td><td>+${(device.signal_strength || 0).toFixed(1)} dB above noise</td></tr>
                 `;
             }
@@ -13362,10 +13373,10 @@
                 const identityClusters = data.identity_clusters || (tscmIdentitySummary ? tscmIdentitySummary.total : 0);
                 const baselineNew = data.baseline_new_devices || 0;
                 const baselineMissing = data.baseline_missing_devices || 0;
-                const wifiCount = data.wifi_count ?? tscmWifiDevices.length;
-                const wifiClientCount = data.wifi_client_count ?? tscmWifiClients.length;
-                const btCount = data.bt_count ?? tscmBtDevices.length;
-                const rfCount = data.rf_count ?? tscmRfSignals.length;
+                const wifiCount = _coalesce(data.wifi_count, tscmWifiDevices.length);
+                const wifiClientCount = _coalesce(data.wifi_client_count, tscmWifiClients.length);
+                const btCount = _coalesce(data.bt_count, tscmBtDevices.length);
+                const rfCount = _coalesce(data.rf_count, tscmRfSignals.length);
 
                 let assessment = 'BASELINE ENVIRONMENT';
                 let assessmentClass = 'informational';
@@ -13731,8 +13742,8 @@
                     }
 
                     if (rfAvailable) {
-                        const minFreq = caps.rf.frequency_range_mhz?.min || 0;
-                        const maxFreq = caps.rf.frequency_range_mhz?.max || 0;
+                        const minFreq = _prop(caps.rf.frequency_range_mhz, 'min') || 0;
+                        const maxFreq = _prop(caps.rf.frequency_range_mhz, 'max') || 0;
                         canDetect.push(`RF signals (${minFreq}-${maxFreq} MHz)`);
                         canDetect.push('Unknown transmitters in frequency range');
                     } else {
@@ -13752,8 +13763,8 @@
                         <div class="device-detail-section">
                             <h4>System Information</h4>
                             <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
-                                OS: ${escapeHtml(caps.system?.os || 'Unknown')} ${escapeHtml(caps.system?.os_version || '')} |
-                                Root: ${caps.system?.is_root ? 'Yes' : 'No'}
+                                OS: ${escapeHtml(_prop(caps.system, 'os') || 'Unknown')} ${escapeHtml(_prop(caps.system, 'os_version') || '')} |
+                                Root: ${(caps.system && caps.system.is_root) ? 'Yes' : 'No'}
                             </div>
                             <h4>Available Detection Methods</h4>
                             <div class="capabilities-grid">
@@ -13761,19 +13772,19 @@
                                     <span class="cap-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/></svg></span>
                                     <span class="cap-name">WiFi Scanning</span>
                                     <span class="cap-status">${wifiAvailable ? caps.wifi.mode : 'Not Available'}</span>
-                                    ${caps.wifi?.interface ? `<span class="cap-detail">${escapeHtml(caps.wifi.interface)}</span>` : ''}
+                                    ${(caps.wifi && caps.wifi.interface) ? `<span class="cap-detail">${escapeHtml(caps.wifi.interface)}</span>` : ''}
                                 </div>
                                 <div class="cap-detail-item ${btAvailable ? 'available' : 'unavailable'}">
                                     <span class="cap-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6.5 6.5 17.5 17.5 12 22 12 2 17.5 6.5 6.5 17.5"/></svg></span>
                                     <span class="cap-name">Bluetooth Scanning</span>
                                     <span class="cap-status">${btAvailable ? caps.bluetooth.mode : 'Not Available'}</span>
-                                    ${caps.bluetooth?.adapter ? `<span class="cap-detail">${escapeHtml(caps.bluetooth.adapter)}</span>` : ''}
+                                    ${(caps.bluetooth && caps.bluetooth.adapter) ? `<span class="cap-detail">${escapeHtml(caps.bluetooth.adapter)}</span>` : ''}
                                 </div>
                                 <div class="cap-detail-item ${rfAvailable ? 'available' : 'unavailable'}">
                                     <span class="cap-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12c0-3 2-6 5-6s4 3 5 6c1 3 2 6 5 6s5-3 5-6"/></svg></span>
                                     <span class="cap-name">RF/SDR Scanning</span>
                                     <span class="cap-status">${rfAvailable ? 'Available' : 'Not Available'}</span>
-                                    ${caps.rf?.device_type ? `<span class="cap-detail">${escapeHtml(caps.rf.device_type)}</span>` : ''}
+                                    ${(caps.rf && caps.rf.device_type) ? `<span class="cap-detail">${escapeHtml(caps.rf.device_type)}</span>` : ''}
                                 </div>
                             </div>
                         </div>
@@ -14360,7 +14371,7 @@
         }
 
         function tscmScheduleCadenceChanged() {
-            const cadence = document.getElementById('tscmScheduleCadence')?.value || 'daily';
+            const cadence = _val('tscmScheduleCadence', 'daily');
             const timeRow = document.getElementById('tscmScheduleTimeRow');
             const dayRow = document.getElementById('tscmScheduleDayRow');
             const intervalRow = document.getElementById('tscmScheduleIntervalRow');
@@ -14371,25 +14382,26 @@
         }
 
         async function tscmCreateScheduleFromForm() {
-            const name = document.getElementById('tscmScheduleName')?.value.trim();
+            const nameEl = document.getElementById('tscmScheduleName');
+            const name = nameEl ? nameEl.value.trim() : '';
             if (!name) {
                 alert('Schedule name required');
                 return;
             }
-            const sweepType = document.getElementById('tscmScheduleSweepType')?.value || 'standard';
-            const baselineId = document.getElementById('tscmScheduleBaseline')?.value || null;
-            const cadence = document.getElementById('tscmScheduleCadence')?.value || 'daily';
+            const sweepType = _val('tscmScheduleSweepType', 'standard');
+            const baselineId = _val('tscmScheduleBaseline', '') || null;
+            const cadence = _val('tscmScheduleCadence', 'daily');
 
             let cronExpression = '';
             if (cadence === 'hourly') {
-                const interval = parseInt(document.getElementById('tscmScheduleInterval')?.value || '6', 10);
+                const interval = parseInt(_val('tscmScheduleInterval', '6'), 10);
                 if (isNaN(interval) || interval < 1 || interval > 24) {
                     alert('Interval must be between 1 and 24 hours');
                     return;
                 }
                 cronExpression = `0 */${interval} * * *`;
             } else {
-                const timeValue = document.getElementById('tscmScheduleTime')?.value || '09:00';
+                const timeValue = _val('tscmScheduleTime', '09:00');
                 const [hourStr, minStr] = timeValue.split(':');
                 const hour = parseInt(hourStr, 10);
                 const minute = parseInt(minStr, 10);
@@ -14398,7 +14410,7 @@
                     return;
                 }
                 if (cadence === 'weekly') {
-                    const day = document.getElementById('tscmScheduleDay')?.value || '0';
+                    const day = _val('tscmScheduleDay', '0');
                     cronExpression = `${minute} ${hour} * * ${day}`;
                 } else {
                     cronExpression = `${minute} ${hour} * * *`;
@@ -14515,7 +14527,7 @@
                                         ${escapeHtml(p.description || 'No description')}
                                     </div>
                                     <div class="playbook-meta">
-                                        ${p.steps?.length || 0} steps
+                                        ${(p.steps && p.steps.length) || 0} steps
                                     </div>
                                 </div>
                             `).join('')}
@@ -15252,7 +15264,7 @@
         function closeStartupDeps() {
             const modal = document.getElementById('startupDepsModal');
             if (modal) {
-                if (document.getElementById('dontShowAgain')?.checked) {
+                if (_checked('dontShowAgain')) {
                     localStorage.setItem('depsCheckDismissed', 'true');
                 }
                 modal.remove();

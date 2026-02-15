@@ -76,8 +76,8 @@ const SSTV = (function() {
         const latInput = document.getElementById('sstvObsLat');
         const lonInput = document.getElementById('sstvObsLon');
 
-        const lat = parseFloat(latInput?.value);
-        const lon = parseFloat(lonInput?.value);
+        const lat = parseFloat(latInput ? latInput.value : '');
+        const lon = parseFloat(lonInput ? lonInput.value : '');
 
         if (!isNaN(lat) && lat >= -90 && lat <= 90 &&
             !isNaN(lon) && lon >= -180 && lon <= 180) {
@@ -154,7 +154,7 @@ const SSTV = (function() {
             const data = await response.json();
 
             if (data.status === 'success') {
-                showNotification('SSTV', `TLE updated: ${data.updated?.length || 0} satellites`);
+                showNotification('SSTV', 'TLE updated: ' + ((data.updated && data.updated.length) || 0) + ' satellites');
                 loadIssSchedule(); // Refresh predictions with new TLE
             } else {
                 showNotification('SSTV', data.message || 'TLE update failed');
@@ -530,8 +530,8 @@ const SSTV = (function() {
         // Use the global SDR device selector
         const deviceSelect = document.getElementById('deviceSelect');
 
-        const frequency = parseFloat(freqInput?.value || ISS_FREQ);
-        const device = parseInt(deviceSelect?.value || '0', 10);
+        const frequency = parseFloat(freqInput ? freqInput.value : ISS_FREQ);
+        const device = parseInt(deviceSelect ? deviceSelect.value : '0', 10);
 
         // Check if device is available
         if (typeof checkDeviceAvailability === 'function' && !checkDeviceAvailability('sstv')) {

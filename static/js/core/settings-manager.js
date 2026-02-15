@@ -113,7 +113,7 @@ const Settings = {
      * Get a setting value
      */
     get(key) {
-        return this._cache[key] ?? this.defaults[key];
+        var v = this._cache[key]; return (v !== null && v !== undefined) ? v : this.defaults[key];
     },
 
     /**
@@ -687,8 +687,8 @@ function saveObserverLocation() {
     const latInput = document.getElementById('observerLatInput');
     const lonInput = document.getElementById('observerLonInput');
 
-    const lat = parseFloat(latInput?.value);
-    const lon = parseFloat(lonInput?.value);
+    const lat = parseFloat(latInput ? latInput.value : '');
+    const lon = parseFloat(lonInput ? lonInput.value : '');
 
     if (isNaN(lat) || lat < -90 || lat > 90) {
         if (typeof showNotification === 'function') {

@@ -110,16 +110,16 @@ function switchMode(mode) {
     // Toggle mode content visibility
     document.getElementById('pagerMode').classList.toggle('active', mode === 'pager');
     document.getElementById('sensorMode').classList.toggle('active', mode === 'sensor');
-    document.getElementById('aircraftMode')?.classList.toggle('active', mode === 'aircraft');
+    var aircraftModeEl = document.getElementById('aircraftMode'); if (aircraftModeEl) aircraftModeEl.classList.toggle('active', mode === 'aircraft');
     document.getElementById('satelliteMode').classList.toggle('active', mode === 'satellite');
     document.getElementById('wifiMode').classList.toggle('active', mode === 'wifi');
     document.getElementById('bluetoothMode').classList.toggle('active', mode === 'bluetooth');
     document.getElementById('listeningPostMode').classList.toggle('active', mode === 'listening');
-    document.getElementById('aprsMode')?.classList.toggle('active', mode === 'aprs');
-    document.getElementById('tscmMode')?.classList.toggle('active', mode === 'tscm');
-    document.getElementById('rtlamrMode')?.classList.toggle('active', mode === 'rtlamr');
-    document.getElementById('spystationsMode')?.classList.toggle('active', mode === 'spystations');
-    document.getElementById('meshtasticMode')?.classList.toggle('active', mode === 'meshtastic');
+    var aprsModeEl = document.getElementById('aprsMode'); if (aprsModeEl) aprsModeEl.classList.toggle('active', mode === 'aprs');
+    var tscmModeEl = document.getElementById('tscmMode'); if (tscmModeEl) tscmModeEl.classList.toggle('active', mode === 'tscm');
+    var rtlamrModeEl = document.getElementById('rtlamrMode'); if (rtlamrModeEl) rtlamrModeEl.classList.toggle('active', mode === 'rtlamr');
+    var spyModeEl = document.getElementById('spystationsMode'); if (spyModeEl) spyModeEl.classList.toggle('active', mode === 'spystations');
+    var meshModeEl = document.getElementById('meshtasticMode'); if (meshModeEl) meshModeEl.classList.toggle('active', mode === 'meshtastic');
 
     // Toggle stats visibility
     document.getElementById('pagerStats').style.display = mode === 'pager' ? 'flex' : 'none';
@@ -163,7 +163,8 @@ function switchMode(mode) {
     document.getElementById('btLayoutContainer').style.display = mode === 'bluetooth' ? 'flex' : 'none';
 
     // Respect the "Show Radar Display" checkbox for aircraft mode
-    const showRadar = document.getElementById('adsbEnableMap')?.checked;
+    var adsbMapEl = document.getElementById('adsbEnableMap');
+    const showRadar = adsbMapEl ? adsbMapEl.checked : false;
     document.getElementById('aircraftVisuals').style.display = (mode === 'aircraft' && showRadar) ? 'grid' : 'none';
     document.getElementById('satelliteVisuals').style.display = mode === 'satellite' ? 'block' : 'none';
     document.getElementById('listeningPostVisuals').style.display = mode === 'listening' ? 'grid' : 'none';
@@ -315,12 +316,14 @@ function checkDeviceAvailability(requestingMode) {
 // ============== BIAS-T SETTINGS ==============
 
 function saveBiasTSetting() {
-    const enabled = document.getElementById('biasT')?.checked || false;
+    var biasTEl = document.getElementById('biasT');
+    const enabled = biasTEl ? biasTEl.checked : false;
     localStorage.setItem('biasTEnabled', enabled);
 }
 
 function getBiasTEnabled() {
-    return document.getElementById('biasT')?.checked || false;
+    var biasTEl2 = document.getElementById('biasT');
+    return biasTEl2 ? biasTEl2.checked : false;
 }
 
 function loadBiasTSetting() {
@@ -348,11 +351,14 @@ function toggleRemoteSDR() {
 }
 
 function getRemoteSDRConfig() {
-    const useRemote = document.getElementById('useRemoteSDR')?.checked;
+    var useRemoteEl = document.getElementById('useRemoteSDR');
+    const useRemote = useRemoteEl ? useRemoteEl.checked : false;
     if (!useRemote) return null;
 
-    const host = document.getElementById('rtlTcpHost')?.value || 'localhost';
-    const port = parseInt(document.getElementById('rtlTcpPort')?.value || '1234');
+    var hostEl = document.getElementById('rtlTcpHost');
+    const host = (hostEl ? hostEl.value : '') || 'localhost';
+    var portEl = document.getElementById('rtlTcpPort');
+    const port = parseInt((portEl ? portEl.value : '') || '1234');
 
     if (!host || isNaN(port)) {
         alert('Please enter valid rtl_tcp host and port');

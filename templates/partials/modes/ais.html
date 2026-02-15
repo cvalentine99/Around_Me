@@ -109,7 +109,8 @@
 
     function startAisTracking() {
         const gain = document.getElementById('aisGainInput').value || '40';
-        const device = document.getElementById('deviceSelect')?.value || '0';
+        var deviceEl = document.getElementById('deviceSelect');
+        const device = deviceEl ? deviceEl.value : '0';
 
         fetch('/ais/start', {
             method: 'POST',

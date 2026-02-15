@@ -426,11 +426,13 @@
         // BIAS-T HELPER
         // ============================================
         function getBiasTEnabled() {
-            return document.getElementById('adsbBiasT')?.checked || false;
+            var biasTEl = document.getElementById('adsbBiasT');
+            return biasTEl ? biasTEl.checked : false;
         }
 
         function saveAdsbBiasTSetting() {
-            const enabled = document.getElementById('adsbBiasT')?.checked || false;
+            var biasTEl2 = document.getElementById('adsbBiasT');
+            const enabled = biasTEl2 ? biasTEl2.checked : false;
             localStorage.setItem('adsbBiasTEnabled', enabled);
         }
 
@@ -771,9 +773,9 @@
         }
 
         function isOnWatchlist(aircraft) {
-            const icao = aircraft.icao?.toUpperCase();
-            const callsign = aircraft.callsign?.toUpperCase()?.trim();
-            const registration = aircraft.registration?.toUpperCase()?.trim();
+            const icao = aircraft.icao ? aircraft.icao.toUpperCase() : null;
+            const callsign = aircraft.callsign ? aircraft.callsign.toUpperCase().trim() : null;
+            const registration = aircraft.registration ? aircraft.registration.toUpperCase().trim() : null;
 
             return watchlist.some(entry => {
                 const val = entry.value.toUpperCase();
@@ -841,7 +843,8 @@
         }
 
         // Close watchlist modal on overlay click or Escape key
-        document.getElementById('watchlistModal')?.addEventListener('click', (e) => {
+        var watchlistModalEl = document.getElementById('watchlistModal');
+        if (watchlistModalEl) watchlistModalEl.addEventListener('click', (e) => {
             if (e.target.id === 'watchlistModal') closeWatchlistModal();
         });
         document.addEventListener('keydown', (e) => {
@@ -1312,8 +1315,8 @@ ACARS: ${r.statistics.acarsMessages} messages`;
         function lookupSelectedFlight() {
             if (!selectedIcao || !aircraft[selectedIcao]) return;
             const ac = aircraft[selectedIcao];
-            const callsign = ac.callsign?.trim();
-            const reg = ac.registration?.trim();
+            const callsign = ac.callsign ? ac.callsign.trim() : null;
+            const reg = ac.registration ? ac.registration.trim() : null;
 
             // Prefer callsign, then registration, then ICAO
             let searchTerm = callsign || reg || selectedIcao;
@@ -1870,7 +1873,8 @@ ACARS: ${r.statistics.acarsMessages} messages`;
                 rangeRingsLayer = null;
             }
 
-            const showRings = document.getElementById('showRangeRings')?.checked;
+            var rangeRingsEl = document.getElementById('showRangeRings');
+            const showRings = rangeRingsEl ? rangeRingsEl.checked : false;
             if (!showRings) return;
 
             rangeRingsLayer = L.layerGroup();
@@ -4186,7 +4190,8 @@ sudo make install</code>
         }
 
         // Close modal on overlay click
-        document.getElementById('squawkModal')?.addEventListener('click', (e) => {
+        var squawkModalEl = document.getElementById('squawkModal');
+        if (squawkModalEl) squawkModalEl.addEventListener('click', (e) => {
             if (e.target.id === 'squawkModal') closeSquawkModal();
         });
     </script>

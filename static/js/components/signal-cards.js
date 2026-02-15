@@ -1689,7 +1689,7 @@ const SignalCards = (function() {
             // Signal assessment section
             let signalAssessment = '';
             if (rssi !== null) {
-                signalAssessment = createSignalAssessmentPanel(rssi, stats?.lastSeen ? (Date.now() - stats.firstSeen) / 1000 : null, seenCount);
+                signalAssessment = createSignalAssessmentPanel(rssi, (stats && stats.lastSeen) ? (Date.now() - stats.firstSeen) / 1000 : null, seenCount);
             }
 
             // Signal guess section
@@ -1940,7 +1940,8 @@ const SignalCards = (function() {
             const cardProtocol = card.dataset.protocol;
             const cardMsgType = card.dataset.msgType;
             const cardAddress = card.dataset.address || '';
-            const cardContent = card.querySelector('.signal-message')?.textContent || '';
+            var msgEl = card.querySelector('.signal-message');
+            const cardContent = msgEl ? msgEl.textContent : '';
 
             // Count all cards by status
             counts.all++;
@@ -1966,8 +1967,8 @@ const SignalCards = (function() {
 
         // Update count badges - find filter bar in multiple possible locations
         const filterBars = [
-            document.getElementById('filterBarContainer')?.querySelector('.signal-filter-bar'),
-            document.getElementById('aprsFilterBarContainer')?.querySelector('.signal-filter-bar')
+            (function(){ var e = document.getElementById('filterBarContainer'); return e ? e.querySelector('.signal-filter-bar') : null; })(),
+            (function(){ var e = document.getElementById('aprsFilterBarContainer'); return e ? e.querySelector('.signal-filter-bar') : null; })()
         ].filter(Boolean);
 
         filterBars.forEach(filterBar => {
@@ -2059,7 +2060,8 @@ const SignalCards = (function() {
 
             cards.forEach(card => {
                 const cardStatus = card.dataset.status;
-                const cardType = card.dataset.packetType || card.querySelector('.signal-msg-type')?.textContent?.toLowerCase() || '';
+                var msgTypeEl = card.querySelector('.signal-msg-type');
+                const cardType = card.dataset.packetType || (msgTypeEl && msgTypeEl.textContent ? msgTypeEl.textContent.toLowerCase() : '') || '';
                 const cardCallsign = card.dataset.callsign || '';
 
                 counts.all++;
