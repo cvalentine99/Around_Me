@@ -553,8 +553,12 @@ else
         info "dump978 decodes UAT 978 MHz (US general aviation). Optional."
         if ask_yes_no "Build dump978 from source?" "n"; then
             install_build_deps
-            # dump978 needs librtlsdr-dev and soapysdr
-            apt_install_batch libsoapysdr-dev 2>/dev/null || true
+            # dump978-fa v9.0 uses Makefile (not cmake) and needs boost + SoapySDR
+            apt_install_batch \
+                libsoapysdr-dev \
+                libboost-system-dev libboost-program-options-dev \
+                libboost-regex-dev libboost-filesystem-dev \
+                2>/dev/null || true
             (
                 tmp_dir="$(mktemp -d)"
                 trap 'rm -rf "$tmp_dir"' EXIT
@@ -562,15 +566,27 @@ else
                 info "Building dump978-fa..."
                 if git clone --depth 1 --branch v9.0 https://github.com/flightaware/dump978.git "$tmp_dir/dump978" 2>/dev/null; then
                     cd "$tmp_dir/dump978"
-                    mkdir -p build && cd build
-                    if cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local 2>/dev/null && make -j"$(nproc)" 2>/dev/null; then
+                    sed -i 's/-Werror//g' Makefile 2>/dev/null || true
+                    if make -j"$(nproc)" dump978-fa 2>/dev/null; then
                         $SUDO install -m 0755 dump978-fa /usr/local/bin/dump978-fa
-                        $SUDO install -m 0755 uat2json /usr/local/bin/uat2json 2>/dev/null || true
-                        $SUDO install -m 0755 uat2esnt /usr/local/bin/uat2esnt 2>/dev/null || true
                         $SUDO ln -sf /usr/local/bin/dump978-fa /usr/local/bin/dump978
-                        ok "dump978-fa and uat2json installed"
+                        ok "dump978-fa installed"
                     else
-                        warn "dump978 build failed"
+                        warn "dump978-fa build failed"
+                    fi
+
+                    # uat2json and uat2esnt live in the legacy/ subdirectory
+                    if [[ -f legacy/Makefile ]]; then
+                        info "Building uat2json + uat2esnt from legacy/..."
+                        cd "$tmp_dir/dump978/legacy"
+                        sed -i 's/-Werror//g' Makefile 2>/dev/null || true
+                        if make -j"$(nproc)" uat2json uat2esnt 2>/dev/null; then
+                            $SUDO install -m 0755 uat2json /usr/local/bin/uat2json
+                            $SUDO install -m 0755 uat2esnt /usr/local/bin/uat2esnt
+                            ok "uat2json + uat2esnt installed"
+                        else
+                            warn "uat2json build failed"
+                        fi
                     fi
                 fi
             ) || true
@@ -589,7 +605,7 @@ else
         if ask_yes_no "Build SatDump from source?" "n"; then
             install_build_deps
             apt_install_batch \
-                libpng-dev libtiff-dev libjemalloc-dev libvolk-dev libnng-dev \
+                libpng-dev libtiff-dev libjemalloc-dev libvolk2-dev libnng-dev \
                 libzstd-dev libsoapysdr-dev libhackrf-dev liblimesuite-dev \
                 libsqlite3-dev libzmq3-dev libfftw3-dev \
                 2>/dev/null || true
