@@ -26,8 +26,8 @@ Werkzeug==3.1.3                  # WSGI utilities (password hashing, routing)
 # If pip compilation fails, install system packages first:
 #   sudo apt-get install python3-numpy python3-scipy
 # then re-run pip with --system-site-packages on the venv.
-numpy>=1.24.0,<3.0               # Numerical arrays (SSTV, DSC, waterfall FFT)
-scipy>=1.10.0,<2.0               # Signal processing (DSC decoder, filters)
+numpy>=2.0.0,<3.0                # Numerical arrays (SSTV, DSC, waterfall FFT)
+scipy>=1.14.0,<2.0               # Signal processing (DSC decoder, filters)
 Pillow>=9.0.0,<12.0              # Image manipulation (SSTV output)
 
 # ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ skyfield>=1.45,<2.0              # Orbital mechanics, TLE pass prediction
 # OPTIONAL — Hardware & Peripherals
 # ---------------------------------------------------------------------------
 pyserial==3.5                    # USB GPS receiver support
-bleak>=0.21.0,<1.0               # Bluetooth LE scanning (cross-platform)
+bleak>=0.22.0,<1.0               # Bluetooth LE scanning (cross-platform)
 websocket-client>=1.6.0,<2.0    # KiwiSDR WebSocket proxy
 
 # ---------------------------------------------------------------------------

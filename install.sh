@@ -66,6 +66,24 @@ fi
 source "${CHECKS_LIB}"
 
 # =============================================================================
+# ERROR TRAP (set early — before any logic that could fail)
+# =============================================================================
+on_error() {
+    local line="$1"
+    local cmd="${2:-unknown}"
+    echo
+    fail "═══════════════════════════════════════════════"
+    fail "  Installer failed at line ${line}"
+    fail "  Command: ${cmd}"
+    fail "═══════════════════════════════════════════════"
+    fail "  Log file: ${LOG_FILE}"
+    fail "  Please include this log when reporting issues."
+    echo
+    exit 1
+}
+trap 'on_error $LINENO "$BASH_COMMAND"' ERR
+
+# =============================================================================
 # CLI ARGUMENT PARSING
 # =============================================================================
 NON_INTERACTIVE=false
@@ -101,24 +119,6 @@ done
 # Tee all output to a log file while preserving terminal output
 exec > >(tee -a "${LOG_FILE}") 2>&1
 info "Logging to ${LOG_FILE}"
-
-# =============================================================================
-# ERROR TRAP
-# =============================================================================
-on_error() {
-    local line="$1"
-    local cmd="${2:-unknown}"
-    echo
-    fail "═══════════════════════════════════════════════"
-    fail "  Installer failed at line ${line}"
-    fail "  Command: ${cmd}"
-    fail "═══════════════════════════════════════════════"
-    fail "  Log file: ${LOG_FILE}"
-    fail "  Please include this log when reporting issues."
-    echo
-    exit 1
-}
-trap 'on_error $LINENO "$BASH_COMMAND"' ERR
 
 # =============================================================================
 # HELPERS
@@ -192,6 +192,54 @@ apt_try_install_any() {
         fi
     done
     return 1
+}
+
+# Install RTL-SDR udev rules for non-root device access.
+setup_udev_rules() {
+    [[ -d /etc/udev/rules.d ]] || { warn "udev not found; skipping RTL-SDR udev rules."; return 0; }
+
+    local rules_file="/etc/udev/rules.d/20-rtlsdr.rules"
+    if [[ -f "${rules_file}" ]]; then
+        ok "RTL-SDR udev rules already present: ${rules_file}"
+        return 0
+    fi
+
+    info "Installing RTL-SDR udev rules..."
+    $SUDO tee "${rules_file}" >/dev/null <<'UDEV_EOF'
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", MODE="0666"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2832", MODE="0666"
+UDEV_EOF
+    $SUDO udevadm control --reload-rules 2>/dev/null || true
+    $SUDO udevadm trigger 2>/dev/null || true
+    ok "udev rules installed. Unplug/replug your RTL-SDR if connected."
+}
+
+# Blacklist DVB kernel drivers that conflict with RTL-SDR userspace access.
+blacklist_dvb_drivers() {
+    local blacklist_file="/etc/modprobe.d/blacklist-rtlsdr.conf"
+
+    if [[ -f "${blacklist_file}" ]]; then
+        ok "RTL-SDR kernel driver blacklist already present"
+        return 0
+    fi
+
+    info "Blacklisting conflicting DVB kernel drivers..."
+    $SUDO tee "${blacklist_file}" >/dev/null <<'BLACKLIST_EOF'
+# Blacklist DVB-T drivers to allow rtl-sdr to access RTL2832U devices
+blacklist dvb_usb_rtl28xxu
+blacklist rtl2832
+blacklist rtl2830
+blacklist r820t
+BLACKLIST_EOF
+
+    # Unload modules if currently loaded
+    for mod in dvb_usb_rtl28xxu rtl2832 rtl2830 r820t; do
+        if lsmod 2>/dev/null | grep -q "^${mod}"; then
+            $SUDO modprobe -r "${mod}" 2>/dev/null || true
+        fi
+    done
+
+    ok "Kernel drivers blacklisted. Unplug/replug your RTL-SDR if connected."
 }
 
 # =============================================================================
@@ -315,12 +363,12 @@ install_system_packages() {
 
     # ---- SDR decoders (from apt where available) ----
     info "Installing SDR decoder packages..."
-    apt_install_if_missing multimon-ng || true
+    (apt_install_if_missing multimon-ng) || true
     apt_try_install_any rtl-433 rtl433 || warn_issue \
         "rtl-433 not available in apt" \
         "433MHz sensor decoding will not work without it" \
         "Build from source: https://github.com/merbanan/rtl_433"
-    apt_install_if_missing direwolf || true
+    (apt_install_if_missing direwolf) || true
 
     # ---- Audio ----
     info "Installing audio processing tools..."
@@ -328,23 +376,23 @@ install_system_packages() {
 
     # ---- WiFi tools ----
     info "Installing WiFi tools..."
-    apt_install_if_missing aircrack-ng iw wireless-tools || true
+    (apt_install_if_missing aircrack-ng iw wireless-tools) || true
 
     # ---- WiFi extras (optional) ----
     info "Installing WiFi extras (optional)..."
-    apt_install_if_missing hcxdumptool hcxtools 2>/dev/null || true
+    (apt_install_if_missing hcxdumptool hcxtools) 2>/dev/null || true
 
     # ---- Bluetooth tools ----
     info "Installing Bluetooth tools..."
-    apt_install_if_missing bluez 2>/dev/null || true
+    (apt_install_if_missing bluez bluetooth) 2>/dev/null || true
 
     # ---- GPS ----
     info "Installing GPS daemon..."
-    apt_install_if_missing gpsd gpsd-clients 2>/dev/null || true
+    (apt_install_if_missing gpsd gpsd-clients) 2>/dev/null || true
 
     # ---- SoapySDR ----
     info "Installing SoapySDR..."
-    apt_install_if_missing soapysdr-tools 2>/dev/null || true
+    (apt_install_if_missing soapysdr-tools) 2>/dev/null || true
     # Install SDR hardware modules (best effort — not all may be in apt)
     for module in soapysdr-module-rtlsdr soapysdr-module-hackrf soapysdr-module-lms7 soapysdr-module-airspy; do
         $SUDO apt-get install -y --no-install-recommends "${module}" 2>/dev/null || true
@@ -352,15 +400,48 @@ install_system_packages() {
 
     # ---- Postgres client libs (for psycopg2 build if needed) ----
     info "Installing PostgreSQL client libraries (for optional psycopg2)..."
-    apt_install_if_missing libpq-dev 2>/dev/null || true
+    (apt_install_if_missing libpq-dev) 2>/dev/null || true
 
     # ---- D-Bus development libs (for bleak BLE scanning) ----
     info "Installing D-Bus development libraries (for BLE scanning)..."
-    apt_install_if_missing libdbus-1-dev libglib2.0-dev 2>/dev/null || true
+    (apt_install_if_missing libdbus-1-dev libglib2.0-dev) 2>/dev/null || true
+
+    # ---- SatDump runtime libraries (weather satellite decoding) ----
+    info "Installing SatDump runtime libraries..."
+    apt_try_install_any libpng16-16 libpng16-16t64 || true
+    apt_try_install_any libtiff6 libtiff5 || true
+    apt_try_install_any libjemalloc2 || true
+    apt_try_install_any libvolk-bin libvolk2-bin || true
+    apt_try_install_any libnng1 || true
+    apt_try_install_any libzstd1 || true
+
+    # ---- SDR hardware drivers (optional) ----
+    info "Installing SDR hardware driver packages..."
+    for hw_pkg in airspy limesuite hackrf; do
+        $SUDO apt-get install -y --no-install-recommends "${hw_pkg}" 2>/dev/null || true
+    done
 
     # ---- Utilities ----
     info "Installing system utilities..."
-    apt_install_if_missing curl procps git 2>/dev/null || true
+    (apt_install_if_missing curl procps git) 2>/dev/null || true
+
+    # ---- RTL-SDR device access configuration ----
+    info "Configuring RTL-SDR device access..."
+    setup_udev_rules
+
+    if [[ -f /etc/modprobe.d/blacklist-rtlsdr.conf ]]; then
+        ok "DVB kernel drivers already blacklisted"
+    else
+        echo
+        echo "  The DVB-T kernel drivers conflict with RTL-SDR userspace access."
+        echo "  Blacklisting them allows rtl_sdr tools to access the device."
+        echo
+        if ask_yes_no "Blacklist conflicting kernel drivers?" "y"; then
+            blacklist_dvb_drivers
+        else
+            warn "Skipped kernel driver blacklist. RTL-SDR may not work without manual config."
+        fi
+    fi
 
     echo
     ok "System package installation complete."
@@ -401,6 +482,11 @@ setup_python_venv() {
     fi
 
     # Activate venv for remainder of this script
+    if [[ ! -f "${VENV_DIR}/bin/activate" ]]; then
+        die "venv activation script missing: ${VENV_DIR}/bin/activate" \
+            "The Python virtual environment may have been created incorrectly" \
+            "Remove and re-run: rm -rf ${VENV_DIR} && $0"
+    fi
     # shellcheck disable=SC1091
     source "${VENV_DIR}/bin/activate"
     ok "Activated venv ($(python3 --version))"
@@ -422,21 +508,25 @@ install_python_deps() {
 
     # ---------- Core dependencies (must succeed) ----------
     info "Installing core dependencies (quart, httpx, werkzeug)..."
-    if ! python3 -m pip install --no-cache-dir \
+    local pip_output
+    if pip_output=$(python3 -m pip install --no-cache-dir \
         "quart==0.20.0" \
         "quart-rate-limiter==0.11.0" \
         "httpx==0.28.1" \
-        "Werkzeug==3.1.3" 2>&1 | tail -5; then
+        "Werkzeug==3.1.3" 2>&1); then
+        echo "${pip_output}" | tail -5
+        ok "Core dependencies installed"
+    else
+        echo "${pip_output}"
         die "Failed to install core Python dependencies" \
             "The application cannot start without quart, httpx, and Werkzeug" \
             "Check the log at ${LOG_FILE} for pip error details"
     fi
-    ok "Core dependencies installed"
 
     # ---------- numpy/scipy (may need special handling on aarch64) ----------
     info "Installing numpy and scipy (may compile from source on aarch64)..."
     if ! python3 -m pip install --no-cache-dir \
-        "numpy>=1.24.0,<3.0" 2>&1 | tail -5; then
+        "numpy>=2.0.0,<3.0" 2>&1 | tail -5; then
         warn_issue "numpy pip install failed — trying system package fallback" \
             "numpy may lack an aarch64 binary wheel for this Python version" \
             "If this persists: sudo apt-get install python3-numpy, then recreate venv with --system-site-packages"
@@ -452,7 +542,7 @@ install_python_deps() {
     fi
 
     if ! python3 -m pip install --no-cache-dir \
-        "scipy>=1.10.0,<2.0" 2>&1 | tail -5; then
+        "scipy>=1.14.0,<2.0" 2>&1 | tail -5; then
         warn_issue "scipy pip install failed" \
             "scipy DSP features (DSC decoding, filter design) will not be available" \
             "Try: sudo apt-get install python3-scipy, then recreate venv with --system-site-packages"
@@ -467,7 +557,7 @@ install_python_deps() {
         "Pillow>=9.0.0,<12.0"
         "skyfield>=1.45,<2.0"
         "pyserial==3.5"
-        "bleak>=0.21.0,<1.0"
+        "bleak>=0.22.0,<1.0"
         "websocket-client>=1.6.0,<2.0"
         "meshtastic>=2.0.0,<3.0"
         "scapy>=2.4.5,<3.0"
@@ -650,14 +740,16 @@ run_validation() {
 
     # ---- Check the application can at least parse ----
     info "Validating application entry point..."
-    if "${VENV_DIR}/bin/python3" -c "
+    if "${VENV_DIR}/bin/python3" - "${SCRIPT_DIR}" <<'PYEOF' 2>/dev/null
 import sys
-sys.path.insert(0, '${SCRIPT_DIR}')
+script_dir = sys.argv[1]
+sys.path.insert(0, script_dir)
 import py_compile
-py_compile.compile('${SCRIPT_DIR}/valentine.py', doraise=True)
-py_compile.compile('${SCRIPT_DIR}/app.py', doraise=True)
-py_compile.compile('${SCRIPT_DIR}/config.py', doraise=True)
-" 2>/dev/null; then
+py_compile.compile(script_dir + '/valentine.py', doraise=True)
+py_compile.compile(script_dir + '/app.py', doraise=True)
+py_compile.compile(script_dir + '/config.py', doraise=True)
+PYEOF
+    then
         ok "Core application files parse successfully"
     else
         warn "Some application files have syntax issues (may be non-critical)"
@@ -665,12 +757,14 @@ py_compile.compile('${SCRIPT_DIR}/config.py', doraise=True)
 
     # ---- Check the app can import ----
     info "Validating application config import..."
-    if "${VENV_DIR}/bin/python3" -c "
+    if "${VENV_DIR}/bin/python3" - "${SCRIPT_DIR}" <<'PYEOF' 2>/dev/null
 import sys
-sys.path.insert(0, '${SCRIPT_DIR}')
+script_dir = sys.argv[1]
+sys.path.insert(0, script_dir)
 from config import VERSION
 print(f'VALENTINE RF v{VERSION}')
-" 2>/dev/null; then
+PYEOF
+    then
         ok "Application config loaded successfully"
     else
         warn "Could not load application config (non-critical for install)"

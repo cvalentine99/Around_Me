@@ -252,7 +252,7 @@ detect_python() {
 #   Returns 0 if installed, 1 otherwise.
 is_apt_pkg_installed() {
     local pkg="$1"
-    dpkg -l "${pkg}" 2>/dev/null | grep -q "^ii"
+    dpkg-query -W -f='${Status}' "${pkg}" 2>/dev/null | grep -q "install ok installed"
 }
 
 # Check if a command is on PATH or in common sbin locations.
@@ -343,7 +343,7 @@ check_disk_space() {
     local min_mb="${2:-500}"
 
     local avail_kb
-    avail_kb=$(df -k "${target_dir}" 2>/dev/null | awk 'NR==2 {print $4}')
+    avail_kb=$(df -P -k "${target_dir}" 2>/dev/null | awk 'NR==2 {print $4}')
 
     if [[ -z "${avail_kb}" ]]; then
         warn "Could not determine available disk space for ${target_dir}"
@@ -370,6 +370,12 @@ check_memory() {
 
     local total_kb
     total_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+
+    if [[ -z "${total_kb}" ]] || ! [[ "${total_kb}" =~ ^[0-9]+$ ]]; then
+        warn "Cannot parse memory from /proc/meminfo"
+        return 0
+    fi
+
     local total_mb=$((total_kb / 1024))
 
     if [[ ${total_mb} -lt ${min_mb} ]]; then
