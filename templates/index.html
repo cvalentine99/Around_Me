@@ -514,6 +514,49 @@
                     </div>
                 </div>
 
+                <!-- Module Control (Quick Launch) -->
+                <div class="section" id="moduleControlSection">
+                    <h3>Module Control</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-bottom: 10px;">
+                        <label class="inline-checkbox" style="display: flex; align-items: center; gap: 6px; font-size: 11px;">
+                            <input type="checkbox" class="module-enable-cb" value="adsb"> ADS-B
+                        </label>
+                        <label class="inline-checkbox" style="display: flex; align-items: center; gap: 6px; font-size: 11px;">
+                            <input type="checkbox" class="module-enable-cb" value="pager"> Pager
+                        </label>
+                        <label class="inline-checkbox" style="display: flex; align-items: center; gap: 6px; font-size: 11px;">
+                            <input type="checkbox" class="module-enable-cb" value="sensor"> 433MHz
+                        </label>
+                        <label class="inline-checkbox" style="display: flex; align-items: center; gap: 6px; font-size: 11px;">
+                            <input type="checkbox" class="module-enable-cb" value="acars"> ACARS
+                        </label>
+                        <label class="inline-checkbox" style="display: flex; align-items: center; gap: 6px; font-size: 11px;">
+                            <input type="checkbox" class="module-enable-cb" value="ais"> AIS
+                        </label>
+                        <label class="inline-checkbox" style="display: flex; align-items: center; gap: 6px; font-size: 11px;">
+                            <input type="checkbox" class="module-enable-cb" value="aprs"> APRS
+                        </label>
+                        <label class="inline-checkbox" style="display: flex; align-items: center; gap: 6px; font-size: 11px;">
+                            <input type="checkbox" class="module-enable-cb" value="dsc"> DSC
+                        </label>
+                        <label class="inline-checkbox" style="display: flex; align-items: center; gap: 6px; font-size: 11px;">
+                            <input type="checkbox" class="module-enable-cb" value="dmr"> DMR
+                        </label>
+                        <label class="inline-checkbox" style="display: flex; align-items: center; gap: 6px; font-size: 11px;">
+                            <input type="checkbox" class="module-enable-cb" value="rtlamr"> Meters
+                        </label>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="run-btn" id="startEnabledBtn" onclick="startEnabledModules()" style="flex: 1;">
+                            Start Enabled
+                        </button>
+                        <button class="stop-btn" id="stopAllBtn" onclick="stopAllModules()" style="flex: 1;">
+                            Stop All
+                        </button>
+                    </div>
+                    <div id="moduleControlStatus" style="margin-top: 8px; font-size: 10px; color: #888; display: none;"></div>
+                </div>
+
                 {% include 'partials/modes/pager.html' %}
 
                 {% include 'partials/modes/sensor.html' %}
@@ -4869,6 +4912,140 @@
                 pagerScopeAnim = null;
             }
             pagerScopeCtx = null;
+        }
+
+        // ============== MODULE ORCHESTRATION ==============
+
+        /**
+         * Collect checked modules and POST to /start_enabled_modules.
+         * Each module receives the currently selected SDR device and gain.
+         */
+        async function startEnabledModules() {
+            var checkboxes = document.querySelectorAll('.module-enable-cb:checked');
+            var modules = [];
+            for (var i = 0; i < checkboxes.length; i++) {
+                modules.push(checkboxes[i].value);
+            }
+
+            if (modules.length === 0) {
+                alert('No modules selected. Check at least one module to start.');
+                return;
+            }
+
+            var statusEl = document.getElementById('moduleControlStatus');
+            var btn = document.getElementById('startEnabledBtn');
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+            if (statusEl) {
+                statusEl.style.display = 'block';
+                statusEl.textContent = 'Starting ' + modules.join(', ') + '...';
+            }
+
+            // Build per-module params from current UI state
+            var device = getSelectedDevice();
+            var gainEl = document.getElementById('gain');
+            var gain = gainEl ? gainEl.value : '40';
+            var biasT = getBiasTEnabled();
+            var sdrType = getSelectedSDRType();
+
+            // Shared defaults — modules use what they need
+            var sharedParams = {
+                device: device,
+                gain: gain,
+                bias_t: biasT,
+                sdr_type: sdrType
+            };
+
+            // Build params map (each module gets shared defaults)
+            var params = {};
+            for (var j = 0; j < modules.length; j++) {
+                params[modules[j]] = Object.assign({}, sharedParams);
+            }
+
+            // Add pager-specific params if pager is enabled
+            if (params.pager) {
+                var freqEl = document.getElementById('frequency');
+                if (freqEl) params.pager.frequency = freqEl.value;
+            }
+
+            try {
+                var response = await fetch('/start_enabled_modules', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ modules: modules, params: params })
+                });
+                var data = await response.json();
+
+                // Build status display from per-module results
+                var lines = [];
+                var results = data.results || {};
+                for (var mod in results) {
+                    if (!results.hasOwnProperty(mod)) continue;
+                    var r = results[mod];
+                    var icon = (r.status === 'started' || r.status === 'already_running') ? '●' : '○';
+                    var color = (r.status === 'started' || r.status === 'already_running')
+                        ? 'var(--accent-green, #00e676)' : 'var(--accent-red, #ff3366)';
+                    lines.push(
+                        '<span style="color:' + color + '">' + icon + '</span> ' +
+                        mod + ': ' + (r.message || r.status)
+                    );
+
+                    // Sync UI state for modules that have UI setters
+                    if (r.status === 'started' || r.status === 'already_running') {
+                        syncModeUI(mod, true, null);
+                    }
+                }
+
+                if (statusEl) {
+                    statusEl.innerHTML = lines.join('<br>');
+                }
+            } catch (err) {
+                console.error('startEnabledModules error:', err);
+                if (statusEl) {
+                    statusEl.innerHTML = '<span style="color:var(--accent-red)">Error: ' + err.message + '</span>';
+                }
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Start Enabled';
+            }
+        }
+
+        /**
+         * Stop all running modules via the existing /killall endpoint.
+         */
+        async function stopAllModules() {
+            var btn = document.getElementById('stopAllBtn');
+            var statusEl = document.getElementById('moduleControlStatus');
+            btn.disabled = true;
+            btn.textContent = 'Stopping...';
+
+            try {
+                var response = await fetch('/killall', { method: 'POST' });
+                var data = await response.json();
+
+                if (statusEl) {
+                    statusEl.style.display = 'block';
+                    var killed = (data.processes || []).join(', ') || 'none';
+                    statusEl.textContent = 'Stopped: ' + killed;
+                }
+
+                // Reset UI state for all modules
+                var allModes = ['sensor', 'pager', 'adsb', 'wifi', 'bluetooth', 'acars', 'ais', 'dsc', 'aprs', 'rtlamr', 'dmr'];
+                for (var k = 0; k < allModes.length; k++) {
+                    if (typeof syncModeUI === 'function') {
+                        syncModeUI(allModes[k], false, null);
+                    }
+                }
+            } catch (err) {
+                console.error('stopAllModules error:', err);
+                if (statusEl) {
+                    statusEl.style.display = 'block';
+                    statusEl.textContent = 'Error stopping: ' + err.message;
+                }
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Stop All';
+            }
         }
 
         function startDecoding() {

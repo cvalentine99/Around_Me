@@ -871,6 +871,112 @@ async def kill_all() -> Response:
     return jsonify({'status': 'killed', 'processes': killed})
 
 
+# ============================================
+# MODULE ORCHESTRATION
+# ============================================
+
+def _get_module_registry() -> dict:
+    """Build registry mapping module names to (start_function, url_path).
+
+    Lazy imports avoid circular dependencies and keep startup fast.
+    Only SDR-backed modules with dedicated start routes are included.
+    """
+    from routes.adsb import start_adsb
+    from routes.pager import start_decoding as start_pager
+    from routes.sensor import start_sensor
+    from routes.acars import start_acars
+    from routes.ais import start_ais
+    from routes.aprs import start_aprs
+    from routes.dsc import start_decoding as start_dsc
+    from routes.dmr import start_dmr
+    from routes.rtlamr import start_rtlamr
+
+    return {
+        'adsb':   (start_adsb,   '/adsb/start'),
+        'pager':  (start_pager,  '/start'),
+        'sensor': (start_sensor, '/start_sensor'),
+        'acars':  (start_acars,  '/acars/start'),
+        'ais':    (start_ais,    '/ais/start'),
+        'aprs':   (start_aprs,   '/aprs/start'),
+        'dsc':    (start_dsc,    '/dsc/start'),
+        'dmr':    (start_dmr,    '/dmr/start'),
+        'rtlamr': (start_rtlamr, '/start_rtlamr'),
+    }
+
+
+@app.route('/start_enabled_modules', methods=['POST'])
+async def start_enabled_modules() -> Response:
+    """Start multiple SDR modules in a single call.
+
+    Expects JSON: {"modules": ["adsb", "sensor"], "params": {"adsb": {...}, "sensor": {...}}}
+    Each module's params are forwarded to its existing start route function.
+    Returns per-module success/failure so the frontend can reflect real state.
+    """
+    import json as json_module
+
+    data = await request.get_json(silent=True) or {}
+    modules = data.get('modules', [])
+    module_params = data.get('params', {})
+
+    if not isinstance(modules, list) or not modules:
+        return jsonify({
+            'status': 'error',
+            'message': 'modules must be a non-empty list'
+        }), 400
+
+    registry = _get_module_registry()
+    valid_modules = list(registry.keys())
+    results: dict[str, Any] = {}
+
+    for module_name in modules:
+        if module_name not in registry:
+            results[module_name] = {
+                'status': 'error',
+                'message': f'Unknown module: {module_name}. Valid: {valid_modules}'
+            }
+            continue
+
+        view_fn, url_path = registry[module_name]
+        params = module_params.get(module_name, {})
+
+        try:
+            # Call the module's start function directly using a request context.
+            # This is NOT HTTP loopback — it creates an in-memory request
+            # context so the view function can access `request.get_json()`.
+            async with app.test_request_context(
+                url_path, method='POST', json=params
+            ):
+                raw_result = await view_fn()
+
+                # Route functions return Response or (Response, status_code)
+                if isinstance(raw_result, tuple):
+                    resp_obj, status_code = raw_result[0], raw_result[1]
+                else:
+                    resp_obj = raw_result
+                    status_code = resp_obj.status_code
+
+                body = resp_obj.get_data(as_text=True)
+                result = json_module.loads(body)
+                result['http_status'] = status_code
+                results[module_name] = result
+
+        except Exception as e:
+            logger.exception(f"Orchestrator: failed to start {module_name}")
+            results[module_name] = {
+                'status': 'error',
+                'message': str(e)
+            }
+
+    any_started = any(
+        r.get('status') in ('started', 'already_running')
+        for r in results.values()
+    )
+    return jsonify({
+        'status': 'success' if any_started else 'error',
+        'results': results
+    })
+
+
 def main() -> None:
     """Main entry point."""
     import argparse
