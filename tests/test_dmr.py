@@ -110,15 +110,15 @@ def test_parse_unrecognized():
 
 def test_parse_banner_filtered():
     """Pure box-drawing lines (banners) should be filtered."""
-    assert parse_dsd_output('╔══════════════╗') is None
-    assert parse_dsd_output('║              ║') is None
-    assert parse_dsd_output('╚══════════════╝') is None
-    assert parse_dsd_output('───────────────') is None
+    assert parse_dsd_output('\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557') is None
+    assert parse_dsd_output('\u2551              \u2551') is None
+    assert parse_dsd_output('\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d') is None
+    assert parse_dsd_output('\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500') is None
 
 
 def test_parse_box_drawing_with_data_not_filtered():
     """Lines with box-drawing separators AND data should NOT be filtered."""
-    result = parse_dsd_output('DMR BS │ Slot 1 │ TG: 12345 │ SRC: 67890')
+    result = parse_dsd_output('DMR BS \u2502 Slot 1 \u2502 TG: 12345 \u2502 SRC: 67890')
     assert result is not None
     assert result['type'] == 'call'
     assert result['talkgroup'] == 12345
@@ -165,73 +165,73 @@ def test_dsd_fme_modulation_hints():
 # ============================================
 
 @pytest.fixture
-def auth_client(client):
+async def auth_client(client):
     """Client with logged-in session."""
-    with client.session_transaction() as sess:
+    async with client.session_transaction() as sess:
         sess['logged_in'] = True
     return client
 
 
-def test_dmr_tools(auth_client):
+async def test_dmr_tools(auth_client):
     """Tools endpoint should return availability info."""
-    resp = auth_client.get('/dmr/tools')
+    resp = await auth_client.get('/dmr/tools')
     assert resp.status_code == 200
-    data = resp.get_json()
+    data = await resp.get_json()
     assert 'dsd' in data
     assert 'rtl_fm' in data
     assert 'protocols' in data
 
 
-def test_dmr_status(auth_client):
+async def test_dmr_status(auth_client):
     """Status endpoint should work."""
-    resp = auth_client.get('/dmr/status')
+    resp = await auth_client.get('/dmr/status')
     assert resp.status_code == 200
-    data = resp.get_json()
+    data = await resp.get_json()
     assert 'running' in data
 
 
-def test_dmr_start_no_dsd(auth_client):
+async def test_dmr_start_no_dsd(auth_client):
     """Start should fail gracefully when dsd is not installed."""
     with patch('routes.dmr.find_dsd', return_value=(None, False)):
-        resp = auth_client.post('/dmr/start', json={
+        resp = await auth_client.post('/dmr/start', json={
             'frequency': 462.5625,
             'protocol': 'auto',
         })
         assert resp.status_code == 503
-        data = resp.get_json()
+        data = await resp.get_json()
         assert 'dsd' in data['message']
 
 
-def test_dmr_start_no_rtl_fm(auth_client):
+async def test_dmr_start_no_rtl_fm(auth_client):
     """Start should fail when rtl_fm is missing."""
     with patch('routes.dmr.find_dsd', return_value=('/usr/bin/dsd', False)), \
          patch('routes.dmr.find_rtl_fm', return_value=None):
-        resp = auth_client.post('/dmr/start', json={
+        resp = await auth_client.post('/dmr/start', json={
             'frequency': 462.5625,
         })
         assert resp.status_code == 503
 
 
-def test_dmr_start_invalid_protocol(auth_client):
+async def test_dmr_start_invalid_protocol(auth_client):
     """Start should reject invalid protocol."""
     with patch('routes.dmr.find_dsd', return_value=('/usr/bin/dsd', False)), \
          patch('routes.dmr.find_rtl_fm', return_value='/usr/bin/rtl_fm'):
-        resp = auth_client.post('/dmr/start', json={
+        resp = await auth_client.post('/dmr/start', json={
             'frequency': 462.5625,
             'protocol': 'invalid',
         })
         assert resp.status_code == 400
 
 
-def test_dmr_stop(auth_client):
+async def test_dmr_stop(auth_client):
     """Stop should succeed."""
-    resp = auth_client.post('/dmr/stop')
+    resp = await auth_client.post('/dmr/stop')
     assert resp.status_code == 200
-    data = resp.get_json()
+    data = await resp.get_json()
     assert data['status'] == 'stopped'
 
 
-def test_dmr_stream_mimetype(auth_client):
+async def test_dmr_stream_mimetype(auth_client):
     """Stream should return event-stream content type."""
-    resp = auth_client.get('/dmr/stream')
+    resp = await auth_client.get('/dmr/stream')
     assert resp.content_type.startswith('text/event-stream')

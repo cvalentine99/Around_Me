@@ -52,33 +52,33 @@ def test_haversine_known_distance():
 # ============================================
 
 @pytest.fixture
-def auth_client(client):
+async def auth_client(client):
     """Client with logged-in session."""
-    with client.session_transaction() as sess:
+    async with client.session_transaction() as sess:
         sess['logged_in'] = True
     return client
 
 
-def test_websdr_status(auth_client):
+async def test_websdr_status(auth_client):
     """Status endpoint should return cache info."""
-    resp = auth_client.get('/websdr/status')
+    resp = await auth_client.get('/websdr/status')
     assert resp.status_code == 200
-    data = resp.get_json()
+    data = await resp.get_json()
     assert data['status'] == 'ok'
     assert 'cached_receivers' in data
 
 
-def test_websdr_receivers_empty_cache(auth_client):
+async def test_websdr_receivers_empty_cache(auth_client):
     """Receivers endpoint should work even with empty cache."""
     with patch('routes.websdr.get_receivers', return_value=[]):
-        resp = auth_client.get('/websdr/receivers')
+        resp = await auth_client.get('/websdr/receivers')
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = await resp.get_json()
         assert data['status'] == 'success'
         assert data['receivers'] == []
 
 
-def test_websdr_receivers_with_data(auth_client):
+async def test_websdr_receivers_with_data(auth_client):
     """Receivers endpoint should return filtered data."""
     mock_receivers = [
         {'name': 'Test RX', 'url': 'http://test.com', 'lat': 51.5, 'lon': -0.1,
@@ -90,20 +90,20 @@ def test_websdr_receivers_with_data(auth_client):
     ]
     with patch('routes.websdr.get_receivers', return_value=mock_receivers):
         # Filter available only
-        resp = auth_client.get('/websdr/receivers?available=true')
+        resp = await auth_client.get('/websdr/receivers?available=true')
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = await resp.get_json()
         assert len(data['receivers']) == 1
         assert data['receivers'][0]['name'] == 'Test RX'
 
 
-def test_websdr_nearest_missing_params(auth_client):
+async def test_websdr_nearest_missing_params(auth_client):
     """Nearest endpoint should require lat/lon."""
-    resp = auth_client.get('/websdr/receivers/nearest')
+    resp = await auth_client.get('/websdr/receivers/nearest')
     assert resp.status_code == 400
 
 
-def test_websdr_nearest_with_coords(auth_client):
+async def test_websdr_nearest_with_coords(auth_client):
     """Nearest endpoint should sort by distance."""
     mock_receivers = [
         {'name': 'Far RX', 'url': 'http://far.com', 'lat': -33.87, 'lon': 151.21,
@@ -114,16 +114,16 @@ def test_websdr_nearest_with_coords(auth_client):
          'antenna': 'Loop', 'bands': 'HF'},
     ]
     with patch('routes.websdr.get_receivers', return_value=mock_receivers):
-        resp = auth_client.get('/websdr/receivers/nearest?lat=51.5&lon=-0.1')
+        resp = await auth_client.get('/websdr/receivers/nearest?lat=51.5&lon=-0.1')
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = await resp.get_json()
         assert data['status'] == 'success'
         assert len(data['receivers']) == 2
         # Near should be first
         assert data['receivers'][0]['name'] == 'Near RX'
 
 
-def test_websdr_spy_station_receivers(auth_client):
+async def test_websdr_spy_station_receivers(auth_client):
     """Spy station cross-reference should find matching receivers."""
     mock_receivers = [
         {'name': 'HF RX', 'url': 'http://hf.com', 'lat': 51.5, 'lon': -0.1,
@@ -132,16 +132,16 @@ def test_websdr_spy_station_receivers(auth_client):
     ]
     with patch('routes.websdr.get_receivers', return_value=mock_receivers):
         # e06 is one of the spy stations
-        resp = auth_client.get('/websdr/spy-station/e06/receivers')
+        resp = await auth_client.get('/websdr/spy-station/e06/receivers')
         assert resp.status_code == 200
-        data = resp.get_json()
+        data = await resp.get_json()
         assert data['status'] == 'success'
         assert 'station' in data
 
 
-def test_websdr_spy_station_not_found(auth_client):
+async def test_websdr_spy_station_not_found(auth_client):
     """Non-existent station should return 404."""
-    resp = auth_client.get('/websdr/spy-station/nonexistent/receivers')
+    resp = await auth_client.get('/websdr/spy-station/nonexistent/receivers')
     assert resp.status_code == 404
 
 

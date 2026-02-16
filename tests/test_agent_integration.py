@@ -158,9 +158,10 @@ class TestRTLSDRDetection:
             capture_output=True,
             timeout=5
         )
-        if b'Found 0 device' in result.stdout or b'No supported devices found' in result.stderr:
+        combined = result.stdout + result.stderr
+        if b'Found 0 device' in combined or b'No supported devices found' in combined:
             pytest.skip("No RTL-SDR device connected")
-        assert b'Found' in result.stdout
+        assert b'Found' in combined
 
 
 # =============================================================================

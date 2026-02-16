@@ -16,8 +16,9 @@ from utils.weather_sat_predict import predict_passes
 class TestPredictPasses:
     """Tests for predict_passes() function."""
 
-    @patch('utils.weather_sat_predict.load')
-    @patch('utils.weather_sat_predict.TLE_SATELLITES')
+    @patch('routes.satellite._tle_cache', {}, create=True)
+    @patch('skyfield.api.load')
+    @patch('data.satellites.TLE_SATELLITES')
     def test_predict_passes_no_tle_data(self, mock_tle, mock_load):
         """predict_passes() should handle missing TLE data."""
         mock_tle.get.return_value = None
@@ -30,11 +31,12 @@ class TestPredictPasses:
 
         assert passes == []
 
-    @patch('utils.weather_sat_predict.load')
-    @patch('utils.weather_sat_predict.TLE_SATELLITES')
-    @patch('utils.weather_sat_predict.wgs84')
-    @patch('utils.weather_sat_predict.EarthSatellite')
-    @patch('utils.weather_sat_predict.find_discrete')
+    @patch('routes.satellite._tle_cache', {}, create=True)
+    @patch('skyfield.api.load')
+    @patch('data.satellites.TLE_SATELLITES')
+    @patch('skyfield.api.wgs84')
+    @patch('skyfield.api.EarthSatellite')
+    @patch('skyfield.almanac.find_discrete')
     def test_predict_passes_basic(self, mock_find, mock_sat, mock_wgs84, mock_tle, mock_load):
         """predict_passes() should predict basic passes."""
         # Mock timescale
@@ -46,12 +48,16 @@ class TestPredictPasses:
         mock_ts.utc.side_effect = lambda dt: self._mock_time(dt)
         mock_load.timescale.return_value = mock_ts
 
-        # Mock TLE data
-        mock_tle.get.return_value = (
-            'NOAA-18',
-            '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
-            '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
-        )
+        # Mock TLE data - only NOAA-18 returns data
+        def tle_lookup(key, default=None):
+            if key == 'NOAA-18':
+                return (
+                    'NOAA-18',
+                    '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
+                    '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
+                )
+            return default
+        mock_tle.get.side_effect = tle_lookup
 
         # Mock observer
         mock_observer = MagicMock()
@@ -95,11 +101,12 @@ class TestPredictPasses:
         assert 'duration' in pass_data
         assert 'quality' in pass_data
 
-    @patch('utils.weather_sat_predict.load')
-    @patch('utils.weather_sat_predict.TLE_SATELLITES')
-    @patch('utils.weather_sat_predict.wgs84')
-    @patch('utils.weather_sat_predict.EarthSatellite')
-    @patch('utils.weather_sat_predict.find_discrete')
+    @patch('routes.satellite._tle_cache', {}, create=True)
+    @patch('skyfield.api.load')
+    @patch('data.satellites.TLE_SATELLITES')
+    @patch('skyfield.api.wgs84')
+    @patch('skyfield.api.EarthSatellite')
+    @patch('skyfield.almanac.find_discrete')
     def test_predict_passes_below_min_elevation(
         self, mock_find, mock_sat, mock_wgs84, mock_tle, mock_load
     ):
@@ -112,11 +119,15 @@ class TestPredictPasses:
         mock_ts.utc.side_effect = lambda dt: self._mock_time(dt)
         mock_load.timescale.return_value = mock_ts
 
-        mock_tle.get.return_value = (
-            'NOAA-18',
-            '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
-            '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
-        )
+        def tle_lookup(key, default=None):
+            if key == 'NOAA-18':
+                return (
+                    'NOAA-18',
+                    '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
+                    '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
+                )
+            return default
+        mock_tle.get.side_effect = tle_lookup
 
         mock_observer = MagicMock()
         mock_wgs84.latlon.return_value = mock_observer
@@ -149,11 +160,12 @@ class TestPredictPasses:
 
         assert len(passes) == 0
 
-    @patch('utils.weather_sat_predict.load')
-    @patch('utils.weather_sat_predict.TLE_SATELLITES')
-    @patch('utils.weather_sat_predict.wgs84')
-    @patch('utils.weather_sat_predict.EarthSatellite')
-    @patch('utils.weather_sat_predict.find_discrete')
+    @patch('routes.satellite._tle_cache', {}, create=True)
+    @patch('skyfield.api.load')
+    @patch('data.satellites.TLE_SATELLITES')
+    @patch('skyfield.api.wgs84')
+    @patch('skyfield.api.EarthSatellite')
+    @patch('skyfield.almanac.find_discrete')
     def test_predict_passes_with_trajectory(
         self, mock_find, mock_sat, mock_wgs84, mock_tle, mock_load
     ):
@@ -166,11 +178,15 @@ class TestPredictPasses:
         mock_ts.utc.side_effect = lambda dt: self._mock_time(dt)
         mock_load.timescale.return_value = mock_ts
 
-        mock_tle.get.return_value = (
-            'NOAA-18',
-            '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
-            '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
-        )
+        def tle_lookup(key, default=None):
+            if key == 'NOAA-18':
+                return (
+                    'NOAA-18',
+                    '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
+                    '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
+                )
+            return default
+        mock_tle.get.side_effect = tle_lookup
 
         mock_observer = MagicMock()
         mock_wgs84.latlon.return_value = mock_observer
@@ -206,11 +222,12 @@ class TestPredictPasses:
         assert 'trajectory' in passes[0]
         assert len(passes[0]['trajectory']) == 30
 
-    @patch('utils.weather_sat_predict.load')
-    @patch('utils.weather_sat_predict.TLE_SATELLITES')
-    @patch('utils.weather_sat_predict.wgs84')
-    @patch('utils.weather_sat_predict.EarthSatellite')
-    @patch('utils.weather_sat_predict.find_discrete')
+    @patch('routes.satellite._tle_cache', {}, create=True)
+    @patch('skyfield.api.load')
+    @patch('data.satellites.TLE_SATELLITES')
+    @patch('skyfield.api.wgs84')
+    @patch('skyfield.api.EarthSatellite')
+    @patch('skyfield.almanac.find_discrete')
     def test_predict_passes_with_ground_track(
         self, mock_find, mock_sat, mock_wgs84, mock_tle, mock_load
     ):
@@ -223,11 +240,15 @@ class TestPredictPasses:
         mock_ts.utc.side_effect = lambda dt: self._mock_time(dt)
         mock_load.timescale.return_value = mock_ts
 
-        mock_tle.get.return_value = (
-            'NOAA-18',
-            '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
-            '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
-        )
+        def tle_lookup(key, default=None):
+            if key == 'NOAA-18':
+                return (
+                    'NOAA-18',
+                    '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
+                    '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
+                )
+            return default
+        mock_tle.get.side_effect = tle_lookup
 
         mock_observer = MagicMock()
         mock_wgs84.latlon.return_value = mock_observer
@@ -280,11 +301,12 @@ class TestPredictPasses:
         assert 'groundTrack' in passes[0]
         assert len(passes[0]['groundTrack']) == 60
 
-    @patch('utils.weather_sat_predict.load')
-    @patch('utils.weather_sat_predict.TLE_SATELLITES')
-    @patch('utils.weather_sat_predict.wgs84')
-    @patch('utils.weather_sat_predict.EarthSatellite')
-    @patch('utils.weather_sat_predict.find_discrete')
+    @patch('routes.satellite._tle_cache', {}, create=True)
+    @patch('skyfield.api.load')
+    @patch('data.satellites.TLE_SATELLITES')
+    @patch('skyfield.api.wgs84')
+    @patch('skyfield.api.EarthSatellite')
+    @patch('skyfield.almanac.find_discrete')
     def test_predict_passes_quality_excellent(
         self, mock_find, mock_sat, mock_wgs84, mock_tle, mock_load
     ):
@@ -297,11 +319,15 @@ class TestPredictPasses:
         mock_ts.utc.side_effect = lambda dt: self._mock_time(dt)
         mock_load.timescale.return_value = mock_ts
 
-        mock_tle.get.return_value = (
-            'NOAA-18',
-            '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
-            '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
-        )
+        def tle_lookup(key, default=None):
+            if key == 'NOAA-18':
+                return (
+                    'NOAA-18',
+                    '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
+                    '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
+                )
+            return default
+        mock_tle.get.side_effect = tle_lookup
 
         mock_observer = MagicMock()
         mock_wgs84.latlon.return_value = mock_observer
@@ -335,11 +361,12 @@ class TestPredictPasses:
         assert passes[0]['quality'] == 'excellent'
         assert passes[0]['maxEl'] >= 60
 
-    @patch('utils.weather_sat_predict.load')
-    @patch('utils.weather_sat_predict.TLE_SATELLITES')
-    @patch('utils.weather_sat_predict.wgs84')
-    @patch('utils.weather_sat_predict.EarthSatellite')
-    @patch('utils.weather_sat_predict.find_discrete')
+    @patch('routes.satellite._tle_cache', {}, create=True)
+    @patch('skyfield.api.load')
+    @patch('data.satellites.TLE_SATELLITES')
+    @patch('skyfield.api.wgs84')
+    @patch('skyfield.api.EarthSatellite')
+    @patch('skyfield.almanac.find_discrete')
     def test_predict_passes_quality_good(
         self, mock_find, mock_sat, mock_wgs84, mock_tle, mock_load
     ):
@@ -352,11 +379,15 @@ class TestPredictPasses:
         mock_ts.utc.side_effect = lambda dt: self._mock_time(dt)
         mock_load.timescale.return_value = mock_ts
 
-        mock_tle.get.return_value = (
-            'NOAA-18',
-            '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
-            '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
-        )
+        def tle_lookup(key, default=None):
+            if key == 'NOAA-18':
+                return (
+                    'NOAA-18',
+                    '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
+                    '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
+                )
+            return default
+        mock_tle.get.side_effect = tle_lookup
 
         mock_observer = MagicMock()
         mock_wgs84.latlon.return_value = mock_observer
@@ -390,11 +421,12 @@ class TestPredictPasses:
         assert passes[0]['quality'] == 'good'
         assert 30 <= passes[0]['maxEl'] < 60
 
-    @patch('utils.weather_sat_predict.load')
-    @patch('utils.weather_sat_predict.TLE_SATELLITES')
-    @patch('utils.weather_sat_predict.wgs84')
-    @patch('utils.weather_sat_predict.EarthSatellite')
-    @patch('utils.weather_sat_predict.find_discrete')
+    @patch('routes.satellite._tle_cache', {}, create=True)
+    @patch('skyfield.api.load')
+    @patch('data.satellites.TLE_SATELLITES')
+    @patch('skyfield.api.wgs84')
+    @patch('skyfield.api.EarthSatellite')
+    @patch('skyfield.almanac.find_discrete')
     def test_predict_passes_quality_fair(
         self, mock_find, mock_sat, mock_wgs84, mock_tle, mock_load
     ):
@@ -407,11 +439,15 @@ class TestPredictPasses:
         mock_ts.utc.side_effect = lambda dt: self._mock_time(dt)
         mock_load.timescale.return_value = mock_ts
 
-        mock_tle.get.return_value = (
-            'NOAA-18',
-            '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
-            '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
-        )
+        def tle_lookup(key, default=None):
+            if key == 'NOAA-18':
+                return (
+                    'NOAA-18',
+                    '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
+                    '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
+                )
+            return default
+        mock_tle.get.side_effect = tle_lookup
 
         mock_observer = MagicMock()
         mock_wgs84.latlon.return_value = mock_observer
@@ -445,11 +481,12 @@ class TestPredictPasses:
         assert passes[0]['quality'] == 'fair'
         assert passes[0]['maxEl'] < 30
 
-    @patch('utils.weather_sat_predict.load')
-    @patch('utils.weather_sat_predict.TLE_SATELLITES')
-    @patch('utils.weather_sat_predict.wgs84')
-    @patch('utils.weather_sat_predict.EarthSatellite')
-    @patch('utils.weather_sat_predict.find_discrete')
+    @patch('routes.satellite._tle_cache', {}, create=True)
+    @patch('skyfield.api.load')
+    @patch('data.satellites.TLE_SATELLITES')
+    @patch('skyfield.api.wgs84')
+    @patch('skyfield.api.EarthSatellite')
+    @patch('skyfield.almanac.find_discrete')
     def test_predict_passes_inactive_satellite(
         self, mock_find, mock_sat, mock_wgs84, mock_tle, mock_load
     ):
@@ -474,11 +511,12 @@ class TestPredictPasses:
         finally:
             WEATHER_SATELLITES['NOAA-18']['active'] = original_active
 
-    @patch('utils.weather_sat_predict.load')
-    @patch('utils.weather_sat_predict.TLE_SATELLITES')
-    @patch('utils.weather_sat_predict.wgs84')
-    @patch('utils.weather_sat_predict.EarthSatellite')
-    @patch('utils.weather_sat_predict.find_discrete')
+    @patch('routes.satellite._tle_cache', {}, create=True)
+    @patch('skyfield.api.load')
+    @patch('data.satellites.TLE_SATELLITES')
+    @patch('skyfield.api.wgs84')
+    @patch('skyfield.api.EarthSatellite')
+    @patch('skyfield.almanac.find_discrete')
     def test_predict_passes_exception_handling(
         self, mock_find, mock_sat, mock_wgs84, mock_tle, mock_load
     ):
@@ -491,11 +529,15 @@ class TestPredictPasses:
         mock_ts.utc.side_effect = lambda dt: self._mock_time(dt)
         mock_load.timescale.return_value = mock_ts
 
-        mock_tle.get.return_value = (
-            'NOAA-18',
-            '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
-            '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
-        )
+        def tle_lookup(key, default=None):
+            if key == 'NOAA-18':
+                return (
+                    'NOAA-18',
+                    '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
+                    '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
+                )
+            return default
+        mock_tle.get.side_effect = tle_lookup
 
         mock_observer = MagicMock()
         mock_wgs84.latlon.return_value = mock_observer
@@ -511,29 +553,31 @@ class TestPredictPasses:
         # May include passes from other satellites or be empty
         assert isinstance(passes, list)
 
-    @patch('utils.weather_sat_predict.load')
-    @patch('utils.weather_sat_predict.TLE_SATELLITES')
+    @patch('routes.satellite._tle_cache', {}, create=True)
+    @patch('skyfield.api.load')
+    @patch('data.satellites.TLE_SATELLITES')
     def test_predict_passes_uses_tle_cache(self, mock_tle, mock_load):
         """predict_passes() should use live TLE cache if available."""
-        with patch('utils.weather_sat_predict._tle_cache', {'NOAA-18': ('NOAA-18', 'line1', 'line2')}):
+        with patch('routes.satellite._tle_cache', {'NOAA-18': ('NOAA-18', 'line1', 'line2')}, create=True):
             mock_ts = MagicMock()
             mock_ts.now.return_value = MagicMock()
             mock_ts.utc.return_value = MagicMock()
             mock_load.timescale.return_value = mock_ts
 
             # Even though TLE_SATELLITES is mocked, should use _tle_cache
-            with patch('utils.weather_sat_predict.wgs84'), \
-                 patch('utils.weather_sat_predict.EarthSatellite'), \
-                 patch('utils.weather_sat_predict.find_discrete', return_value=([], [])):
+            with patch('skyfield.api.wgs84'), \
+                 patch('skyfield.api.EarthSatellite'), \
+                 patch('skyfield.almanac.find_discrete', return_value=([], [])):
 
                 passes = predict_passes(lat=51.5, lon=-0.1, hours=24, min_elevation=15)
                 # Should not raise
 
-    @patch('utils.weather_sat_predict.load')
-    @patch('utils.weather_sat_predict.TLE_SATELLITES')
-    @patch('utils.weather_sat_predict.wgs84')
-    @patch('utils.weather_sat_predict.EarthSatellite')
-    @patch('utils.weather_sat_predict.find_discrete')
+    @patch('routes.satellite._tle_cache', {}, create=True)
+    @patch('skyfield.api.load')
+    @patch('data.satellites.TLE_SATELLITES')
+    @patch('skyfield.api.wgs84')
+    @patch('skyfield.api.EarthSatellite')
+    @patch('skyfield.almanac.find_discrete')
     def test_predict_passes_sorted_by_time(
         self, mock_find, mock_sat, mock_wgs84, mock_tle, mock_load
     ):
@@ -546,11 +590,15 @@ class TestPredictPasses:
         mock_ts.utc.side_effect = lambda dt: self._mock_time(dt)
         mock_load.timescale.return_value = mock_ts
 
-        mock_tle.get.return_value = (
-            'NOAA-18',
-            '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
-            '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
-        )
+        def tle_lookup(key, default=None):
+            if key == 'NOAA-18':
+                return (
+                    'NOAA-18',
+                    '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
+                    '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
+                )
+            return default
+        mock_tle.get.side_effect = tle_lookup
 
         mock_observer = MagicMock()
         mock_wgs84.latlon.return_value = mock_observer
@@ -604,11 +652,12 @@ class TestPredictPasses:
 class TestPassDataStructure:
     """Tests for pass data structure."""
 
-    @patch('utils.weather_sat_predict.load')
-    @patch('utils.weather_sat_predict.TLE_SATELLITES')
-    @patch('utils.weather_sat_predict.wgs84')
-    @patch('utils.weather_sat_predict.EarthSatellite')
-    @patch('utils.weather_sat_predict.find_discrete')
+    @patch('routes.satellite._tle_cache', {}, create=True)
+    @patch('skyfield.api.load')
+    @patch('data.satellites.TLE_SATELLITES')
+    @patch('skyfield.api.wgs84')
+    @patch('skyfield.api.EarthSatellite')
+    @patch('skyfield.almanac.find_discrete')
     def test_pass_data_fields(
         self, mock_find, mock_sat, mock_wgs84, mock_tle, mock_load
     ):
@@ -621,11 +670,15 @@ class TestPassDataStructure:
         mock_ts.utc.side_effect = lambda dt: TestPredictPasses._mock_time(dt)
         mock_load.timescale.return_value = mock_ts
 
-        mock_tle.get.return_value = (
-            'NOAA-18',
-            '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
-            '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
-        )
+        def tle_lookup(key, default=None):
+            if key == 'NOAA-18':
+                return (
+                    'NOAA-18',
+                    '1 28654U 05018A   24001.50000000  .00000000  00000-0  00000-0 0  9999',
+                    '2 28654  98.7000 100.0000 0001000   0.0000   0.0000 14.12500000000000'
+                )
+            return default
+        mock_tle.get.side_effect = tle_lookup
 
         mock_observer = MagicMock()
         mock_wgs84.latlon.return_value = mock_observer

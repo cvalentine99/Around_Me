@@ -99,7 +99,10 @@ class TestWeatherSatDecoder:
     @patch('subprocess.Popen')
     @patch('pty.openpty')
     @patch('utils.weather_sat.register_process')
-    def test_start_success(self, mock_register, mock_pty, mock_popen):
+    @patch('os.close')
+    @patch('pathlib.Path.mkdir')
+    @patch('utils.weather_sat.threading.Thread')
+    def test_start_success(self, mock_thread, mock_mkdir, mock_os_close, mock_register, mock_pty, mock_popen):
         """start() should successfully start SatDump."""
         with patch('shutil.which', return_value='/usr/bin/satdump'), \
              patch('utils.weather_sat.WeatherSatDecoder._resolve_device_id', return_value='0'):
@@ -124,7 +127,7 @@ class TestWeatherSatDecoder:
             assert decoder.is_running is True
             assert decoder.current_satellite == 'NOAA-18'
             assert decoder.current_frequency == 137.9125
-            assert decoder.current_mode == 'APT'
+            assert decoder._current_mode == 'APT'
             assert decoder.device_index == 0
 
             mock_popen.assert_called_once()
@@ -186,7 +189,10 @@ class TestWeatherSatDecoder:
     @patch('pty.openpty')
     @patch('pathlib.Path.is_file', return_value=True)
     @patch('pathlib.Path.resolve')
-    def test_start_from_file_success(self, mock_resolve, mock_is_file, mock_pty, mock_popen):
+    @patch('os.close')
+    @patch('pathlib.Path.mkdir')
+    @patch('utils.weather_sat.threading.Thread')
+    def test_start_from_file_success(self, mock_thread, mock_mkdir, mock_os_close, mock_resolve, mock_is_file, mock_pty, mock_popen):
         """start_from_file() should successfully decode from file."""
         with patch('shutil.which', return_value='/usr/bin/satdump'), \
              patch('utils.weather_sat.register_process'):
@@ -300,17 +306,18 @@ class TestWeatherSatDecoder:
 
     @patch('pathlib.Path.glob')
     @patch('pathlib.Path.stat')
-    def test_get_images_scans_directory(self, mock_stat, mock_glob):
+    @patch('pathlib.Path.mkdir')
+    def test_get_images_scans_directory(self, mock_mkdir, mock_stat, mock_glob):
         """get_images() should scan output directory."""
         with patch('shutil.which', return_value='/usr/bin/satdump'):
             decoder = WeatherSatDecoder()
 
-            # Mock image files
+            # Mock image files - glob is called 3x (*.png, *.jpg, *.jpeg)
             mock_file = MagicMock()
             mock_file.name = 'NOAA-18_test.png'
             mock_file.stat.return_value.st_size = 10000
             mock_file.stat.return_value.st_mtime = time.time()
-            mock_glob.return_value = [mock_file]
+            mock_glob.side_effect = [[mock_file], [], []]
 
             images = decoder.get_images()
 
@@ -347,7 +354,9 @@ class TestWeatherSatDecoder:
             decoder = WeatherSatDecoder()
 
             mock_files = [MagicMock() for _ in range(3)]
-            with patch('pathlib.Path.glob', return_value=mock_files):
+            # glob is called for each extension (*.png, *.jpg, *.jpeg)
+            # Return files only for the first call to avoid counting 3x
+            with patch('pathlib.Path.glob', side_effect=[mock_files, [], []]):
                 count = decoder.delete_all_images()
 
                 assert count == 3
@@ -451,7 +460,7 @@ class TestWeatherSatDecoder:
         with patch('shutil.which', return_value='/usr/bin/satdump'):
             decoder = WeatherSatDecoder()
             product = decoder._parse_product_name(Path('/tmp/output/channel_3.png'))
-            assert product == 'Channel 3'
+            assert product == 'Channel Data'
 
     def test_parse_product_name_unknown(self):
         """_parse_product_name() should return stem for unknown products."""

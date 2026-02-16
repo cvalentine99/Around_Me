@@ -767,9 +767,11 @@ class TestIntegration:
         old = mod._decoder
         mod._decoder = None
         try:
-            decoder = get_sstv_decoder()
-            assert decoder is not None
-            assert decoder.decoder_available == 'python-sstv'
+            # Mock Path.mkdir to avoid PermissionError on 'instance/sstv_images'
+            with patch.object(Path, 'mkdir'):
+                decoder = get_sstv_decoder()
+                assert decoder is not None
+                assert decoder.decoder_available == 'python-sstv'
         finally:
             mod._decoder = old
 

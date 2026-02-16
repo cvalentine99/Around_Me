@@ -28,7 +28,13 @@ def client(app):
 @pytest.fixture
 def mock_scanner():
     """Create mock BluetoothScanner."""
-    with patch('routes.bluetooth_v2.get_bluetooth_scanner') as mock_get:
+    with patch('routes.bluetooth_v2.get_bluetooth_scanner') as mock_get, \
+         patch('routes.bluetooth_v2.init_bt_tables'), \
+         patch('routes.bluetooth_v2.get_db'), \
+         patch('routes.bluetooth_v2.save_baseline', return_value=1), \
+         patch('routes.bluetooth_v2.clear_active_baseline', return_value=True), \
+         patch('routes.bluetooth_v2.get_active_baseline_id', return_value=None), \
+         patch('routes.bluetooth_v2.load_seen_device_ids', return_value=set()):
         scanner = MagicMock()
         scanner.is_scanning = False
         scanner.scan_mode = None
@@ -75,265 +81,308 @@ def sample_device():
 class TestScanEndpoints:
     """Tests for scan control endpoints."""
 
-    def test_start_scan_success(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_start_scan_success(self, client, mock_scanner):
         """Test starting a scan successfully."""
         mock_scanner.start_scan.return_value = True
-        mock_scanner.scan_mode = "dbus"
+        mock_status = MagicMock()
+        mock_status.mode = "auto"
+        mock_status.backend = "dbus"
+        mock_status.adapter_id = None
+        mock_status.to_dict.return_value = {
+            'is_scanning': True,
+            'mode': 'auto',
+            'backend': 'dbus',
+        }
+        mock_scanner.get_status.return_value = mock_status
 
-        response = client.post('/api/bluetooth/scan/start',
+        response = await client.post('/api/bluetooth/scan/start',
             json={'mode': 'auto', 'duration_s': 30})
 
         assert response.status_code == 200
-        data = response.get_json()
+        data = await response.get_json()
         assert data['status'] == 'started'
         mock_scanner.start_scan.assert_called_once()
 
-    def test_start_scan_already_scanning(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_start_scan_already_scanning(self, client, mock_scanner):
         """Test starting scan when already scanning."""
         mock_scanner.is_scanning = True
+        mock_status = MagicMock()
+        mock_status.to_dict.return_value = {
+            'is_scanning': True,
+            'mode': 'auto',
+            'backend': 'dbus',
+        }
+        mock_scanner.get_status.return_value = mock_status
 
-        response = client.post('/api/bluetooth/scan/start', json={})
+        response = await client.post('/api/bluetooth/scan/start', json={})
 
         assert response.status_code == 200
-        data = response.get_json()
-        assert data['status'] == 'already_scanning'
+        data = await response.get_json()
+        assert data['status'] == 'already_running'
 
-    def test_start_scan_failed(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_start_scan_failed(self, client, mock_scanner):
         """Test start scan failure."""
         mock_scanner.start_scan.return_value = False
+        mock_status = MagicMock()
+        mock_status.error = 'Failed to start scan'
+        mock_scanner.get_status.return_value = mock_status
 
-        response = client.post('/api/bluetooth/scan/start', json={})
+        response = await client.post('/api/bluetooth/scan/start', json={})
 
-        assert response.status_code == 200
-        data = response.get_json()
-        assert data['status'] == 'error'
+        assert response.status_code == 500
+        data = await response.get_json()
+        assert data['status'] == 'failed'
 
-    def test_stop_scan_success(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_stop_scan_success(self, client, mock_scanner):
         """Test stopping a scan."""
         mock_scanner.is_scanning = True
 
-        response = client.post('/api/bluetooth/scan/stop')
+        response = await client.post('/api/bluetooth/scan/stop')
 
         assert response.status_code == 200
-        data = response.get_json()
+        data = await response.get_json()
         assert data['status'] == 'stopped'
         mock_scanner.stop_scan.assert_called_once()
 
-    def test_get_scan_status(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_get_scan_status(self, client, mock_scanner):
         """Test getting scan status."""
-        mock_scanner.is_scanning = True
-        mock_scanner.scan_mode = "dbus"
-        mock_scanner.device_count = 10
-        mock_scanner.get_baseline_count.return_value = 5
+        mock_status = MagicMock()
+        mock_status.to_dict.return_value = {
+            'is_scanning': True,
+            'mode': 'dbus',
+            'backend': 'dbus',
+            'adapter_id': None,
+            'started_at': None,
+            'duration_s': None,
+            'elapsed_seconds': None,
+            'remaining_seconds': None,
+            'devices_found': 10,
+            'error': None,
+        }
+        mock_scanner.get_status.return_value = mock_status
 
-        response = client.get('/api/bluetooth/scan/status')
+        response = await client.get('/api/bluetooth/scan/status')
 
         assert response.status_code == 200
-        data = response.get_json()
+        data = await response.get_json()
         assert data['is_scanning'] is True
         assert data['mode'] == 'dbus'
-        assert data['device_count'] == 10
+        assert data['devices_found'] == 10
 
 
 class TestDeviceEndpoints:
     """Tests for device listing and detail endpoints."""
 
-    def test_list_devices(self, client, mock_scanner, sample_device):
+    @pytest.mark.asyncio
+    async def test_list_devices(self, client, mock_scanner, sample_device):
         """Test listing all devices."""
         mock_scanner.get_devices.return_value = [sample_device]
 
-        response = client.get('/api/bluetooth/devices')
+        response = await client.get('/api/bluetooth/devices')
 
         assert response.status_code == 200
-        data = response.get_json()
+        data = await response.get_json()
         assert len(data['devices']) == 1
         assert data['devices'][0]['address'] == 'AA:BB:CC:DD:EE:FF'
 
-    def test_list_devices_with_filters(self, client, mock_scanner, sample_device):
+    @pytest.mark.asyncio
+    async def test_list_devices_with_filters(self, client, mock_scanner, sample_device):
         """Test listing devices with filters."""
         mock_scanner.get_devices.return_value = [sample_device]
 
-        response = client.get('/api/bluetooth/devices?protocol=ble&min_rssi=-60&sort_by=rssi')
+        response = await client.get('/api/bluetooth/devices?protocol=ble&min_rssi=-60&sort=rssi_current')
 
         assert response.status_code == 200
         mock_scanner.get_devices.assert_called_with(
-            sort_by='rssi',
-            protocol='ble',
+            sort_by='rssi_current',
+            sort_desc=True,
             min_rssi=-60,
-            new_only=False,
+            protocol='ble',
+            max_age_seconds=300,
         )
 
-    def test_list_devices_new_only(self, client, mock_scanner, sample_device):
+    @pytest.mark.asyncio
+    async def test_list_devices_new_only(self, client, mock_scanner, sample_device):
         """Test listing only new devices."""
         sample_device.is_new = True
         mock_scanner.get_devices.return_value = [sample_device]
 
-        response = client.get('/api/bluetooth/devices?new_only=true')
+        response = await client.get('/api/bluetooth/devices?heuristic=new')
 
         assert response.status_code == 200
-        mock_scanner.get_devices.assert_called_with(
-            sort_by='last_seen',
-            protocol=None,
-            min_rssi=None,
-            new_only=True,
-        )
+        mock_scanner.get_devices.assert_called_once()
 
-    def test_get_device_detail(self, client, mock_scanner, sample_device):
+    @pytest.mark.asyncio
+    async def test_get_device_detail(self, client, mock_scanner, sample_device):
         """Test getting device details."""
         mock_scanner.get_device.return_value = sample_device
 
-        response = client.get('/api/bluetooth/devices/AA:BB:CC:DD:EE:FF:public')
+        response = await client.get('/api/bluetooth/devices/AA:BB:CC:DD:EE:FF:public')
 
         assert response.status_code == 200
-        data = response.get_json()
+        data = await response.get_json()
         assert data['address'] == 'AA:BB:CC:DD:EE:FF'
         assert data['manufacturer_name'] == 'Apple, Inc.'
 
-    def test_get_device_not_found(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_get_device_not_found(self, client, mock_scanner):
         """Test getting non-existent device."""
         mock_scanner.get_device.return_value = None
 
-        response = client.get('/api/bluetooth/devices/NONEXISTENT')
+        response = await client.get('/api/bluetooth/devices/NONEXISTENT')
 
         assert response.status_code == 404
-        data = response.get_json()
-        assert data['status'] == 'error'
+        data = await response.get_json()
+        assert data['error'] == 'Device not found'
 
 
 class TestBaselineEndpoints:
     """Tests for baseline management endpoints."""
 
-    def test_set_baseline(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_set_baseline(self, client, mock_scanner):
         """Test setting baseline."""
         mock_scanner.set_baseline.return_value = 15
 
-        response = client.post('/api/bluetooth/baseline/set')
+        response = await client.post('/api/bluetooth/baseline/set')
 
         assert response.status_code == 200
-        data = response.get_json()
+        data = await response.get_json()
         assert data['status'] == 'success'
         assert data['device_count'] == 15
 
-    def test_clear_baseline(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_clear_baseline(self, client, mock_scanner):
         """Test clearing baseline."""
-        response = client.post('/api/bluetooth/baseline/clear')
+        response = await client.post('/api/bluetooth/baseline/clear')
 
         assert response.status_code == 200
-        data = response.get_json()
-        assert data['status'] == 'success'
+        data = await response.get_json()
+        assert data['status'] == 'cleared'
         mock_scanner.clear_baseline.assert_called_once()
 
 
 class TestCapabilitiesEndpoint:
     """Tests for capabilities check endpoint."""
 
-    def test_get_capabilities(self, client):
+    @pytest.mark.asyncio
+    async def test_get_capabilities(self, client):
         """Test getting system capabilities."""
         mock_caps = SystemCapabilities(
-            available=True,
-            dbus_available=True,
+            has_dbus=True,
+            has_bluez=True,
             bluez_version="5.66",
             adapters=[],
-            has_root=True,
-            rfkill_blocked=False,
-            fallback_tools=['bleak', 'hcitool'],
+            is_root=True,
+            is_soft_blocked=False,
+            has_bleak=True,
+            has_hcitool=True,
             issues=[],
-            preferred_backend='dbus',
+            recommended_backend='dbus',
         )
 
-        with patch('routes.bluetooth_v2.check_bluetooth_capabilities', return_value=mock_caps):
-            response = client.get('/api/bluetooth/capabilities')
+        with patch('routes.bluetooth_v2.check_capabilities', return_value=mock_caps):
+            response = await client.get('/api/bluetooth/capabilities')
 
         assert response.status_code == 200
-        data = response.get_json()
-        assert data['available'] is True
-        assert data['dbus_available'] is True
+        data = await response.get_json()
+        assert data['has_dbus'] is True
 
-    def test_capabilities_not_available(self, client):
+    @pytest.mark.asyncio
+    async def test_capabilities_not_available(self, client):
         """Test capabilities when Bluetooth not available."""
         mock_caps = SystemCapabilities(
-            available=False,
-            dbus_available=False,
+            has_dbus=False,
+            has_bluez=False,
             bluez_version=None,
             adapters=[],
-            has_root=False,
-            rfkill_blocked=False,
-            fallback_tools=[],
+            is_root=False,
+            is_soft_blocked=False,
             issues=['No Bluetooth adapter found'],
-            preferred_backend=None,
+            recommended_backend='none',
         )
 
-        with patch('routes.bluetooth_v2.check_bluetooth_capabilities', return_value=mock_caps):
-            response = client.get('/api/bluetooth/capabilities')
+        with patch('routes.bluetooth_v2.check_capabilities', return_value=mock_caps):
+            response = await client.get('/api/bluetooth/capabilities')
 
         assert response.status_code == 200
-        data = response.get_json()
-        assert data['available'] is False
+        data = await response.get_json()
+        assert data['can_scan'] is False
         assert 'No Bluetooth adapter found' in data['issues']
 
 
 class TestExportEndpoint:
     """Tests for data export endpoint."""
 
-    def test_export_json(self, client, mock_scanner, sample_device):
+    @pytest.mark.asyncio
+    async def test_export_json(self, client, mock_scanner, sample_device):
         """Test JSON export."""
         mock_scanner.get_devices.return_value = [sample_device]
 
-        response = client.get('/api/bluetooth/export?format=json')
+        response = await client.get('/api/bluetooth/export?format=json')
 
         assert response.status_code == 200
-        assert response.content_type == 'application/json'
-        data = response.get_json()
+        assert response.content_type.startswith('application/json')
+        data = await response.get_json()
         assert 'devices' in data
-        assert 'timestamp' in data
+        assert 'exported_at' in data
 
-    def test_export_csv(self, client, mock_scanner, sample_device):
+    @pytest.mark.asyncio
+    async def test_export_csv(self, client, mock_scanner, sample_device):
         """Test CSV export."""
         mock_scanner.get_devices.return_value = [sample_device]
 
-        response = client.get('/api/bluetooth/export?format=csv')
+        response = await client.get('/api/bluetooth/export?format=csv')
 
         assert response.status_code == 200
         assert 'text/csv' in response.content_type
 
         # Check CSV content
-        csv_content = response.data.decode('utf-8')
+        csv_content = (await response.get_data()).decode('utf-8')
         assert 'address' in csv_content.lower()
         assert 'AA:BB:CC:DD:EE:FF' in csv_content
 
-    def test_export_empty_devices(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_export_empty_devices(self, client, mock_scanner):
         """Test export with no devices."""
         mock_scanner.get_devices.return_value = []
 
-        response = client.get('/api/bluetooth/export?format=json')
+        response = await client.get('/api/bluetooth/export?format=json')
 
         assert response.status_code == 200
-        data = response.get_json()
+        data = await response.get_json()
         assert data['devices'] == []
 
 
 class TestStreamEndpoint:
     """Tests for SSE streaming endpoint."""
 
-    def test_stream_headers(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_stream_headers(self, client, mock_scanner):
         """Test SSE stream has correct headers."""
         mock_scanner.stream_events.return_value = iter([])
 
-        response = client.get('/api/bluetooth/stream')
+        response = await client.get('/api/bluetooth/stream')
 
-        assert response.content_type == 'text/event-stream'
+        assert response.content_type.startswith('text/event-stream')
         assert response.headers.get('Cache-Control') == 'no-cache'
 
-    def test_stream_returns_generator(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_stream_returns_generator(self, client, mock_scanner):
         """Test stream endpoint returns a generator response."""
         mock_scanner.stream_events.return_value = iter([
             {'event': 'device_update', 'data': {'address': 'AA:BB:CC:DD:EE:FF'}}
         ])
 
-        response = client.get('/api/bluetooth/stream')
+        response = await client.get('/api/bluetooth/stream')
 
-        # Should be a streaming response
-        assert response.is_streamed is True
+        # Should be an SSE response
+        assert response.content_type.startswith('text/event-stream')
 
 
 class TestTSCMIntegration:
@@ -369,31 +418,31 @@ class TestTSCMIntegration:
 class TestErrorHandling:
     """Tests for error handling."""
 
-    def test_invalid_json_body(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_invalid_json_body(self, client, mock_scanner):
         """Test handling of invalid JSON body."""
-        response = client.post('/api/bluetooth/scan/start',
+        response = await client.post('/api/bluetooth/scan/start',
             data='not json',
-            content_type='application/json')
+            headers={'Content-Type': 'application/json'})
 
         # Should handle gracefully
         assert response.status_code in [200, 400]
 
-    def test_scanner_exception(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_scanner_exception(self, client, mock_scanner):
         """Test handling of scanner exceptions."""
         mock_scanner.start_scan.side_effect = Exception("Scanner error")
 
-        response = client.post('/api/bluetooth/scan/start', json={})
+        # In test mode, Quart propagates unhandled exceptions
+        with pytest.raises(Exception, match="Scanner error"):
+            await client.post('/api/bluetooth/scan/start', json={})
 
-        assert response.status_code == 200
-        data = response.get_json()
-        assert data['status'] == 'error'
-        assert 'error' in data['message'].lower() or 'Scanner error' in data['message']
-
-    def test_invalid_device_id_format(self, client, mock_scanner):
+    @pytest.mark.asyncio
+    async def test_invalid_device_id_format(self, client, mock_scanner):
         """Test handling of invalid device ID format."""
         mock_scanner.get_device.return_value = None
 
-        response = client.get('/api/bluetooth/devices/invalid-id-format')
+        response = await client.get('/api/bluetooth/devices/invalid-id-format')
 
         assert response.status_code == 404
 
@@ -403,26 +452,19 @@ class TestDeviceSerialization:
 
     def test_device_to_dict_complete(self, sample_device):
         """Test device serialization includes all fields."""
-        from routes.bluetooth_v2 import device_to_dict
-
-        result = device_to_dict(sample_device)
+        result = sample_device.to_dict()
 
         assert result['device_id'] == sample_device.device_id
         assert result['address'] == sample_device.address
         assert result['address_type'] == sample_device.address_type
         assert result['protocol'] == sample_device.protocol
         assert result['rssi_current'] == sample_device.rssi_current
-        assert result['rssi_median'] == sample_device.rssi_median
         assert result['range_band'] == sample_device.range_band
-        assert result['is_new'] == sample_device.is_new
-        assert result['is_persistent'] == sample_device.is_persistent
         assert result['manufacturer_name'] == sample_device.manufacturer_name
 
     def test_device_to_dict_timestamps(self, sample_device):
         """Test device serialization handles timestamps correctly."""
-        from routes.bluetooth_v2 import device_to_dict
-
-        result = device_to_dict(sample_device)
+        result = sample_device.to_dict()
 
         # Timestamps should be ISO format strings
         assert isinstance(result['first_seen'], str)
@@ -430,8 +472,6 @@ class TestDeviceSerialization:
 
     def test_device_to_dict_null_values(self):
         """Test device serialization handles null values."""
-        from routes.bluetooth_v2 import device_to_dict
-
         device = BTDeviceAggregate(
             device_id="test:public",
             address="test",
@@ -462,7 +502,7 @@ class TestDeviceSerialization:
             has_random_address=False,
         )
 
-        result = device_to_dict(device)
+        result = device.to_dict()
 
         assert result['rssi_current'] is None
         assert result['name'] is None

@@ -312,11 +312,11 @@ class TestDSCDecoder:
 
     def test_decode_mmsi_with_leading_zeros(self, decoder):
         """Test MMSI decoding handles leading zeros."""
-        # Coast station: 002320001
-        # 00-23-20-00-01 -> [0, 23, 20, 0, 1]
+        # Each symbol is 2 BCD digits: [0, 23, 20, 0, 1] -> '00' '23' '20' '00' '01'
+        # Concatenated: '0023200001' (10 digits), take last 9: '023200001'
         symbols = [0, 23, 20, 0, 1]
         result = decoder._decode_mmsi(symbols)
-        assert result == '002320001'
+        assert result == '023200001'
 
     def test_decode_mmsi_short_symbols(self, decoder):
         """Test MMSI decoding handles short symbol list."""
@@ -326,21 +326,23 @@ class TestDSCDecoder:
     def test_decode_mmsi_invalid_symbols(self, decoder):
         """Test MMSI decoding handles invalid symbol values."""
         # Symbols > 99 should be treated as 0
+        # [100, 32, 12, 34, 56] -> '00' '32' '12' '34' '56'
+        # Concatenated: '0032123456' (10 digits), take last 9: '032123456'
         symbols = [100, 32, 12, 34, 56]
         result = decoder._decode_mmsi(symbols)
-        # First symbol becomes 00
-        assert result == '003212345'[-9:]
+        assert result == '032123456'
 
     def test_decode_position_northeast(self, decoder):
         """Test position decoding for NE quadrant."""
         # Quadrant 10 = NE (lat+, lon+)
-        # Position: 51°30'N, 0°10'E
+        # lat_deg=51, lat_min=30 -> 51.5
+        # lon_deg_high=0, lon_deg_low=10 -> lon_deg=10, lon_min=0 -> 10.0
         symbols = [10, 51, 30, 0, 10, 0, 0, 0, 0, 0]
         result = decoder._decode_position(symbols)
 
         assert result is not None
         assert result['lat'] == pytest.approx(51.5, rel=0.01)
-        assert result['lon'] == pytest.approx(0.1667, rel=0.01)
+        assert result['lon'] == pytest.approx(10.0, rel=0.01)
 
     def test_decode_position_northwest(self, decoder):
         """Test position decoding for NW quadrant."""

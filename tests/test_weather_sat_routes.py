@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock, AsyncMock, mock_open
 import pytest
 
+from quart import Response
 from utils.weather_sat import WeatherSatImage, WEATHER_SATELLITES
 from datetime import datetime, timezone
 
@@ -18,7 +19,7 @@ from datetime import datetime, timezone
 class TestWeatherSatRoutes:
     """Tests for weather satellite routes."""
 
-    def test_get_status(self, client):
+    async def test_get_status(self, auth_client):
         """GET /weather-sat/status returns decoder status."""
         with patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
             mock_decoder = MagicMock()
@@ -34,18 +35,18 @@ class TestWeatherSatRoutes:
             }
             mock_get.return_value = mock_decoder
 
-            response = client.get('/weather-sat/status')
+            response = await auth_client.get('/weather-sat/status')
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['available'] is True
             assert data['decoder'] == 'satdump'
             assert data['running'] is False
 
-    def test_list_satellites(self, client):
+    async def test_list_satellites(self, auth_client):
         """GET /weather-sat/satellites returns satellite list."""
-        response = client.get('/weather-sat/satellites')
+        response = await auth_client.get('/weather-sat/satellites')
         assert response.status_code == 200
-        data = response.get_json()
+        data = await response.get_json()
         assert data['status'] == 'ok'
         assert 'satellites' in data
         assert len(data['satellites']) > 0
@@ -65,7 +66,7 @@ class TestWeatherSatRoutes:
         assert noaa_18['frequency'] == 137.9125
         assert noaa_18['mode'] == 'APT'
 
-    def test_start_capture_success(self, client):
+    async def test_start_capture_success(self, auth_client):
         """POST /weather-sat/start successfully starts capture."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
              patch('routes.weather_sat.get_weather_sat_decoder') as mock_get, \
@@ -83,14 +84,13 @@ class TestWeatherSatRoutes:
                 'bias_t': False,
             }
 
-            response = client.post(
+            response = await auth_client.post(
                 '/weather-sat/start',
-                data=json.dumps(payload),
-                content_type='application/json'
+                json=payload,
             )
 
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'started'
             assert data['satellite'] == 'NOAA-18'
             assert data['frequency'] == 137.9125
@@ -104,22 +104,21 @@ class TestWeatherSatRoutes:
                 bias_t=False,
             )
 
-    def test_start_capture_no_satdump(self, client):
+    async def test_start_capture_no_satdump(self, auth_client):
         """POST /weather-sat/start returns error when SatDump unavailable."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=False):
             payload = {'satellite': 'NOAA-18'}
-            response = client.post(
+            response = await auth_client.post(
                 '/weather-sat/start',
-                data=json.dumps(payload),
-                content_type='application/json'
+                json=payload,
             )
 
             assert response.status_code == 400
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'error'
             assert 'SatDump not installed' in data['message']
 
-    def test_start_capture_already_running(self, client):
+    async def test_start_capture_already_running(self, auth_client):
         """POST /weather-sat/start when already running."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
              patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
@@ -131,18 +130,17 @@ class TestWeatherSatRoutes:
             mock_get.return_value = mock_decoder
 
             payload = {'satellite': 'NOAA-18'}
-            response = client.post(
+            response = await auth_client.post(
                 '/weather-sat/start',
-                data=json.dumps(payload),
-                content_type='application/json'
+                json=payload,
             )
 
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'already_running'
             assert data['satellite'] == 'NOAA-19'
 
-    def test_start_capture_invalid_satellite(self, client):
+    async def test_start_capture_invalid_satellite(self, auth_client):
         """POST /weather-sat/start with invalid satellite."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
              patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
@@ -152,18 +150,17 @@ class TestWeatherSatRoutes:
             mock_get.return_value = mock_decoder
 
             payload = {'satellite': 'FAKE-SAT-99'}
-            response = client.post(
+            response = await auth_client.post(
                 '/weather-sat/start',
-                data=json.dumps(payload),
-                content_type='application/json'
+                json=payload,
             )
 
             assert response.status_code == 400
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'error'
             assert 'Invalid satellite' in data['message']
 
-    def test_start_capture_invalid_device(self, client):
+    async def test_start_capture_invalid_device(self, auth_client):
         """POST /weather-sat/start with invalid device index."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
              patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
@@ -173,17 +170,16 @@ class TestWeatherSatRoutes:
             mock_get.return_value = mock_decoder
 
             payload = {'satellite': 'NOAA-18', 'device': -1}
-            response = client.post(
+            response = await auth_client.post(
                 '/weather-sat/start',
-                data=json.dumps(payload),
-                content_type='application/json'
+                json=payload,
             )
 
             assert response.status_code == 400
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'error'
 
-    def test_start_capture_invalid_gain(self, client):
+    async def test_start_capture_invalid_gain(self, auth_client):
         """POST /weather-sat/start with invalid gain."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
              patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
@@ -193,17 +189,16 @@ class TestWeatherSatRoutes:
             mock_get.return_value = mock_decoder
 
             payload = {'satellite': 'NOAA-18', 'gain': 999}
-            response = client.post(
+            response = await auth_client.post(
                 '/weather-sat/start',
-                data=json.dumps(payload),
-                content_type='application/json'
+                json=payload,
             )
 
             assert response.status_code == 400
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'error'
 
-    def test_start_capture_device_busy(self, client):
+    async def test_start_capture_device_busy(self, auth_client):
         """POST /weather-sat/start when SDR device is busy."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
              patch('routes.weather_sat.get_weather_sat_decoder') as mock_get, \
@@ -214,22 +209,22 @@ class TestWeatherSatRoutes:
             mock_get.return_value = mock_decoder
 
             payload = {'satellite': 'NOAA-18'}
-            response = client.post(
+            response = await auth_client.post(
                 '/weather-sat/start',
-                data=json.dumps(payload),
-                content_type='application/json'
+                json=payload,
             )
 
             assert response.status_code == 409
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'error'
             assert data['error_type'] == 'DEVICE_BUSY'
             assert 'Device busy' in data['message']
 
-    def test_start_capture_start_failure(self, client):
+    async def test_start_capture_start_failure(self, auth_client):
         """POST /weather-sat/start when decoder.start() fails."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
-             patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
+             patch('routes.weather_sat.get_weather_sat_decoder') as mock_get, \
+             patch('app.claim_sdr_device', return_value=None):
 
             mock_decoder = MagicMock()
             mock_decoder.is_running = False
@@ -237,18 +232,17 @@ class TestWeatherSatRoutes:
             mock_get.return_value = mock_decoder
 
             payload = {'satellite': 'NOAA-18'}
-            response = client.post(
+            response = await auth_client.post(
                 '/weather-sat/start',
-                data=json.dumps(payload),
-                content_type='application/json'
+                json=payload,
             )
 
             assert response.status_code == 500
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'error'
             assert 'Failed to start capture' in data['message']
 
-    def test_test_decode_success(self, client):
+    async def test_test_decode_success(self, auth_client):
         """POST /weather-sat/test-decode successfully starts file decode."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
              patch('routes.weather_sat.get_weather_sat_decoder') as mock_get, \
@@ -271,19 +265,18 @@ class TestWeatherSatRoutes:
                 'sample_rate': 1000000,
             }
 
-            response = client.post(
+            response = await auth_client.post(
                 '/weather-sat/test-decode',
-                data=json.dumps(payload),
-                content_type='application/json'
+                json=payload,
             )
 
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'started'
             assert data['satellite'] == 'NOAA-18'
             assert data['source'] == 'file'
 
-    def test_test_decode_invalid_path(self, client):
+    async def test_test_decode_invalid_path(self, auth_client):
         """POST /weather-sat/test-decode with path outside data/."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
              patch('routes.weather_sat.get_weather_sat_decoder') as mock_get, \
@@ -303,18 +296,17 @@ class TestWeatherSatRoutes:
                 'input_file': '/etc/passwd',
             }
 
-            response = client.post(
+            response = await auth_client.post(
                 '/weather-sat/test-decode',
-                data=json.dumps(payload),
-                content_type='application/json'
+                json=payload,
             )
 
             assert response.status_code == 403
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'error'
             assert 'data/ directory' in data['message']
 
-    def test_test_decode_file_not_found(self, client):
+    async def test_test_decode_file_not_found(self, auth_client):
         """POST /weather-sat/test-decode with non-existent file."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
              patch('routes.weather_sat.get_weather_sat_decoder') as mock_get, \
@@ -334,21 +326,27 @@ class TestWeatherSatRoutes:
                 'input_file': 'data/missing.wav',
             }
 
-            response = client.post(
+            response = await auth_client.post(
                 '/weather-sat/test-decode',
-                data=json.dumps(payload),
-                content_type='application/json'
+                json=payload,
             )
 
             assert response.status_code == 404
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'error'
             assert 'not found' in data['message'].lower()
 
-    def test_test_decode_invalid_sample_rate(self, client):
+    async def test_test_decode_invalid_sample_rate(self, auth_client):
         """POST /weather-sat/test-decode with invalid sample rate."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
-             patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
+             patch('routes.weather_sat.get_weather_sat_decoder') as mock_get, \
+             patch('pathlib.Path.is_file', return_value=True), \
+             patch('pathlib.Path.resolve') as mock_resolve:
+
+            # Mock path resolution to be under data/
+            mock_path = MagicMock()
+            mock_path.is_relative_to.return_value = True
+            mock_resolve.return_value = mock_path
 
             mock_decoder = MagicMock()
             mock_decoder.is_running = False
@@ -360,45 +358,44 @@ class TestWeatherSatRoutes:
                 'sample_rate': 100,  # Too low
             }
 
-            response = client.post(
+            response = await auth_client.post(
                 '/weather-sat/test-decode',
-                data=json.dumps(payload),
-                content_type='application/json'
+                json=payload,
             )
 
             assert response.status_code == 400
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'error'
             assert 'sample_rate' in data['message']
 
-    def test_stop_capture(self, client):
+    async def test_stop_capture(self, auth_client):
         """POST /weather-sat/stop stops capture."""
         with patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
             mock_decoder = MagicMock()
             mock_decoder.device_index = 0
             mock_get.return_value = mock_decoder
 
-            response = client.post('/weather-sat/stop')
+            response = await auth_client.post('/weather-sat/stop')
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'stopped'
             mock_decoder.stop.assert_called_once()
 
-    def test_list_images_empty(self, client):
+    async def test_list_images_empty(self, auth_client):
         """GET /weather-sat/images with no images."""
         with patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
             mock_decoder = MagicMock()
             mock_decoder.get_images.return_value = []
             mock_get.return_value = mock_decoder
 
-            response = client.get('/weather-sat/images')
+            response = await auth_client.get('/weather-sat/images')
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'ok'
             assert data['images'] == []
             assert data['count'] == 0
 
-    def test_list_images_with_data(self, client):
+    async def test_list_images_with_data(self, auth_client):
         """GET /weather-sat/images with images."""
         with patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
             mock_decoder = MagicMock()
@@ -415,15 +412,15 @@ class TestWeatherSatRoutes:
             mock_decoder.get_images.return_value = [image]
             mock_get.return_value = mock_decoder
 
-            response = client.get('/weather-sat/images')
+            response = await auth_client.get('/weather-sat/images')
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'ok'
             assert data['count'] == 1
             assert data['images'][0]['filename'] == 'NOAA-18_test.png'
             assert data['images'][0]['satellite'] == 'NOAA-18'
 
-    def test_list_images_with_filter(self, client):
+    async def test_list_images_with_filter(self, auth_client):
         """GET /weather-sat/images with satellite filter."""
         with patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
             mock_decoder = MagicMock()
@@ -446,13 +443,13 @@ class TestWeatherSatRoutes:
             mock_decoder.get_images.return_value = [image1, image2]
             mock_get.return_value = mock_decoder
 
-            response = client.get('/weather-sat/images?satellite=NOAA-18')
+            response = await auth_client.get('/weather-sat/images?satellite=NOAA-18')
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['count'] == 1
             assert data['images'][0]['satellite'] == 'NOAA-18'
 
-    def test_list_images_with_limit(self, client):
+    async def test_list_images_with_limit(self, auth_client):
         """GET /weather-sat/images with limit."""
         with patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
             mock_decoder = MagicMock()
@@ -470,51 +467,59 @@ class TestWeatherSatRoutes:
             mock_decoder.get_images.return_value = images
             mock_get.return_value = mock_decoder
 
-            response = client.get('/weather-sat/images?limit=5')
+            response = await auth_client.get('/weather-sat/images?limit=5')
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['count'] == 5
 
-    def test_get_image_success(self, client):
+    async def test_get_image_success(self, auth_client):
         """GET /weather-sat/images/<filename> serves image."""
         with patch('routes.weather_sat.get_weather_sat_decoder') as mock_get, \
-             patch('routes.weather_sat.send_file') as mock_send, \
-             patch('pathlib.Path.exists', return_value=True):
+             patch('routes.weather_sat.send_file', new_callable=AsyncMock) as mock_send, \
+             patch('utils.safe_path.resolve_safe') as mock_resolve:
 
             mock_decoder = MagicMock()
             mock_decoder._output_dir = Path('/tmp')
             mock_get.return_value = mock_decoder
-            mock_send.return_value = MagicMock()
 
-            response = client.get('/weather-sat/images/test_image.png')
+            mock_resolved_path = MagicMock()
+            mock_resolved_path.exists.return_value = True
+            mock_resolve.return_value = mock_resolved_path
+
+            mock_send.return_value = Response(b'fake image data', mimetype='image/png')
+
+            response = await auth_client.get('/weather-sat/images/test_image.png')
+            assert response.status_code == 200
             mock_send.assert_called_once()
             call_args = mock_send.call_args
             assert call_args[1]['mimetype'] == 'image/png'
 
-    def test_get_image_invalid_filename(self, client):
+    async def test_get_image_invalid_filename(self, auth_client):
         """GET /weather-sat/images/<filename> with invalid filename."""
         with patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
             mock_decoder = MagicMock()
             mock_get.return_value = mock_decoder
 
-            response = client.get('/weather-sat/images/../../../etc/passwd')
+            # Use a filename with special characters that fails the isalnum check
+            # (after replacing _, -, .) but won't be treated as path traversal by the framework
+            response = await auth_client.get('/weather-sat/images/test%20image!.png')
             assert response.status_code == 400
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'error'
             assert 'Invalid filename' in data['message']
 
-    def test_get_image_wrong_extension(self, client):
+    async def test_get_image_wrong_extension(self, auth_client):
         """GET /weather-sat/images/<filename> with wrong extension."""
         with patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
             mock_decoder = MagicMock()
             mock_get.return_value = mock_decoder
 
-            response = client.get('/weather-sat/images/test.txt')
+            response = await auth_client.get('/weather-sat/images/test.txt')
             assert response.status_code == 400
-            data = response.get_json()
+            data = await response.get_json()
             assert 'PNG/JPG' in data['message']
 
-    def test_get_image_not_found(self, client):
+    async def test_get_image_not_found(self, auth_client):
         """GET /weather-sat/images/<filename> for non-existent image."""
         with patch('routes.weather_sat.get_weather_sat_decoder') as mock_get, \
              patch('pathlib.Path.exists', return_value=False):
@@ -523,70 +528,70 @@ class TestWeatherSatRoutes:
             mock_decoder._output_dir = Path('/tmp')
             mock_get.return_value = mock_decoder
 
-            response = client.get('/weather-sat/images/missing.png')
+            response = await auth_client.get('/weather-sat/images/missing.png')
             assert response.status_code == 404
 
-    def test_delete_image_success(self, client):
+    async def test_delete_image_success(self, auth_client):
         """DELETE /weather-sat/images/<filename> deletes image."""
         with patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
             mock_decoder = MagicMock()
             mock_decoder.delete_image.return_value = True
             mock_get.return_value = mock_decoder
 
-            response = client.delete('/weather-sat/images/test.png')
+            response = await auth_client.delete('/weather-sat/images/test.png')
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'deleted'
             assert data['filename'] == 'test.png'
 
-    def test_delete_image_not_found(self, client):
+    async def test_delete_image_not_found(self, auth_client):
         """DELETE /weather-sat/images/<filename> for non-existent image."""
         with patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
             mock_decoder = MagicMock()
             mock_decoder.delete_image.return_value = False
             mock_get.return_value = mock_decoder
 
-            response = client.delete('/weather-sat/images/missing.png')
+            response = await auth_client.delete('/weather-sat/images/missing.png')
             assert response.status_code == 404
 
-    def test_delete_all_images(self, client):
+    async def test_delete_all_images(self, auth_client):
         """DELETE /weather-sat/images deletes all images."""
         with patch('routes.weather_sat.get_weather_sat_decoder') as mock_get:
             mock_decoder = MagicMock()
             mock_decoder.delete_all_images.return_value = 5
             mock_get.return_value = mock_decoder
 
-            response = client.delete('/weather-sat/images')
+            response = await auth_client.delete('/weather-sat/images')
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'ok'
             assert data['deleted'] == 5
 
-    def test_stream_progress(self, client):
+    async def test_stream_progress(self, auth_client):
         """GET /weather-sat/stream returns SSE stream."""
-        response = client.get('/weather-sat/stream')
+        response = await auth_client.get('/weather-sat/stream')
         assert response.status_code == 200
         assert response.mimetype == 'text/event-stream'
         assert response.headers['Cache-Control'] == 'no-cache'
 
-    def test_get_passes_missing_params(self, client):
+    async def test_get_passes_missing_params(self, auth_client):
         """GET /weather-sat/passes without required params."""
-        response = client.get('/weather-sat/passes')
+        response = await auth_client.get('/weather-sat/passes')
         assert response.status_code == 400
-        data = response.get_json()
+        data = await response.get_json()
         assert data['status'] == 'error'
         assert 'latitude and longitude' in data['message']
 
-    def test_get_passes_invalid_coords(self, client):
+    async def test_get_passes_invalid_coords(self, auth_client):
         """GET /weather-sat/passes with invalid coordinates."""
-        response = client.get('/weather-sat/passes?latitude=999&longitude=0')
+        response = await auth_client.get('/weather-sat/passes?latitude=999&longitude=0')
         assert response.status_code == 400
-        data = response.get_json()
+        data = await response.get_json()
         assert data['status'] == 'error'
 
-    def test_get_passes_success(self, client):
+    async def test_get_passes_success(self, auth_client):
         """GET /weather-sat/passes successfully predicts passes."""
-        with patch('routes.weather_sat.predict_passes') as mock_predict:
+        with patch('utils.weather_sat_predict.predict_passes') as mock_predict:
             mock_predict.return_value = [
                 {
                     'id': 'NOAA-18_202401011200',
@@ -606,19 +611,19 @@ class TestWeatherSatRoutes:
                 }
             ]
 
-            response = client.get('/weather-sat/passes?latitude=51.5&longitude=-0.1')
+            response = await auth_client.get('/weather-sat/passes?latitude=51.5&longitude=-0.1')
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'ok'
             assert data['count'] == 1
             assert data['passes'][0]['satellite'] == 'NOAA-18'
 
-    def test_get_passes_with_options(self, client):
+    async def test_get_passes_with_options(self, auth_client):
         """GET /weather-sat/passes with trajectory and ground track."""
-        with patch('routes.weather_sat.predict_passes') as mock_predict:
+        with patch('utils.weather_sat_predict.predict_passes') as mock_predict:
             mock_predict.return_value = []
 
-            response = client.get(
+            response = await auth_client.get(
                 '/weather-sat/passes?latitude=51.5&longitude=-0.1&'
                 'hours=48&min_elevation=20&trajectory=true&ground_track=true'
             )
@@ -633,30 +638,30 @@ class TestWeatherSatRoutes:
             assert call_kwargs['include_trajectory'] is True
             assert call_kwargs['include_ground_track'] is True
 
-    def test_get_passes_import_error(self, client):
+    async def test_get_passes_import_error(self, auth_client):
         """GET /weather-sat/passes when skyfield not installed."""
-        with patch('routes.weather_sat.predict_passes', side_effect=ImportError):
-            response = client.get('/weather-sat/passes?latitude=51.5&longitude=-0.1')
+        with patch('utils.weather_sat_predict.predict_passes', side_effect=ImportError):
+            response = await auth_client.get('/weather-sat/passes?latitude=51.5&longitude=-0.1')
             assert response.status_code == 503
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'error'
             assert 'skyfield' in data['message']
 
-    def test_get_passes_prediction_error(self, client):
+    async def test_get_passes_prediction_error(self, auth_client):
         """GET /weather-sat/passes when prediction fails."""
-        with patch('routes.weather_sat.predict_passes', side_effect=Exception('TLE error')):
-            response = client.get('/weather-sat/passes?latitude=51.5&longitude=-0.1')
+        with patch('utils.weather_sat_predict.predict_passes', side_effect=Exception('TLE error')):
+            response = await auth_client.get('/weather-sat/passes?latitude=51.5&longitude=-0.1')
             assert response.status_code == 500
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'error'
 
 
 class TestWeatherSatScheduler:
     """Tests for weather satellite scheduler endpoints."""
 
-    def test_enable_schedule_success(self, client):
+    async def test_enable_schedule_success(self, auth_client):
         """POST /weather-sat/schedule/enable enables scheduler."""
-        with patch('routes.weather_sat.get_weather_sat_scheduler') as mock_get:
+        with patch('utils.weather_sat_scheduler.get_weather_sat_scheduler') as mock_get:
             mock_scheduler = MagicMock()
             mock_scheduler.enable.return_value = {
                 'enabled': True,
@@ -679,59 +684,56 @@ class TestWeatherSatScheduler:
                 'bias_t': False,
             }
 
-            response = client.post(
+            response = await auth_client.post(
                 '/weather-sat/schedule/enable',
-                data=json.dumps(payload),
-                content_type='application/json'
+                json=payload,
             )
 
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'ok'
             assert data['enabled'] is True
 
-    def test_enable_schedule_missing_coords(self, client):
+    async def test_enable_schedule_missing_coords(self, auth_client):
         """POST /weather-sat/schedule/enable without coordinates."""
         payload = {'device': 0}
-        response = client.post(
+        response = await auth_client.post(
             '/weather-sat/schedule/enable',
-            data=json.dumps(payload),
-            content_type='application/json'
+            json=payload,
         )
 
         assert response.status_code == 400
-        data = response.get_json()
+        data = await response.get_json()
         assert data['status'] == 'error'
         assert 'latitude and longitude' in data['message']
 
-    def test_enable_schedule_invalid_coords(self, client):
+    async def test_enable_schedule_invalid_coords(self, auth_client):
         """POST /weather-sat/schedule/enable with invalid coordinates."""
         payload = {'latitude': 999, 'longitude': 0}
-        response = client.post(
+        response = await auth_client.post(
             '/weather-sat/schedule/enable',
-            data=json.dumps(payload),
-            content_type='application/json'
+            json=payload,
         )
 
         assert response.status_code == 400
-        data = response.get_json()
+        data = await response.get_json()
         assert data['status'] == 'error'
 
-    def test_disable_schedule(self, client):
+    async def test_disable_schedule(self, auth_client):
         """POST /weather-sat/schedule/disable disables scheduler."""
-        with patch('routes.weather_sat.get_weather_sat_scheduler') as mock_get:
+        with patch('utils.weather_sat_scheduler.get_weather_sat_scheduler') as mock_get:
             mock_scheduler = MagicMock()
             mock_scheduler.disable.return_value = {'status': 'disabled'}
             mock_get.return_value = mock_scheduler
 
-            response = client.post('/weather-sat/schedule/disable')
+            response = await auth_client.post('/weather-sat/schedule/disable')
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'disabled'
 
-    def test_schedule_status(self, client):
+    async def test_schedule_status(self, auth_client):
         """GET /weather-sat/schedule/status returns scheduler status."""
-        with patch('routes.weather_sat.get_weather_sat_scheduler') as mock_get:
+        with patch('utils.weather_sat_scheduler.get_weather_sat_scheduler') as mock_get:
             mock_scheduler = MagicMock()
             mock_scheduler.get_status.return_value = {
                 'enabled': False,
@@ -745,14 +747,14 @@ class TestWeatherSatScheduler:
             }
             mock_get.return_value = mock_scheduler
 
-            response = client.get('/weather-sat/schedule/status')
+            response = await auth_client.get('/weather-sat/schedule/status')
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert 'enabled' in data
 
-    def test_schedule_passes(self, client):
+    async def test_schedule_passes(self, auth_client):
         """GET /weather-sat/schedule/passes lists scheduled passes."""
-        with patch('routes.weather_sat.get_weather_sat_scheduler') as mock_get:
+        with patch('utils.weather_sat_scheduler.get_weather_sat_scheduler') as mock_get:
             mock_scheduler = MagicMock()
             mock_scheduler.get_passes.return_value = [
                 {
@@ -763,39 +765,41 @@ class TestWeatherSatScheduler:
             ]
             mock_get.return_value = mock_scheduler
 
-            response = client.get('/weather-sat/schedule/passes')
+            response = await auth_client.get('/weather-sat/schedule/passes')
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'ok'
             assert data['count'] == 1
 
-    def test_skip_pass_success(self, client):
+    async def test_skip_pass_success(self, auth_client):
         """POST /weather-sat/schedule/skip/<id> skips a pass."""
-        with patch('routes.weather_sat.get_weather_sat_scheduler') as mock_get:
+        with patch('utils.weather_sat_scheduler.get_weather_sat_scheduler') as mock_get:
             mock_scheduler = MagicMock()
             mock_scheduler.skip_pass.return_value = True
             mock_get.return_value = mock_scheduler
 
-            response = client.post('/weather-sat/schedule/skip/NOAA-18_202401011200')
+            response = await auth_client.post('/weather-sat/schedule/skip/NOAA-18_202401011200')
             assert response.status_code == 200
-            data = response.get_json()
+            data = await response.get_json()
             assert data['status'] == 'skipped'
             assert data['pass_id'] == 'NOAA-18_202401011200'
 
-    def test_skip_pass_not_found(self, client):
+    async def test_skip_pass_not_found(self, auth_client):
         """POST /weather-sat/schedule/skip/<id> for non-existent pass."""
-        with patch('routes.weather_sat.get_weather_sat_scheduler') as mock_get:
+        with patch('utils.weather_sat_scheduler.get_weather_sat_scheduler') as mock_get:
             mock_scheduler = MagicMock()
             mock_scheduler.skip_pass.return_value = False
             mock_get.return_value = mock_scheduler
 
-            response = client.post('/weather-sat/schedule/skip/nonexistent')
+            response = await auth_client.post('/weather-sat/schedule/skip/nonexistent')
             assert response.status_code == 404
 
-    def test_skip_pass_invalid_id(self, client):
+    async def test_skip_pass_invalid_id(self, auth_client):
         """POST /weather-sat/schedule/skip/<id> with invalid ID."""
-        response = client.post('/weather-sat/schedule/skip/../../../etc/passwd')
+        # Use a pass_id with special characters that fails the isalnum check
+        # (after replacing _ and -) but won't be treated as path traversal
+        response = await auth_client.post('/weather-sat/schedule/skip/invalid!pass@id')
         assert response.status_code == 400
-        data = response.get_json()
+        data = await response.get_json()
         assert data['status'] == 'error'
         assert 'Invalid pass ID' in data['message']

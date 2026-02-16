@@ -52,6 +52,10 @@ def mock_subprocess():
         mock_proc.stdin = MagicMock()
         mock_proc.pid = 12345
         mock_proc.wait.return_value = 0
+        mock_proc.communicate.return_value = ('', '')
+        mock_proc.returncode = 0
+        mock_proc.__enter__ = MagicMock(return_value=mock_proc)
+        mock_proc.__exit__ = MagicMock(return_value=False)
         mock_popen.return_value = mock_proc
         yield mock_popen, mock_proc
 
@@ -263,6 +267,11 @@ class TestProcessVerification:
             mock_proc = MagicMock()
             mock_proc.poll.return_value = 1  # Process exited
             mock_proc.stderr.read.return_value = b'device busy'
+            mock_proc.communicate.return_value = ('', 'device busy')
+            mock_proc.returncode = 1
+            mock_proc.wait.return_value = 1
+            mock_proc.__enter__ = MagicMock(return_value=mock_proc)
+            mock_proc.__exit__ = MagicMock(return_value=False)
             mock_popen.return_value = mock_proc
 
             result = mode_manager.start_mode('sensor', {'device': '0'})
@@ -284,6 +293,11 @@ class TestProcessVerification:
             mock_proc = MagicMock()
             mock_proc.poll.return_value = 1
             mock_proc.stderr.read.return_value = b'usb_claim_interface error -6'
+            mock_proc.communicate.return_value = ('', 'usb_claim_interface error -6')
+            mock_proc.returncode = 1
+            mock_proc.wait.return_value = 1
+            mock_proc.__enter__ = MagicMock(return_value=mock_proc)
+            mock_proc.__exit__ = MagicMock(return_value=False)
             mock_popen.return_value = mock_proc
 
             result = mode_manager.start_mode('sensor', {'device': '0'})

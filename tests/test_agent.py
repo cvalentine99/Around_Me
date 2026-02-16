@@ -602,50 +602,53 @@ class TestAgentClientIntegration:
 
         # Run mock agent in background
         mock_app.config['TESTING'] = True
-        # Using Flask's test client instead of actual server
+        # Using Quart's test client instead of actual server
         return mock_app.test_client()
 
-    def test_mock_agent_capabilities(self, mock_agent):
+    @pytest.mark.asyncio
+    async def test_mock_agent_capabilities(self, mock_agent):
         """Mock agent should return capabilities."""
-        response = mock_agent.get('/capabilities')
+        response = await mock_agent.get('/capabilities')
         assert response.status_code == 200
 
-        data = json.loads(response.data)
+        data = await response.get_json()
         assert 'modes' in data
         assert data['modes']['adsb'] is True
 
-    def test_mock_agent_start_stop_mode(self, mock_agent):
+    @pytest.mark.asyncio
+    async def test_mock_agent_start_stop_mode(self, mock_agent):
         """Mock agent should start/stop modes."""
         # Start
-        response = mock_agent.post('/adsb/start', json={})
+        response = await mock_agent.post('/adsb/start', json={})
         assert response.status_code == 200
-        data = json.loads(response.data)
+        data = await response.get_json()
         assert data['status'] == 'started'
 
         # Check status
-        response = mock_agent.get('/status')
-        data = json.loads(response.data)
+        response = await mock_agent.get('/status')
+        data = await response.get_json()
         assert 'adsb' in data['running_modes']
 
         # Stop
-        response = mock_agent.post('/adsb/stop', json={})
+        response = await mock_agent.post('/adsb/stop', json={})
         assert response.status_code == 200
 
-    def test_mock_agent_data(self, mock_agent):
+    @pytest.mark.asyncio
+    async def test_mock_agent_data(self, mock_agent):
         """Mock agent should return data when mode is running."""
         # Start mode first
-        mock_agent.post('/adsb/start', json={})
+        await mock_agent.post('/adsb/start', json={})
 
-        response = mock_agent.get('/adsb/data')
+        response = await mock_agent.get('/adsb/data')
         assert response.status_code == 200
 
-        data = json.loads(response.data)
+        data = await response.get_json()
         assert 'data' in data
         # Data should be a list of aircraft
         assert isinstance(data['data'], list)
 
         # Cleanup
-        mock_agent.post('/adsb/stop', json={})
+        await mock_agent.post('/adsb/stop', json={})
 
 
 # =============================================================================

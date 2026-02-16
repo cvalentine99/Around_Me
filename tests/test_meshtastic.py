@@ -58,7 +58,8 @@ class TestMeshtasticMessage:
         assert d['rssi'] == -95
         assert d['snr'] == -3.5
         assert d['hop_limit'] == 3
-        assert '2026-01-27' in d['timestamp']
+        # timestamp is a Unix float (seconds), not an ISO string
+        assert isinstance(d['timestamp'], float)
 
     def test_message_with_none_values(self):
         """MeshtasticMessage should handle None values."""
@@ -255,11 +256,11 @@ class TestNodeIdFormatting:
 # =============================================================================
 
 class TestMeshtasticRoutes:
-    """Tests for Flask route endpoints."""
+    """Tests for Quart route endpoints."""
 
     @pytest.fixture
     def app(self):
-        """Create Flask test app."""
+        """Create Quart test app."""
         from quart import Quart
         from routes.meshtastic import meshtastic_bp
 
@@ -274,111 +275,119 @@ class TestMeshtasticRoutes:
         """Create test client."""
         return app.test_client()
 
-    def test_status_sdk_not_installed(self, client):
+    @pytest.mark.asyncio
+    async def test_status_sdk_not_installed(self, client):
         """GET /meshtastic/status should report SDK unavailable."""
         with patch('routes.meshtastic.is_meshtastic_available', return_value=False):
-            response = client.get('/meshtastic/status')
-            data = json.loads(response.data)
+            response = await client.get('/meshtastic/status')
+            data = await response.get_json()
 
             assert response.status_code == 200
             assert data['available'] is False
             assert 'not installed' in data['error']
 
-    def test_status_not_connected(self, client):
+    @pytest.mark.asyncio
+    async def test_status_not_connected(self, client):
         """GET /meshtastic/status should report not running when disconnected."""
         with patch('routes.meshtastic.is_meshtastic_available', return_value=True):
             with patch('routes.meshtastic.get_meshtastic_client', return_value=None):
-                response = client.get('/meshtastic/status')
-                data = json.loads(response.data)
+                response = await client.get('/meshtastic/status')
+                data = await response.get_json()
 
                 assert response.status_code == 200
                 assert data['available'] is True
                 assert data['running'] is False
 
-    def test_start_sdk_not_installed(self, client):
+    @pytest.mark.asyncio
+    async def test_start_sdk_not_installed(self, client):
         """POST /meshtastic/start should fail if SDK not installed."""
         with patch('routes.meshtastic.is_meshtastic_available', return_value=False):
-            response = client.post('/meshtastic/start')
-            data = json.loads(response.data)
+            response = await client.post('/meshtastic/start')
+            data = await response.get_json()
 
             assert response.status_code == 400
             assert data['status'] == 'error'
 
-    def test_stop_always_succeeds(self, client):
+    @pytest.mark.asyncio
+    async def test_stop_always_succeeds(self, client):
         """POST /meshtastic/stop should always succeed."""
         with patch('routes.meshtastic.stop_meshtastic'):
-            response = client.post('/meshtastic/stop')
-            data = json.loads(response.data)
+            response = await client.post('/meshtastic/stop')
+            data = await response.get_json()
 
             assert response.status_code == 200
             assert data['status'] == 'stopped'
 
-    def test_channels_not_connected(self, client):
+    @pytest.mark.asyncio
+    async def test_channels_not_connected(self, client):
         """GET /meshtastic/channels should fail if not connected."""
         with patch('routes.meshtastic.get_meshtastic_client', return_value=None):
-            response = client.get('/meshtastic/channels')
-            data = json.loads(response.data)
+            response = await client.get('/meshtastic/channels')
+            data = await response.get_json()
 
             assert response.status_code == 400
             assert 'Not connected' in data['message']
 
-    def test_configure_channel_invalid_index(self, client):
+    @pytest.mark.asyncio
+    async def test_configure_channel_invalid_index(self, client):
         """POST /meshtastic/channels/<id> should reject invalid index."""
         mock_client = Mock()
         mock_client.is_running = True
 
         with patch('routes.meshtastic.get_meshtastic_client', return_value=mock_client):
-            response = client.post(
+            response = await client.post(
                 '/meshtastic/channels/10',
-                json={'name': 'Test'},
-                content_type='application/json'
+                json={'name': 'Test'}
             )
-            data = json.loads(response.data)
+            data = await response.get_json()
 
             assert response.status_code == 400
             assert 'must be 0-7' in data['message']
 
-    def test_configure_channel_no_params(self, client):
+    @pytest.mark.asyncio
+    async def test_configure_channel_no_params(self, client):
         """POST /meshtastic/channels/<id> should require name or psk."""
         mock_client = Mock()
         mock_client.is_running = True
 
         with patch('routes.meshtastic.get_meshtastic_client', return_value=mock_client):
-            response = client.post(
+            response = await client.post(
                 '/meshtastic/channels/0',
-                json={},
-                content_type='application/json'
+                json={}
             )
-            data = json.loads(response.data)
+            data = await response.get_json()
 
             assert response.status_code == 400
             assert 'Must provide' in data['message']
 
-    def test_messages_empty(self, client):
+    @pytest.mark.asyncio
+    async def test_messages_empty(self, client):
         """GET /meshtastic/messages should return empty list initially."""
         with patch('routes.meshtastic._recent_messages', []):
-            response = client.get('/meshtastic/messages')
-            data = json.loads(response.data)
+            response = await client.get('/meshtastic/messages')
+            data = await response.get_json()
 
             assert response.status_code == 200
             assert data['status'] == 'ok'
             assert data['messages'] == []
             assert data['count'] == 0
 
-    def test_messages_with_limit(self, client):
+    @pytest.mark.asyncio
+    async def test_messages_with_limit(self, client):
         """GET /meshtastic/messages should respect limit param."""
         test_messages = [{'id': i} for i in range(10)]
 
         with patch('routes.meshtastic._recent_messages', test_messages):
-            response = client.get('/meshtastic/messages?limit=3')
-            data = json.loads(response.data)
+            response = await client.get('/meshtastic/messages?limit=3')
+            data = await response.get_json()
 
             assert response.status_code == 200
             assert len(data['messages']) == 3
             # Should return last 3 (most recent)
             assert data['messages'][0]['id'] == 7
 
-    def test_messages_filter_by_channel(self, client):
+    @pytest.mark.asyncio
+    async def test_messages_filter_by_channel(self, client):
         """GET /meshtastic/messages should filter by channel."""
         test_messages = [
             {'id': 1, 'channel': 0},
@@ -387,24 +396,26 @@ class TestMeshtasticRoutes:
         ]
 
         with patch('routes.meshtastic._recent_messages', test_messages):
-            response = client.get('/meshtastic/messages?channel=0')
-            data = json.loads(response.data)
+            response = await client.get('/meshtastic/messages?channel=0')
+            data = await response.get_json()
 
             assert response.status_code == 200
             assert len(data['messages']) == 2
             assert all(m['channel'] == 0 for m in data['messages'])
 
-    def test_stream_endpoint_exists(self, client):
+    @pytest.mark.asyncio
+    async def test_stream_endpoint_exists(self, client):
         """GET /meshtastic/stream should return SSE content type."""
-        response = client.get('/meshtastic/stream')
+        response = await client.get('/meshtastic/stream')
 
-        assert response.content_type == 'text/event-stream'
+        assert response.content_type.startswith('text/event-stream')
 
-    def test_node_not_connected(self, client):
+    @pytest.mark.asyncio
+    async def test_node_not_connected(self, client):
         """GET /meshtastic/node should fail if not connected."""
         with patch('routes.meshtastic.get_meshtastic_client', return_value=None):
-            response = client.get('/meshtastic/node')
-            data = json.loads(response.data)
+            response = await client.get('/meshtastic/node')
+            data = await response.get_json()
 
             assert response.status_code == 400
             assert 'Not connected' in data['message']

@@ -19,3 +19,12 @@ def app():
 def client(app):
     """Create test client."""
     return app.test_client()
+
+
+@pytest.fixture
+async def auth_client(app):
+    """Create an authenticated test client with session['logged_in'] = True."""
+    client = app.test_client()
+    async with client.session_transaction() as sess:
+        sess['logged_in'] = True
+    return client

@@ -190,8 +190,10 @@ class TestWeatherSatScheduler:
             'quality': 'good',
         }
         sp = ScheduledPass(pass_data)
-        sp._timer = MagicMock()
-        sp._stop_timer = MagicMock()
+        mock_pass_timer = MagicMock()
+        mock_stop_timer = MagicMock()
+        sp._timer = mock_pass_timer
+        sp._stop_timer = mock_stop_timer
         scheduler._passes = [sp]
 
         result = scheduler.disable()
@@ -199,8 +201,9 @@ class TestWeatherSatScheduler:
         assert scheduler._enabled is False
         assert scheduler._passes == []
         mock_timer.cancel.assert_called_once()
-        sp._timer.cancel.assert_called_once()
-        sp._stop_timer.cancel.assert_called_once()
+        # disable() sets p._timer = None after cancelling, so check the saved references
+        mock_pass_timer.cancel.assert_called_once()
+        mock_stop_timer.cancel.assert_called_once()
         assert result['status'] == 'disabled'
 
     def test_skip_pass_success(self):
@@ -222,7 +225,8 @@ class TestWeatherSatScheduler:
             'quality': 'good',
         }
         sp = ScheduledPass(pass_data)
-        sp._timer = MagicMock()
+        mock_pass_timer = MagicMock()
+        sp._timer = mock_pass_timer
         scheduler._passes = [sp]
 
         result = scheduler.skip_pass('NOAA-18_202401011200')
@@ -230,7 +234,8 @@ class TestWeatherSatScheduler:
         assert result is True
         assert sp.status == 'skipped'
         assert sp.skipped is True
-        sp._timer.cancel.assert_called_once()
+        # skip_pass() sets p._timer = None after cancelling, so check the saved reference
+        mock_pass_timer.cancel.assert_called_once()
         event_cb.assert_called_once()
 
     def test_skip_pass_not_found(self):
@@ -327,7 +332,7 @@ class TestWeatherSatScheduler:
         assert len(passes) == 1
         assert passes[0]['id'] == 'NOAA-18_202401011200'
 
-    @patch('utils.weather_sat_scheduler.predict_passes')
+    @patch('utils.weather_sat_predict.predict_passes')
     @patch('threading.Timer')
     def test_refresh_passes(self, mock_timer, mock_predict):
         """_refresh_passes() should schedule future passes."""
@@ -361,7 +366,7 @@ class TestWeatherSatScheduler:
         assert scheduler._passes[0].satellite == 'NOAA-18'
         mock_timer_instance.start.assert_called()
 
-    @patch('utils.weather_sat_scheduler.predict_passes')
+    @patch('utils.weather_sat_predict.predict_passes')
     def test_refresh_passes_skip_past(self, mock_predict):
         """_refresh_passes() should skip passes that already started."""
         now = datetime.now(timezone.utc)
@@ -389,7 +394,7 @@ class TestWeatherSatScheduler:
         # Should not schedule past passes
         assert len(scheduler._passes) == 0
 
-    @patch('utils.weather_sat_scheduler.predict_passes')
+    @patch('utils.weather_sat_predict.predict_passes')
     def test_refresh_passes_disabled(self, mock_predict):
         """_refresh_passes() should do nothing when disabled."""
         scheduler = WeatherSatScheduler()
@@ -399,7 +404,7 @@ class TestWeatherSatScheduler:
 
         mock_predict.assert_not_called()
 
-    @patch('utils.weather_sat_scheduler.predict_passes')
+    @patch('utils.weather_sat_predict.predict_passes')
     def test_refresh_passes_error_handling(self, mock_predict):
         """_refresh_passes() should handle prediction errors."""
         mock_predict.side_effect = Exception('TLE error')
@@ -544,8 +549,9 @@ class TestWeatherSatScheduler:
         event_data = event_cb.call_args[0][0]
         assert event_data['type'] == 'schedule_capture_start'
 
+    @patch('app.claim_sdr_device', return_value=None)
     @patch('utils.weather_sat_scheduler.get_weather_sat_decoder')
-    def test_execute_capture_start_failed(self, mock_get):
+    def test_execute_capture_start_failed(self, mock_get, mock_claim):
         """_execute_capture() should handle start failure."""
         scheduler = WeatherSatScheduler()
         scheduler._enabled = True
@@ -719,7 +725,7 @@ class TestSchedulerConfiguration:
 class TestSchedulerIntegration:
     """Integration tests for scheduler."""
 
-    @patch('utils.weather_sat_scheduler.predict_passes')
+    @patch('utils.weather_sat_predict.predict_passes')
     @patch('utils.weather_sat_scheduler.get_weather_sat_decoder')
     @patch('threading.Timer')
     def test_full_scheduling_cycle(self, mock_timer, mock_get_decoder, mock_predict):

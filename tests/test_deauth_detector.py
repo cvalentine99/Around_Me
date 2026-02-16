@@ -533,47 +533,40 @@ class TestDeauthDetectorIntegration:
 
         mock_pkt.__getitem__ = getitem_side_effect
 
-        # Patch the scapy imports inside _process_deauth_packet
-        with patch('utils.wifi.deauth_detector.DeauthDetector._process_deauth_packet.__globals__', {
-            'Dot11': MagicMock,
-            'Dot11Deauth': MagicMock,
-            'Dot11Disas': MagicMock,
-            'RadioTap': MagicMock,
-        }):
-            # Process enough packets to trigger alert
-            for i in range(DEAUTH_ALERT_THRESHOLD + 5):
-                mock_time.return_value = 1000.0 + i * 0.1
+        # Process enough packets to trigger alert
+        # (manually simulate what _process_deauth_packet does)
+        for i in range(DEAUTH_ALERT_THRESHOLD + 5):
+            mock_time.return_value = 1000.0 + i * 0.1
 
-                # Manually simulate what _process_deauth_packet does
-                pkt_info = DeauthPacketInfo(
-                    timestamp=mock_time.return_value,
-                    frame_type='deauth',
-                    src_mac='AA:BB:CC:DD:EE:FF',
-                    dst_mac='11:22:33:44:55:66',
-                    bssid='99:88:77:66:55:44',
-                    reason_code=7,
-                    signal_dbm=-50,
+            pkt_info = DeauthPacketInfo(
+                timestamp=mock_time.return_value,
+                frame_type='deauth',
+                src_mac='AA:BB:CC:DD:EE:FF',
+                dst_mac='11:22:33:44:55:66',
+                bssid='99:88:77:66:55:44',
+                reason_code=7,
+                signal_dbm=-50,
+            )
+
+            detector._packets_captured += 1
+
+            tracker_key = ('AA:BB:CC:DD:EE:FF', '11:22:33:44:55:66', '99:88:77:66:55:44')
+            tracker = detector._trackers[tracker_key]
+            tracker.add_packet(pkt_info)
+
+            packets_in_window = tracker.get_packets_in_window(DEAUTH_DETECTION_WINDOW)
+            packet_count = len(packets_in_window)
+
+            if packet_count >= DEAUTH_ALERT_THRESHOLD and not tracker.alert_sent:
+                alert = detector._generate_alert(
+                    tracker_key=tracker_key,
+                    packets=packets_in_window,
+                    packet_count=packet_count,
                 )
-
-                detector._packets_captured += 1
-
-                tracker_key = ('AA:BB:CC:DD:EE:FF', '11:22:33:44:55:66', '99:88:77:66:55:44')
-                tracker = detector._trackers[tracker_key]
-                tracker.add_packet(pkt_info)
-
-                packets_in_window = tracker.get_packets_in_window(DEAUTH_DETECTION_WINDOW)
-                packet_count = len(packets_in_window)
-
-                if packet_count >= DEAUTH_ALERT_THRESHOLD and not tracker.alert_sent:
-                    alert = detector._generate_alert(
-                        tracker_key=tracker_key,
-                        packets=packets_in_window,
-                        packet_count=packet_count,
-                    )
-                    detector._alerts.append(alert)
-                    detector._alerts_generated += 1
-                    tracker.alert_sent = True
-                    detector.event_callback(alert.to_dict())
+                detector._alerts.append(alert)
+                detector._alerts_generated += 1
+                tracker.alert_sent = True
+                detector.event_callback(alert.to_dict())
 
         # Verify alert was generated
         assert detector._alerts_generated == 1

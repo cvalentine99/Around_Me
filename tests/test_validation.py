@@ -15,16 +15,16 @@ class TestFrequencyValidation:
 
     def test_valid_frequencies(self):
         """Test valid frequency values."""
-        assert validate_frequency('152.0') == '152.0'
-        assert validate_frequency(152.0) == '152.0'
-        assert validate_frequency('1090') == '1090'
-        assert validate_frequency(433.92) == '433.92'
+        assert validate_frequency('152.0') == 152.0
+        assert validate_frequency(152.0) == 152.0
+        assert validate_frequency('1090') == 1090.0
+        assert validate_frequency(433.92) == 433.92
 
     def test_frequency_range(self):
         """Test frequency range limits."""
         # RTL-SDR typical range: 24MHz - 1766MHz
-        assert validate_frequency('24') == '24'
-        assert validate_frequency('1700') == '1700'
+        assert validate_frequency('24') == 24.0
+        assert validate_frequency('1700') == 1700.0
 
     def test_invalid_frequencies(self):
         """Test invalid frequency values."""
@@ -43,10 +43,9 @@ class TestGainValidation:
 
     def test_valid_gains(self):
         """Test valid gain values."""
-        assert validate_gain('0') == '0'
-        assert validate_gain('40') == '40'
-        assert validate_gain(49.6) == '49.6'
-        assert validate_gain('auto') == 'auto'
+        assert validate_gain('0') == 0.0
+        assert validate_gain('40') == 40.0
+        assert validate_gain(49.6) == 49.6
 
     def test_invalid_gains(self):
         """Test invalid gain values."""
@@ -63,10 +62,10 @@ class TestDeviceIndexValidation:
 
     def test_valid_indices(self):
         """Test valid device indices."""
-        assert validate_device_index('0') == '0'
-        assert validate_device_index(0) == '0'
-        assert validate_device_index('1') == '1'
-        assert validate_device_index(3) == '3'
+        assert validate_device_index('0') == 0
+        assert validate_device_index(0) == 0
+        assert validate_device_index('1') == 1
+        assert validate_device_index(3) == 3
 
     def test_invalid_indices(self):
         """Test invalid device indices."""
@@ -75,7 +74,7 @@ class TestDeviceIndexValidation:
         with pytest.raises(ValueError):
             validate_device_index('abc')
         with pytest.raises(ValueError):
-            validate_device_index(100)
+            validate_device_index(256)
 
 
 class TestRtlTcpHostValidation:

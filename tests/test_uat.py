@@ -148,41 +148,40 @@ def test_find_uat2json_not_installed(mock_access, mock_isfile, mock_which):
 # ============================================
 
 
-def test_uat_tools_endpoint(client):
+async def test_uat_tools_endpoint(auth_client):
     """Should return UAT tool availability."""
-    response = client.get('/uat/tools')
+    response = await auth_client.get('/uat/tools')
     assert response.status_code == 200
-    data = json.loads(response.data)
+    data = await response.get_json()
     assert 'enabled' in data
     assert 'dump978' in data
     assert 'uat2json' in data
 
 
-def test_uat_status_endpoint(client):
+async def test_uat_status_endpoint(auth_client):
     """Should return UAT status."""
-    response = client.get('/uat/status')
+    response = await auth_client.get('/uat/status')
     assert response.status_code == 200
-    data = json.loads(response.data)
+    data = await response.get_json()
     assert 'running' in data
     assert 'messages_received' in data
 
 
-def test_uat_start_disabled(client):
+async def test_uat_start_disabled(auth_client):
     """Should reject start when UAT is disabled."""
     with patch('routes.uat.UAT_ENABLED', False):
-        response = client.post(
+        response = await auth_client.post(
             '/uat/start',
-            data=json.dumps({'device': 1}),
-            content_type='application/json',
+            json={'device': 1}
         )
         assert response.status_code == 400
-        data = json.loads(response.data)
+        data = await response.get_json()
         assert data['status'] == 'error'
 
 
-def test_uat_stop_endpoint(client):
+async def test_uat_stop_endpoint(auth_client):
     """Should return stopped status."""
-    response = client.post('/uat/stop')
+    response = await auth_client.post('/uat/stop')
     assert response.status_code == 200
-    data = json.loads(response.data)
+    data = await response.get_json()
     assert data['status'] == 'stopped'

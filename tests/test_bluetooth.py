@@ -7,16 +7,16 @@ from routes.bluetooth import bluetooth_bp, classify_bt_device, detect_tracker
 
 
 @pytest.fixture(autouse=True)
-def mock_app_module(mocker):
-    mock_app = mocker.patch("routes.bluetooth.app_module")
-    mock_app.bt_devices = {}
-    mock_app.bt_beacons = {}
-    mock_app.bt_services = {}
-    mock_app.bt_queue = MagicMock()
-    mock_app.bt_lock = MagicMock()
-    mock_app.bt_process = None
-    mock_app.bt_interface = "hci0"
-    return mock_app
+def mock_app_module():
+    with patch("routes.bluetooth.app_module") as mock_app:
+        mock_app.bt_devices = {}
+        mock_app.bt_beacons = {}
+        mock_app.bt_services = {}
+        mock_app.bt_queue = MagicMock()
+        mock_app.bt_lock = MagicMock()
+        mock_app.bt_process = None
+        mock_app.bt_interface = "hci0"
+        yield mock_app
 
 
 @pytest.fixture
@@ -66,18 +66,16 @@ def test_detect_tracker_by_name():
 # --- Route Tests ---
 
 
-def test_get_interfaces_route(client, mocker):
+async def test_get_interfaces_route(client):
     """Test the /interfaces endpoint with mocked system output."""
-    mock_run = mocker.patch("subprocess.run")
-    # Mocking hciconfig output for a Linux system
-    mock_run.return_value = MagicMock(
+    mock_result = MagicMock(
         stdout="hci0:\tType: Primary  Bus: USB\n\tBD Address: 00:11:22:33:44:55  ACL MTU: 1021:8  SCO MTU: 64:1\n\tUP RUNNING\n"
     )
-    mocker.patch("platform.system", return_value="Linux")
-    mocker.patch("routes.bluetooth.check_tool", return_value=True)
-
-    response = client.get("/bt/interfaces")
-    data = response.get_json()
+    with patch("subprocess.run", return_value=mock_result), \
+         patch("platform.system", return_value="Linux"), \
+         patch("routes.bluetooth.check_tool", return_value=True):
+        response = await client.get("/bt/interfaces")
+        data = await response.get_json()
 
     assert response.status_code == 200
     assert data["interfaces"][0]["name"] == "hci0"
@@ -85,45 +83,45 @@ def test_get_interfaces_route(client, mocker):
     assert data["tools"]["hcitool"] is True
 
 
-def test_stop_scan_route(client, mock_app_module):
+async def test_stop_scan_route(client, mock_app_module):
     """Test stopping a running scan process."""
     mock_process = MagicMock()
     mock_app_module.bt_process = mock_process
 
-    response = client.post("/bt/scan/stop")
+    response = await client.post("/bt/scan/stop")
 
     assert response.status_code == 200
-    assert response.get_json()["status"] == "stopped"
+    data = await response.get_json()
+    assert data["status"] == "stopped"
     mock_process.terminate.assert_called_once()
 
 
-def test_enum_services_error_no_mac(client):
+async def test_enum_services_error_no_mac(client):
     """Test service enumeration validation."""
-    response = client.post("/bt/enum", json={})
+    response = await client.post("/bt/enum", json={})
     assert response.status_code == 200
-    assert response.get_json()["status"] == "error"
+    data = await response.get_json()
+    assert data["status"] == "error"
 
 
-def test_get_devices_route(client, mock_app_module):
+async def test_get_devices_route(client, mock_app_module):
     """Test retrieving the current device list from memory."""
     mock_app_module.bt_devices = {"00:11:22:33:44:55": {"mac": "00:11:22:33:44:55", "name": "Test Device"}}
 
-    response = client.get("/bt/devices")
-    data = response.get_json()
+    response = await client.get("/bt/devices")
+    data = await response.get_json()
 
     assert response.status_code == 200
     assert len(data["devices"]) == 1
     assert data["devices"][0]["name"] == "Test Device"
 
 
-def test_reload_oui_route(client, mocker):
+async def test_reload_oui_route(client):
     """Test the OUI database reload functionality."""
-    mocker.patch("routes.bluetooth.load_oui_database", return_value={"001122": "Test Corp"})
-
-    response = client.post("/bt/reload-oui")
-    data = response.get_json()
+    with patch("routes.bluetooth.load_oui_database", return_value={"001122": "Test Corp"}):
+        response = await client.post("/bt/reload-oui")
+        data = await response.get_json()
 
     assert response.status_code == 200
     assert data["status"] == "success"
     assert data["entries"] > 0
-

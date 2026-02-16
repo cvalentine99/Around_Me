@@ -356,7 +356,9 @@ class TestRingBuffer:
 
     def test_downsampling_bucket_average(self, buffer):
         """Downsampling should average RSSI in each bucket."""
-        now = datetime.now()
+        # Use a timestamp aligned to a 10s boundary so all 3 observations
+        # fall within the same bucket
+        now = datetime.now().replace(second=10, microsecond=0)
 
         # Add multiple observations in same 10s bucket
         buffer._observations['device:1'] = [
