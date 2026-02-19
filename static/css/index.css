@@ -44,8 +44,8 @@
     /* Text hierarchy */
     --text-primary: #e8e0f0;
     --text-secondary: #a89bc2;
-    --text-dim: #6e5f8a;
-    --text-muted: #3d3356;
+    --text-dim: #9b8fbf;
+    --text-muted: #7a6d99;
     --text-inverse: #08060e;
 
     /* Borders */
@@ -58,7 +58,7 @@
     --status-online: #34d399;
     --status-warning: #fbbf24;
     --status-error: #f87171;
-    --status-offline: #6e5f8a;
+    --status-offline: #9b8fbf;
     --status-info: #a78bfa;
 
     /* Subtle grid/pattern */
@@ -2450,7 +2450,7 @@ header h1 .tagline {
 
 .leaflet-control-attribution {
     background: rgba(0, 0, 0, 0.7) !important;
-    color: #666 !important;
+    color: var(--text-dim) !important;
     font-size: 9px !important;
 }
 
@@ -3520,7 +3520,7 @@ header h1 .tagline {
 
 .wifi-filter-btn.active {
     background: var(--accent-cyan);
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
     border-color: var(--accent-cyan);
 }
 
@@ -3746,7 +3746,7 @@ header h1 .tagline {
 
 .channel-band-tab.active {
     background: var(--accent-cyan);
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
     border-color: var(--accent-cyan);
 }
 
@@ -4253,7 +4253,7 @@ header h1 .tagline {
 .bt-detail-btn:hover {
     background: var(--accent-cyan);
     border-color: var(--accent-cyan);
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
 }
 
 .bt-detail-btn.active {
@@ -4572,7 +4572,7 @@ header h1 .tagline {
 .bt-modal-close {
     background: none;
     border: none;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     font-size: 24px;
     cursor: pointer;
     padding: 0;
@@ -4608,7 +4608,7 @@ header h1 .tagline {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 1px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     margin-bottom: 8px;
 }
 
@@ -4627,7 +4627,7 @@ header h1 .tagline {
 .bt-modal-stat-label {
     font-size: 9px;
     text-transform: uppercase;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     margin-bottom: 4px;
 }
 
@@ -4690,7 +4690,7 @@ header h1 .tagline {
 
 .bt-modal-rssi-label {
     font-size: 11px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     margin-top: 4px;
 }
 
@@ -4712,7 +4712,7 @@ header h1 .tagline {
 .bt-modal-btn-primary {
     background: var(--accent-cyan, #a78bfa);
     border: none;
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
     font-weight: 600;
 }
 
@@ -5050,7 +5050,7 @@ body::before {
 
 .disclaimer-modal .accept-btn {
     background: var(--accent-cyan);
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
     border: none;
     padding: 12px 40px;
     font-family: var(--font-sans);
@@ -5141,7 +5141,7 @@ body::before {
 /* WPS Indicator */
 .wps-enabled {
     background: #ff6600;
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
     padding: 2px 6px;
     border-radius: 3px;
     font-size: 9px;
@@ -5324,7 +5324,7 @@ body::before {
     align-items: center;
     justify-content: center;
     font-weight: bold;
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
     border: 2px solid var(--accent-cyan);
 }
 
@@ -6030,7 +6030,7 @@ body::before {
 .radio-action-btn.pause {
     background: var(--accent-orange);
     border-color: var(--accent-orange);
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
 }
 
 .radio-action-btn.pause:disabled {
@@ -6256,7 +6256,7 @@ body::before {
 .radio-action-btn.listen {
     background: var(--accent-green);
     border-color: var(--accent-green);
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
 }
 
 .radio-action-btn.scan:hover:not(:disabled),

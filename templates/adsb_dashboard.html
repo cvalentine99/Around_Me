@@ -2436,7 +2436,7 @@ ACARS: ${r.statistics.acarsMessages} messages`;
                 left: 50%;
                 transform: translateX(-50%);
                 background: rgba(245, 158, 11, 0.95);
-                color: #000;
+                color: var(--text-primary, #e8e0f0);
                 padding: 15px 25px;
                 border-radius: 8px;
                 font-size: 12px;
@@ -3322,7 +3322,7 @@ sudo make install</code>
                     <a id="aircraftPhotoLink" href="#" target="_blank" rel="noopener">
                         <img id="aircraftPhoto" src="" alt="Aircraft photo" style="width:100%;border-radius:6px;border:1px solid #333;">
                     </a>
-                    <div id="aircraftPhotoCredit" style="font-size:9px;color:#666;margin-top:2px;text-align:right;"></div>
+                    <div id="aircraftPhotoCredit" style="font-size:9px;color: var(--text-dim, #9b8fbf);margin-top:2px;text-align:right;"></div>
                 </div>
                 <div class="selected-callsign">${callsign}</div>
                 ${typeInfo}
@@ -4391,7 +4391,7 @@ sudo make install</code>
         }
         .watchlist-btn:hover {
             background: var(--accent-cyan, #a78bfa);
-            color: #000;
+            color: var(--text-primary, #e8e0f0);
         }
 
         /* Watchlist Modal */
@@ -4467,7 +4467,7 @@ sudo make install</code>
         .watchlist-add-form button {
             padding: 6px 16px;
             background: var(--accent-cyan, #a78bfa);
-            color: #000;
+            color: var(--text-primary, #e8e0f0);
             border: none;
             border-radius: 4px;
             cursor: pointer;
@@ -4484,7 +4484,7 @@ sudo make install</code>
         }
         .watchlist-empty {
             text-align: center;
-            color: var(--text-secondary, #666);
+            color: var(--text-secondary, #a89bc2);
             padding: 30px;
             font-size: 12px;
         }
@@ -4527,7 +4527,7 @@ sudo make install</code>
         .watchlist-remove {
             background: none;
             border: none;
-            color: var(--text-secondary, #666);
+            color: var(--text-secondary, #a89bc2);
             font-size: 18px;
             cursor: pointer;
             padding: 0 4px;

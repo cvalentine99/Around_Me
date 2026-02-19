@@ -52,8 +52,8 @@
     /* Text hierarchy */
     --text-primary: #e8e0f0;
     --text-secondary: #a89bc2;
-    --text-dim: #6e5f8a;
-    --text-muted: #3d3356;
+    --text-dim: #9b8fbf;
+    --text-muted: #7a6d99;
     --text-inverse: #08060e;
 
     /* Borders */
@@ -66,7 +66,7 @@
     --status-online: #34d399;
     --status-warning: #fbbf24;
     --status-error: #f87171;
-    --status-offline: #6e5f8a;
+    --status-offline: #9b8fbf;
     --status-info: #a78bfa;
 
     /* Subtle grid/pattern */

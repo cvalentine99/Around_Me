@@ -59,13 +59,13 @@
 
 .bt-radar-filter-btn.active {
     background: #a78bfa !important;
-    color: #000 !important;
+    color: var(--text-primary, #e8e0f0) !important;
     border-color: #a78bfa !important;
 }
 
 #btRadarPauseBtn.active {
     background: #f97316 !important;
-    color: #000 !important;
+    color: var(--text-primary, #e8e0f0) !important;
     border-color: #f97316 !important;
 }
 
@@ -123,7 +123,7 @@
 
 .heatmap-btn.active {
     background: #f97316;
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
     border-color: #f97316;
 }
 
@@ -136,7 +136,7 @@
 .heatmap-loading,
 .heatmap-empty,
 .heatmap-error {
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     text-align: center;
     padding: 30px;
     font-size: 12px;
@@ -198,7 +198,7 @@
 
 .heatmap-label .device-rssi {
     font-size: 9px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     font-family: monospace;
 }
 
@@ -220,7 +220,7 @@
 
 .heatmap-time-label {
     font-size: 8px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     text-align: center;
     transform: rotate(-45deg);
     white-space: nowrap;
@@ -234,7 +234,7 @@
     margin-top: 8px;
     border-top: 1px solid var(--border-color, #333);
     font-size: 10px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
 }
 
 .legend-label {

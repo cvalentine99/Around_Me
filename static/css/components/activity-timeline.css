@@ -14,13 +14,13 @@
     --timeline-bg-elevated: var(--bg-elevated, #2a2a2a);
     --timeline-text-primary: var(--text-primary, #fff);
     --timeline-text-secondary: var(--text-secondary, #888);
-    --timeline-text-dim: var(--text-dim, #666);
+    --timeline-text-dim: var(--text-dim, #9b8fbf);
     --timeline-accent: var(--accent-cyan, #4a9eff);
     --timeline-status-new: var(--signal-new, #3b82f6);
     --timeline-status-baseline: var(--signal-baseline, #6b7280);
     --timeline-status-burst: var(--signal-burst, #f59e0b);
     --timeline-status-flagged: var(--signal-emergency, #ef4444);
-    --timeline-status-gone: var(--text-dim, #666);
+    --timeline-status-gone: var(--text-dim, #9b8fbf);
 }
 
 /* ============================================
@@ -136,7 +136,7 @@
 
 .activity-timeline-btn.active {
     background: var(--timeline-accent);
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
     border-color: var(--timeline-accent);
 }
 

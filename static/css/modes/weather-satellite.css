@@ -28,7 +28,7 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--text-dim, #666);
+    background: var(--text-dim, #9b8fbf);
 }
 
 .wxsat-strip-dot.capturing {
@@ -98,7 +98,7 @@
 
 .wxsat-strip-label {
     font-size: 9px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
@@ -115,7 +115,7 @@
     cursor: pointer;
     font-size: 10px;
     font-family: 'JetBrains Mono', monospace;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
@@ -232,7 +232,7 @@
 
 .wxsat-cd-unit {
     font-size: 8px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-top: 2px;
@@ -253,7 +253,7 @@
 
 .wxsat-countdown-detail {
     font-size: 10px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     font-family: 'JetBrains Mono', monospace;
 }
 
@@ -313,7 +313,7 @@
     display: flex;
     justify-content: space-between;
     font-size: 8px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     font-family: 'JetBrains Mono', monospace;
 }
 
@@ -427,12 +427,12 @@
     grid-template-columns: 1fr 1fr;
     gap: 4px;
     font-size: 11px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     font-family: 'JetBrains Mono', monospace;
 }
 
 .wxsat-pass-detail-label {
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
 }
 
 .wxsat-pass-detail-value {
@@ -641,7 +641,7 @@
 
 .wxsat-image-timestamp {
     font-size: 10px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     margin-top: 2px;
 }
 
@@ -650,7 +650,7 @@
     grid-column: 1 / -1;
     font-size: 11px;
     font-family: 'JetBrains Mono', monospace;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     padding: 8px 0 4px;
@@ -669,7 +669,7 @@
     align-items: center;
     justify-content: center;
     padding: 40px 20px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     text-align: center;
     grid-column: 1 / -1;
 }
@@ -718,7 +718,7 @@
 
 .wxsat-capture-elapsed {
     font-size: 11px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     font-family: 'JetBrains Mono', monospace;
     flex-shrink: 0;
 }
@@ -829,7 +829,7 @@
     border: none;
     border-radius: 4px;
     background: transparent;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     cursor: pointer;
     transition: all 0.2s;
 }
@@ -931,7 +931,7 @@
 .wxsat-console-title {
     font-size: 10px;
     font-weight: 600;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     text-transform: uppercase;
     letter-spacing: 1px;
     flex-shrink: 0;
@@ -948,7 +948,7 @@
     font-size: 9px;
     padding: 2px 6px;
     border-radius: 3px;
-    color: var(--text-dim, #555);
+    color: var(--text-dim, #9b8fbf);
     background: transparent;
     border: 1px solid var(--border-color, #2a3040);
     transition: all 0.3s ease;
@@ -978,7 +978,7 @@
 
 .wxsat-phase-arrow {
     font-size: 8px;
-    color: var(--text-dim, #444);
+    color: var(--text-dim, #9b8fbf);
 }
 
 #wxsatConsoleToggle {
@@ -1056,7 +1056,7 @@
 
 .wxsat-console-entry.wxsat-log-debug {
     border-left-color: transparent;
-    color: var(--text-dim, #555);
+    color: var(--text-dim, #9b8fbf);
 }
 
 /* Test Decode collapsible section */

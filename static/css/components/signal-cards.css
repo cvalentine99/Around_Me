@@ -1431,7 +1431,7 @@
 
 .signal-station-clickable:hover {
     background: var(--accent-purple);
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
     transform: scale(1.05);
     box-shadow: 0 0 8px rgba(138, 43, 226, 0.4);
 }
@@ -1594,7 +1594,7 @@
 
 .station-raw-copy-btn:hover {
     background: var(--accent-cyan, #a78bfa);
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
 }
 
 /* ============================================
@@ -1801,7 +1801,7 @@
 
 .signal-details-copy-btn:hover {
     background: var(--accent-cyan, #a78bfa);
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
 }
 
 /* Signal Details Content Sections */
@@ -1819,7 +1819,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     margin-bottom: 10px;
     padding-bottom: 6px;
     border-bottom: 1px solid var(--border-color, #333);
@@ -1853,7 +1853,7 @@
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
 }
 
 .signal-details-value {
@@ -1901,7 +1901,7 @@
 
 .signal-details-modal .signal-assessment-caveat {
     font-size: 10px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     font-style: italic;
     margin-top: 10px;
     padding-top: 10px;

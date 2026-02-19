@@ -76,7 +76,7 @@
 }
 
 .device-address .address-type {
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     font-size: 10px;
 }
 
@@ -232,13 +232,13 @@
 .device-range-band .range-estimate {
     font-family: var(--font-mono);
     font-size: 10px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
 }
 
 .device-range-band .range-confidence {
     font-family: var(--font-mono);
     font-size: 9px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     padding: 1px 4px;
     background: rgba(0, 0, 0, 0.2);
     border-radius: 3px;
@@ -273,7 +273,7 @@
     align-items: center;
     justify-content: space-between;
     font-size: 10px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
 }
 
 .device-seen-count {
@@ -352,7 +352,7 @@
 }
 
 .heuristic-item:not(.active) .heuristic-status {
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
 }
 
 /* ============================================
@@ -442,7 +442,7 @@
 .message-card-details {
     font-family: var(--font-mono);
     font-size: 10px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     margin-top: 4px;
 }
 
@@ -453,7 +453,7 @@
     padding: 0;
     background: none;
     border: none;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     cursor: pointer;
     opacity: 0.5;
     transition: opacity 0.15s, color 0.15s;
@@ -625,7 +625,7 @@
 .signal-details-modal-subtitle {
     font-family: var(--font-mono);
     font-size: 11px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
 }
 
 .signal-details-modal-footer {
@@ -682,7 +682,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     margin-bottom: 12px;
 }
 
@@ -708,7 +708,7 @@
 .modal-rssi-large .rssi-unit {
     font-size: 14px;
     font-weight: 400;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     margin-left: 4px;
 }
 
@@ -739,7 +739,7 @@
     font-size: 9px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     margin-bottom: 4px;
 }
 
@@ -768,7 +768,7 @@
 
 .modal-info-grid .info-label {
     font-size: 11px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
 }
 
 .modal-info-grid .info-value {
@@ -825,7 +825,7 @@
     font-family: var(--font-mono);
     font-size: 14px;
     font-weight: 600;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
 }
 
 .heuristic-check.active .heuristic-indicator {

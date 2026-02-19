@@ -190,7 +190,7 @@
 
 .sstv-strip-btn.gps:hover {
     background: var(--accent-green);
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
     border-color: var(--accent-green);
 }
 
@@ -205,7 +205,7 @@
 
 .sstv-strip-btn.update-tle:hover {
     background: var(--accent-orange);
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
     border-color: var(--accent-orange);
 }
 

@@ -56,7 +56,7 @@
     display: flex;
     gap: 12px;
     font-size: 10px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
 }
 
 .signal-timeline-header-stat {
@@ -103,7 +103,7 @@
 
 .signal-timeline-btn.active {
     background: var(--accent-cyan, #4a9eff);
-    color: #000;
+    color: var(--text-primary, #e8e0f0);
     border-color: var(--accent-cyan, #4a9eff);
 }
 
@@ -113,7 +113,7 @@
     align-items: center;
     gap: 4px;
     font-size: 9px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
 }
 
 .signal-timeline-window select {
@@ -135,7 +135,7 @@
     padding: 0 80px 0 100px;
     margin-bottom: 8px;
     font-size: 9px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
 }
 
 .signal-timeline-axis-label {
@@ -179,7 +179,7 @@
 }
 
 .signal-timeline-lanes::-webkit-scrollbar-thumb:hover {
-    background: var(--text-dim, #666);
+    background: var(--text-dim, #9b8fbf);
 }
 
 .signal-timeline-lane {
@@ -231,7 +231,7 @@
 }
 
 .signal-timeline-name {
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     font-size: 9px;
     white-space: nowrap;
     overflow: hidden;
@@ -262,7 +262,7 @@
 }
 
 .signal-timeline-status[data-status="gone"] {
-    background: var(--text-dim, #666);
+    background: var(--text-dim, #9b8fbf);
 }
 
 /* ============================================
@@ -472,7 +472,7 @@
     justify-content: center;
     align-items: flex-end;
     font-size: 9px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     border-left: 1px solid var(--border-color, #333);
 }
 
@@ -493,7 +493,7 @@
 .signal-timeline-empty {
     text-align: center;
     padding: 30px 20px;
-    color: var(--text-dim, #666);
+    color: var(--text-dim, #9b8fbf);
     font-size: 11px;
 }
 

@@ -58,7 +58,7 @@
 
 .mode-nav-label {
     font-size: 9px;
-    color: var(--text-dim, #6e5f8a);
+    color: var(--text-dim, #9b8fbf);
     text-transform: uppercase;
     letter-spacing: 1px;
     margin-right: 8px;
@@ -291,7 +291,7 @@
 
 .nav-clock .utc-label {
     font-size: 9px;
-    color: var(--text-dim, #6e5f8a);
+    color: var(--text-dim, #9b8fbf);
     text-transform: uppercase;
     letter-spacing: 1px;
 }
