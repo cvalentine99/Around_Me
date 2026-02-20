@@ -114,6 +114,18 @@ def normalize_modulation(value: str) -> str:
     return mod
 
 
+def _rtl_fm_demod_mode(modulation: str) -> str:
+    """Translate app modulation names to rtl_fm -M flag values.
+
+    rtl_fm accepts: am, fm, wbfm, raw, usb, lsb
+    Our app uses 'wfm' for wideband FM — rtl_fm calls it 'wbfm'.
+    All other modulations pass through unchanged.
+    """
+    if modulation == 'wfm':
+        return 'wbfm'
+    return modulation
+
+
 
 
 def add_activity_log(event_type: str, frequency: float, details: str = ''):
@@ -210,7 +222,7 @@ def scanner_loop():
             # Don't use squelch in rtl_fm - we want to analyze raw audio
             rtl_cmd = [
                 rtl_fm_path,
-                '-M', mod,
+                '-M', _rtl_fm_demod_mode(mod),
                 '-f', str(freq_hz),
                 '-s', str(sample_rate),
                 '-r', str(resample_rate),
@@ -682,7 +694,7 @@ def _start_audio_stream(frequency: float, modulation: str):
             freq_hz = int(frequency * 1e6)
             sdr_cmd = [
                 rtl_fm_path,
-                '-M', modulation,
+                '-M', _rtl_fm_demod_mode(modulation),
                 '-f', str(freq_hz),
                 '-s', str(sample_rate),
                 '-r', str(resample_rate),
@@ -1270,11 +1282,13 @@ async def start_audio() -> Response:
                     pass
             scanner_power_process = None
         try:
-            subprocess.run(['pkill', '-9', 'rtl_power'], capture_output=True, timeout=0.5)
+            await asyncio.to_thread(
+                subprocess.run, ['pkill', '-9', 'rtl_power'],
+                capture_output=True, timeout=0.5
+            )
         except Exception:
             pass
-        time.sleep(0.5)
-
+        await asyncio.sleep(0.5)
     data = await request.get_json(silent=True) or {}
 
     try:
@@ -1311,8 +1325,8 @@ async def start_audio() -> Response:
 
     # Stop waterfall if it's using the same SDR (SSE path)
     if waterfall_running and waterfall_active_device == device:
-        _stop_waterfall_internal()
-        time.sleep(0.2)
+        await asyncio.to_thread(_stop_waterfall_internal)
+        await asyncio.sleep(0.2)
 
     # Claim device for listening audio.  The WebSocket waterfall handler
     # may still be tearing down its IQ capture process (thread join +
@@ -1341,7 +1355,7 @@ async def start_audio() -> Response:
                     f"Device claim attempt {attempt + 1}/{max_claim_attempts} "
                     f"failed, retrying in 0.5s: {error}"
                 )
-                time.sleep(0.5)
+                await asyncio.sleep(0.5)
 
         if error:
             return jsonify({
@@ -1351,8 +1365,7 @@ async def start_audio() -> Response:
             }), 409
         listening_active_device = device
 
-    _start_audio_stream(frequency, modulation)
-
+    await asyncio.to_thread(_start_audio_stream, frequency, modulation)
     if audio_running:
         return jsonify({
             'status': 'started',
@@ -1449,11 +1462,9 @@ async def stream_audio() -> Response:
     for _ in range(40):
         if audio_running and audio_process:
             break
-        time.sleep(0.05)
-
+        await asyncio.sleep(0.05)
     if not audio_running or not audio_process:
         return Response(b'', mimetype='audio/mpeg', status=204)
-
     async def generate():
         # Capture local reference to avoid race condition with stop
         proc = audio_process
@@ -1461,6 +1472,36 @@ async def stream_audio() -> Response:
             return
         loop = asyncio.get_running_loop()
         try:
+            # --- Drain stale audio buffer ---
+            # When the browser connects, the pipe buffer already has accumulated
+            # audio data from SDR process warmup (300ms+). Drain it so the user
+            # hears real-time audio immediately instead of delayed playback.
+            # Preserve the first 44 bytes (WAV header) if present.
+            wav_header = None
+            drained_bytes = 0
+            drain_ready = await loop.run_in_executor(
+                None, lambda: select.select([proc.stdout], [], [], 0.0)[0]
+            )
+            while drain_ready:
+                stale = await loop.run_in_executor(
+                    None, proc.stdout.read, 8192
+                )
+                if not stale:
+                    break
+                if wav_header is None and len(stale) >= 44:
+                    # Keep the WAV header from the first chunk
+                    wav_header = stale[:44]
+                drained_bytes += len(stale)
+                drain_ready = await loop.run_in_executor(
+                    None, lambda: select.select([proc.stdout], [], [], 0.0)[0]
+                )
+            if drained_bytes > 0:
+                logger.debug(f"Drained {drained_bytes} bytes of stale audio buffer")
+            # Emit the WAV header first so the browser can decode the stream
+            if wav_header:
+                yield wav_header
+            # --- End drain ---
+
             # First byte timeout to avoid hanging clients forever
             first_chunk_deadline = time.time() + 3.0
             while audio_running and proc.poll() is None:
@@ -1470,7 +1511,7 @@ async def stream_audio() -> Response:
                 )
                 if ready:
                     chunk = await loop.run_in_executor(
-                        None, proc.stdout.read, 4096
+                        None, proc.stdout.read, 8192
                     )
                     if chunk:
                         yield chunk
