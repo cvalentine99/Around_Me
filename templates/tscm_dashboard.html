@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TSCM ADVANCED // Valentine RF - See the Invisible</title>
+    <title>TSCM ADVANCED // VALENTINE RF</title>
     {% if offline_settings.fonts_source == 'local' %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts-local.css') }}">
     {% else %}
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     {% endif %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/core/variables.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/help-modal.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tscm_dashboard.css') }}">
+    <script src="{{ url_for('static', filename='js/core/observer-location.js') }}"></script>
 </head>
 <body>
     <div class="grid-bg"></div>
@@ -48,7 +49,7 @@
         </div>
     </header>
 
-    {% set active_mode = 'tscm' %}
+    {% set active_mode = 'tscm_advanced' %}
     {% include 'partials/nav.html' with context %}
 
     <main class="tscm-dash">
@@ -261,6 +262,9 @@
     {% include 'partials/help-modal.html' %}
 
     <script src="{{ url_for('static', filename='js/core/settings-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/updater.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/alerts.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/recordings.js') }}"></script>
     <script src="{{ url_for('static', filename='js/core/global-nav.js') }}"></script>
 
     <script>
@@ -283,6 +287,13 @@
             loadSchedules();
             loadFindings();
 
+            // Auto-refresh data every 30 seconds
+            setInterval(() => {
+                loadThreatSummary();
+                loadThreats();
+                loadFindings();
+            }, 30000);
+
             // Toggle email field on notify checkbox
             document.getElementById('schedNotify').addEventListener('change', function() {
                 document.getElementById('schedEmailGroup').style.display = this.checked ? '' : 'none';
@@ -301,6 +312,7 @@
         async function loadThreatSummary() {
             try {
                 const resp = await fetch('/tscm/threats/summary');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
                 const summary = data.summary || data;
 
@@ -347,6 +359,7 @@
 
             try {
                 const resp = await fetch(url);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
                 threats = data.threats || data || [];
                 renderThreats();
@@ -534,6 +547,7 @@
         async function loadHighInterest() {
             try {
                 const resp = await fetch('/tscm/findings/high-interest');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
                 const devices = data.devices || data || [];
                 const container = document.getElementById('findingsHighInterest');
@@ -573,6 +587,7 @@
         async function loadCorrelations() {
             try {
                 const resp = await fetch('/tscm/findings/correlations');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
                 const correlations = data.correlations || data || [];
                 const container = document.getElementById('findingsCorrelations');
@@ -606,6 +621,7 @@
         async function loadPlaybooks() {
             try {
                 const resp = await fetch('/tscm/playbooks');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
                 allPlaybooks = data.playbooks || data || [];
                 document.getElementById('playbookCount').textContent = `(${allPlaybooks.length})`;
@@ -642,6 +658,7 @@
         async function openPlaybook(pbId) {
             try {
                 const resp = await fetch(`/tscm/playbooks/${pbId}`);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const pb = await resp.json();
 
                 document.getElementById('playbookModalTitle').textContent = pb.name || pb.title || 'Playbook';
@@ -685,6 +702,7 @@
         async function loadSchedules() {
             try {
                 const resp = await fetch('/tscm/schedules');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
                 const schedules = data.schedules || data || [];
                 renderSchedules(schedules);
@@ -795,8 +813,13 @@
 
         async function runScheduleNow(scheduleId) {
             try {
-                await fetch(`/tscm/schedules/${scheduleId}/run`, { method: 'POST' });
-                alert('Sweep triggered');
+                const resp = await fetch(`/tscm/schedules/${scheduleId}/run`, { method: 'POST' });
+                if (resp.ok) {
+                    alert('Sweep triggered');
+                } else {
+                    const data = await resp.json();
+                    alert(data.error || 'Failed to trigger sweep');
+                }
             } catch (err) {
                 alert('Failed to trigger sweep');
             }
@@ -817,7 +840,8 @@
         // ============================================
         async function downloadJSONReport() {
             try {
-                const resp = await fetch('/tscm/report');
+                const resp = await fetch('/tscm/findings');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
