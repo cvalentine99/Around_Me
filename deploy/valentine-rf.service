@@ -1,0 +1,66 @@
+# systemd service file for Valentine RF (non-Docker deployment)
+#
+# Installation:
+#   1. Copy this file to /etc/systemd/system/valentine-rf.service
+#   2. Create the valentine system user:
+#        sudo useradd -r -s /sbin/nologin -d /opt/valentine-rf valentine
+#   3. Set ownership:
+#        sudo chown -R valentine:valentine /opt/valentine-rf
+#   4. Create environment file:
+#        sudo cp /opt/valentine-rf/deploy/valentine-rf.env /etc/valentine-rf.env
+#        sudo chmod 600 /etc/valentine-rf.env
+#        sudo nano /etc/valentine-rf.env  # Set strong secrets
+#   5. Enable and start:
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable valentine-rf
+#        sudo systemctl start valentine-rf
+#   6. Check status:
+#        sudo systemctl status valentine-rf
+#        sudo journalctl -u valentine-rf -f
+
+[Unit]
+Description=Valentine RF Signal Intelligence Platform
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=valentine
+Group=valentine
+WorkingDirectory=/opt/valentine-rf
+
+# Load secrets and configuration from environment file
+EnvironmentFile=/etc/valentine-rf.env
+
+# Run the application using the virtual environment
+ExecStart=/opt/valentine-rf/venv/bin/python valentine.py --host 127.0.0.1
+
+# Grant only the specific Linux capabilities needed for SDR/network access
+# instead of running as root
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_SYS_RAWIO
+NoNewPrivileges=true
+
+# Restart on failure with backoff
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Logging to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=valentine-rf
+
+# Security hardening
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/valentine-rf/instance /opt/valentine-rf/data
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+# Graceful shutdown timeout
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

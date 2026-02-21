@@ -118,9 +118,16 @@ except ValueError:
 
 
 def cleanup_stale_processes() -> None:
-    """Kill any stale processes from previous runs (but not system services)."""
-    # Note: dump1090 is NOT included here as users may run it as a system service
-    processes_to_kill = ['rtl_adsb', 'rtl_433', 'multimon-ng', 'rtl_fm']
+    """Kill any stale processes from previous runs (but not system services).
+
+    Note: dump1090/readsb are NOT included here as users may run them as
+    a system service.
+    """
+    processes_to_kill = [
+        'rtl_adsb', 'rtl_433', 'multimon-ng', 'rtl_fm',
+        'acarsdec', 'direwolf', 'AIS-catcher', 'rtlamr',
+        'rtl_power', 'rtl_tcp', 'dumpvdl2',
+    ]
     for proc_name in processes_to_kill:
         try:
             subprocess.run(['pkill', '-9', proc_name], capture_output=True)

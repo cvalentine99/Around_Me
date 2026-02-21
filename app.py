@@ -745,25 +745,44 @@ def _is_uat_running() -> bool:
 
 @app.route('/health')
 async def health_check() -> Response:
-    """Health check endpoint for monitoring."""
+    """Health check endpoint for monitoring.
+
+    Returns HTTP 200 when healthy, HTTP 503 when a registered process
+    has unexpectedly exited (process handle exists but poll() != None).
+    """
     import time
-    return jsonify({
-        'status': 'healthy',
+
+    def _proc_alive(proc):
+        """True if process is running, False if assigned but dead, None if not started."""
+        if proc is None:
+            return None
+        return proc.poll() is None
+
+    processes = {
+        'pager': _proc_alive(current_process),
+        'sensor': _proc_alive(sensor_process),
+        'adsb': _proc_alive(adsb_process),
+        'ais': _proc_alive(ais_process),
+        'acars': _proc_alive(acars_process),
+        'aprs': _proc_alive(aprs_process),
+        'wifi': _proc_alive(wifi_process),
+        'bluetooth': _proc_alive(bt_process),
+        'dsc': _proc_alive(dsc_process),
+        'dmr': _proc_alive(dmr_process),
+        'uat': _is_uat_running(),
+    }
+
+    # A process that was started (not None) but has exited (False) is degraded
+    degraded = [name for name, alive in processes.items() if alive is False]
+    status = 'degraded' if degraded else 'healthy'
+    http_code = 503 if degraded else 200
+
+    body = {
+        'status': status,
         'version': VERSION,
         'uptime_seconds': round(time.time() - _app_start_time, 2),
-        'processes': {
-            'pager': current_process is not None and (current_process.poll() is None if current_process else False),
-            'sensor': sensor_process is not None and (sensor_process.poll() is None if sensor_process else False),
-            'adsb': adsb_process is not None and (adsb_process.poll() is None if adsb_process else False),
-            'ais': ais_process is not None and (ais_process.poll() is None if ais_process else False),
-            'acars': acars_process is not None and (acars_process.poll() is None if acars_process else False),
-            'aprs': aprs_process is not None and (aprs_process.poll() is None if aprs_process else False),
-            'wifi': wifi_process is not None and (wifi_process.poll() is None if wifi_process else False),
-            'bluetooth': bt_process is not None and (bt_process.poll() is None if bt_process else False),
-            'dsc': dsc_process is not None and (dsc_process.poll() is None if dsc_process else False),
-            'dmr': dmr_process is not None and (dmr_process.poll() is None if dmr_process else False),
-            'uat': _is_uat_running(),
-        },
+        'processes': processes,
+        'degraded': degraded,
         'data': {
             'aircraft_count': len(adsb_aircraft),
             'vessel_count': len(ais_vessels),
@@ -772,7 +791,8 @@ async def health_check() -> Response:
             'bt_devices_count': len(bt_devices),
             'dsc_messages_count': len(dsc_messages),
         }
-    })
+    }
+    return jsonify(body), http_code
 
 
 @app.route('/killall', methods=['POST'])

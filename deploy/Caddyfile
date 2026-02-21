@@ -1,0 +1,44 @@
+# Caddy reverse proxy for Valentine RF
+#
+# Provides automatic HTTPS via Let's Encrypt.
+#
+# Installation:
+#   1. Install Caddy: https://caddyserver.com/docs/install
+#   2. Copy this file: sudo cp Caddyfile /etc/caddy/Caddyfile
+#   3. Edit the domain below to match your server
+#   4. Restart Caddy: sudo systemctl restart caddy
+#
+# For local/LAN use without a domain, replace the domain with:
+#   :443 {
+#       tls internal
+#       ...
+#   }
+
+valentine.example.com {
+    # Reverse proxy to Valentine RF (bound to localhost)
+    reverse_proxy localhost:5050
+
+    # WebSocket support (for audio streaming, waterfall, etc.)
+    # Caddy handles WebSocket upgrade automatically
+
+    # Compression
+    encode gzip zstd
+
+    # Security headers (supplement app-level headers)
+    header {
+        # HSTS - enforce HTTPS for 1 year
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        # Remove server identification
+        -Server
+    }
+
+    # Cache static assets
+    @static path /static/*
+    header @static Cache-Control "public, max-age=86400"
+
+    # Logging
+    log {
+        output file /var/log/caddy/valentine-rf.log
+        format json
+    }
+}

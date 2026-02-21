@@ -286,17 +286,62 @@ ALERT_WEBHOOK_TIMEOUT = _get_env_int('ALERT_WEBHOOK_TIMEOUT', 5)
 
 # Admin credentials
 ADMIN_USERNAME = _get_env('ADMIN_USERNAME', 'admin')
-# Generate a random default password on first run if not set via env
-_default_password = secrets.token_urlsafe(16)
-ADMIN_PASSWORD = _get_env('ADMIN_PASSWORD', _default_password)
+
+# Persistent secrets file — auto-generated values are saved here so they
+# survive application restarts without requiring environment variables.
+_SECRETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance')
+_SECRETS_FILE = os.path.join(_SECRETS_DIR, '.secrets.json')
+
+
+def _load_or_generate_secrets() -> dict:
+    """Load persisted secrets from disk, or generate and save new ones."""
+    import json
+    existing: dict = {}
+    try:
+        with open(_SECRETS_FILE) as f:
+            existing = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+
+    changed = False
+    if 'secret_key' not in existing:
+        existing['secret_key'] = secrets.token_hex(32)
+        changed = True
+    if 'admin_password' not in existing:
+        existing['admin_password'] = secrets.token_urlsafe(16)
+        changed = True
+
+    if changed:
+        try:
+            os.makedirs(_SECRETS_DIR, exist_ok=True)
+            with open(_SECRETS_FILE, 'w') as f:
+                json.dump(existing, f)
+            # Restrict permissions to owner-only (readable/writable by owner)
+            os.chmod(_SECRETS_FILE, 0o600)
+        except OSError as e:
+            logging.getLogger('valentine.config').warning(
+                'Could not persist secrets to %s: %s', _SECRETS_FILE, e
+            )
+
+    return existing
+
+
+_persisted_secrets = _load_or_generate_secrets()
+
+# Generate a random default password on first run if not set via env.
+# The generated password is persisted to instance/.secrets.json so it
+# survives restarts.
+ADMIN_PASSWORD = _get_env('ADMIN_PASSWORD', _persisted_secrets['admin_password'])
 # Flag: True when the operator set an explicit password via VALENTINE_ADMIN_PASSWORD
 ADMIN_PASSWORD_EXPLICIT = bool(os.environ.get('VALENTINE_ADMIN_PASSWORD'))
 
-# Flask secret key — MUST be set via env var for production.
-# Falls back to a per-process random key (sessions won't survive restarts).
+# Secret key for session signing.  Priority:
+# 1. VALENTINE_SECRET_KEY env var
+# 2. SECRET_KEY env var (legacy)
+# 3. Persisted auto-generated key in instance/.secrets.json
 SECRET_KEY = os.environ.get(
     'VALENTINE_SECRET_KEY',
-    os.environ.get('SECRET_KEY', secrets.token_hex(32))
+    os.environ.get('SECRET_KEY', _persisted_secrets['secret_key'])
 )
 
 

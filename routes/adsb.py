@@ -716,10 +716,14 @@ async def start_adsb():
 
     try:
         logger.info(f"Starting dump1090 with device index {device}: {' '.join(cmd)}")
+        # Capture stderr to a temp file so we can read diagnostics on
+        # failure without risking a PIPE deadlock on long-running success.
+        import tempfile
+        _stderr_tmp = tempfile.TemporaryFile(mode='w+b')
         app_module.adsb_process = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            stderr=_stderr_tmp,
             start_new_session=True  # Create new process group for clean shutdown
         )
 
@@ -729,11 +733,13 @@ async def start_adsb():
             # Process exited - release device and get error message
             app_module.release_sdr_device(device_int)
             stderr_output = ''
-            if app_module.adsb_process.stderr:
-                try:
-                    stderr_output = app_module.adsb_process.stderr.read().decode('utf-8', errors='ignore').strip()
-                except Exception:
-                    pass
+            try:
+                _stderr_tmp.seek(0)
+                stderr_output = _stderr_tmp.read().decode('utf-8', errors='ignore').strip()
+            except Exception:
+                pass
+            finally:
+                _stderr_tmp.close()
 
             # Parse stderr to provide specific guidance
             error_type = 'START_FAILED'
@@ -771,6 +777,10 @@ async def start_adsb():
                 'error_type': error_type,
                 'message': full_msg
             })
+
+        # Process started successfully — close the stderr temp file
+        # (decoder is running; we no longer need startup diagnostics)
+        _stderr_tmp.close()
 
         adsb_using_service = True
         adsb_active_device = device  # Track which device is being used
