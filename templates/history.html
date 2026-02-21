@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HISTORY // VALENTINE RF - See the Invisible</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <!-- Fonts - Conditional CDN/Local loading -->
+    {% if offline_settings.fonts_source == 'local' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts-local.css') }}">
+    {% else %}
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    {% endif %}
+    <!-- Chart.js - Conditional CDN/Local loading -->
+    {% if offline_settings.assets_source == 'local' %}
+    <script src="{{ url_for('static', filename='vendor/chartjs/chart.umd.min.js') }}"></script>
+    {% else %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    {% endif %}
+    <script src="{{ url_for('static', filename='vendor/chartjs/chartjs-adapter-date-fns.bundle.min.js') }}"></script>
+    <!-- Core CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global-nav.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/help-modal.css') }}">
+    <!-- History page CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/history.css') }}">
+    <script>
+        window.VALENTINE_SHARED_OBSERVER_LOCATION = {{ shared_observer_location | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/core/observer-location.js') }}"></script>
+</head>
+<body>
+    <div class="radar-bg"></div>
+    <div class="scanline"></div>
+
+    <!-- Header -->
+    <header class="history-header">
+        <div class="history-logo">
+            HISTORY
+            <span>// VALENTINE RF - See the Invisible</span>
+        </div>
+        <div class="history-status-bar">
+            <span class="history-utc-clock">
+                <span class="utc-label-sm">UTC</span>
+                <span id="historyUtcTime">--:--:--</span>
+            </span>
+        </div>
+    </header>
+
+    {% set active_mode = 'history' %}
+    {% include 'partials/nav.html' with context %}
+
+    <!-- Tab Navigation -->
+    <div class="history-tabs">
+        <button class="history-tab active" data-tab="recordings" onclick="HistoryPage.switchTab('recordings')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+            Recordings
+        </button>
+        <button class="history-tab" data-tab="adsb" onclick="HistoryPage.switchTab('adsb')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>
+            ADS-B History
+        </button>
+        <button class="history-tab" data-tab="tscm" onclick="HistoryPage.switchTab('tscm')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            TSCM Reports
+        </button>
+    </div>
+
+    <!-- Main Content -->
+    <main class="history-main">
+
+        <!-- ===================== RECORDINGS TAB ===================== -->
+        <section id="tab-recordings" class="history-tab-content active">
+
+            <!-- Active Recordings -->
+            <div class="history-section">
+                <div class="history-section-header">
+                    <h3>Active Recordings</h3>
+                    <span class="history-badge" id="activeRecordingCount">0</span>
+                </div>
+                <div id="activeRecordingsList" class="active-recordings-list">
+                    <div class="history-empty-state">No active recordings</div>
+                </div>
+            </div>
+
+            <!-- Start New Recording -->
+            <div class="history-section">
+                <div class="history-section-header">
+                    <h3>Start New Recording</h3>
+                </div>
+                <div class="recording-form">
+                    <div class="recording-form-row">
+                        <div class="recording-form-group">
+                            <label for="recModeSelect">Mode</label>
+                            <select id="recModeSelect">
+                                <option value="">Select mode...</option>
+                                <option value="pager">Pager</option>
+                                <option value="sensor">433MHz Sensors</option>
+                                <option value="adsb">ADS-B Aircraft</option>
+                                <option value="acars">ACARS</option>
+                                <option value="ais">AIS Vessels</option>
+                                <option value="wifi">WiFi</option>
+                                <option value="bluetooth">Bluetooth</option>
+                                <option value="aprs">APRS</option>
+                                <option value="rtlamr">Meters</option>
+                                <option value="meshtastic">Meshtastic</option>
+                            </select>
+                        </div>
+                        <div class="recording-form-group recording-form-grow">
+                            <label for="recLabelInput">Label (optional)</label>
+                            <input type="text" id="recLabelInput" placeholder="e.g., Morning scan, Site survey...">
+                        </div>
+                        <div class="recording-form-group">
+                            <label>&nbsp;</label>
+                            <button class="history-btn history-btn-primary" onclick="HistoryPage.startRecording()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
+                                Start Recording
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Past Recordings -->
+            <div class="history-section">
+                <div class="history-section-header">
+                    <h3>Past Recordings</h3>
+                    <button class="history-btn history-btn-ghost" onclick="HistoryPage.loadRecordings()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                        Refresh
+                    </button>
+                </div>
+                <div class="history-table-wrap">
+                    <table class="history-table" id="recordingsTable">
+                        <thead>
+                            <tr>
+                                <th>Mode</th>
+                                <th>Label</th>
+                                <th>Started</th>
+                                <th>Duration</th>
+                                <th>Events</th>
+                                <th>Size</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recordingsTableBody">
+                            <tr><td colspan="7" class="history-empty-cell">Loading recordings...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Recording Detail (shown when clicking a session) -->
+            <div id="recordingDetailPanel" class="history-section recording-detail-panel" style="display: none;">
+                <div class="history-section-header">
+                    <h3 id="recordingDetailTitle">Recording Detail</h3>
+                    <button class="history-btn history-btn-ghost" onclick="HistoryPage.closeRecordingDetail()">Close</button>
+                </div>
+                <div id="recordingDetailContent" class="recording-detail-content">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== ADS-B HISTORY TAB ===================== -->
+        <section id="tab-adsb" class="history-tab-content">
+
+            <!-- Time Range Controls -->
+            <div class="history-section">
+                <div class="history-section-header">
+                    <h3>ADS-B History</h3>
+                    <div class="adsb-time-controls">
+                        <button class="time-range-btn active" data-minutes="60" onclick="HistoryPage.setAdsbRange(60, this)">1h</button>
+                        <button class="time-range-btn" data-minutes="360" onclick="HistoryPage.setAdsbRange(360, this)">6h</button>
+                        <button class="time-range-btn" data-minutes="1440" onclick="HistoryPage.setAdsbRange(1440, this)">24h</button>
+                        <div class="custom-range-group">
+                            <input type="number" id="adsbCustomMinutes" placeholder="Min" min="1" max="10080" class="custom-range-input">
+                            <button class="history-btn history-btn-ghost" onclick="HistoryPage.setAdsbCustomRange()">Go</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="adsb-requires-note">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    Requires Postgres profile (docker compose --profile history)
+                </div>
+            </div>
+
+            <!-- Summary Stats -->
+            <div class="adsb-summary-strip" id="adsbSummaryStrip">
+                <div class="adsb-summary-card">
+                    <div class="adsb-summary-value" id="adsbTotalAircraft">--</div>
+                    <div class="adsb-summary-label">Total Aircraft</div>
+                </div>
+                <div class="adsb-summary-card">
+                    <div class="adsb-summary-value" id="adsbTotalMessages">--</div>
+                    <div class="adsb-summary-label">Messages</div>
+                </div>
+                <div class="adsb-summary-card">
+                    <div class="adsb-summary-value" id="adsbUniqueIcaos">--</div>
+                    <div class="adsb-summary-label">Unique ICAOs</div>
+                </div>
+                <div class="adsb-summary-card">
+                    <div class="adsb-summary-value" id="adsbTimeRange">--</div>
+                    <div class="adsb-summary-label">Time Range</div>
+                </div>
+            </div>
+
+            <!-- Aircraft Search -->
+            <div class="history-section">
+                <div class="history-section-header">
+                    <h3>Aircraft</h3>
+                    <div class="adsb-search-group">
+                        <input type="text" id="adsbSearchInput" placeholder="Search ICAO or callsign..." class="adsb-search-input" oninput="HistoryPage.searchAdsb()">
+                    </div>
+                </div>
+                <div class="history-table-wrap">
+                    <table class="history-table" id="adsbAircraftTable">
+                        <thead>
+                            <tr>
+                                <th>ICAO</th>
+                                <th>Callsign</th>
+                                <th>First Seen</th>
+                                <th>Last Seen</th>
+                                <th>Messages</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adsbAircraftBody">
+                            <tr><td colspan="6" class="history-empty-cell">Select a time range to load aircraft data</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Aircraft Timeline (shown on click) -->
+            <div id="adsbTimelinePanel" class="history-section adsb-timeline-panel" style="display: none;">
+                <div class="history-section-header">
+                    <h3 id="adsbTimelineTitle">Aircraft Timeline</h3>
+                    <button class="history-btn history-btn-ghost" onclick="HistoryPage.closeAdsbTimeline()">Close</button>
+                </div>
+                <div class="adsb-timeline-charts">
+                    <div class="adsb-chart-card">
+                        <div class="adsb-chart-title">Altitude (ft)</div>
+                        <canvas id="adsbAltitudeChart"></canvas>
+                    </div>
+                    <div class="adsb-chart-card">
+                        <div class="adsb-chart-title">Speed (kts)</div>
+                        <canvas id="adsbSpeedChart"></canvas>
+                    </div>
+                </div>
+                <div class="adsb-timeline-events" id="adsbTimelineEvents">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== TSCM REPORTS TAB ===================== -->
+        <section id="tab-tscm" class="history-tab-content">
+
+            <!-- Threat Summary Cards -->
+            <div class="tscm-summary-strip" id="tscmSummaryStrip">
+                <div class="tscm-threat-card tscm-critical">
+                    <div class="tscm-threat-count" id="tscmCriticalCount">0</div>
+                    <div class="tscm-threat-label">Critical</div>
+                </div>
+                <div class="tscm-threat-card tscm-high">
+                    <div class="tscm-threat-count" id="tscmHighCount">0</div>
+                    <div class="tscm-threat-label">High</div>
+                </div>
+                <div class="tscm-threat-card tscm-medium">
+                    <div class="tscm-threat-count" id="tscmMediumCount">0</div>
+                    <div class="tscm-threat-label">Medium</div>
+                </div>
+                <div class="tscm-threat-card tscm-low">
+                    <div class="tscm-threat-count" id="tscmLowCount">0</div>
+                    <div class="tscm-threat-label">Low</div>
+                </div>
+            </div>
+
+            <!-- TSCM Actions -->
+            <div class="history-section">
+                <div class="history-section-header">
+                    <h3>TSCM Threats</h3>
+                    <div class="tscm-actions">
+                        <button class="history-btn history-btn-ghost" onclick="HistoryPage.loadTscmThreats()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                            Refresh
+                        </button>
+                        <button class="history-btn history-btn-primary" onclick="HistoryPage.downloadTscmPdf()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Download PDF Report
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Threat List -->
+                <div id="tscmThreatList" class="tscm-threat-list">
+                    <div class="history-empty-state">Loading threats...</div>
+                </div>
+            </div>
+
+            <!-- Full TSCM Report -->
+            <div class="history-section">
+                <div class="history-section-header">
+                    <h3>Full TSCM Report</h3>
+                    <button class="history-btn history-btn-ghost" onclick="HistoryPage.loadTscmReport()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        Load Report
+                    </button>
+                </div>
+                <div id="tscmReportViewer" class="tscm-report-viewer">
+                    <div class="history-empty-state">Click "Load Report" to fetch the full TSCM report</div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Settings & Help Modals -->
+    {% include 'partials/settings-modal.html' %}
+    {% include 'partials/help-modal.html' %}
+
+    <!-- Core JS -->
+    <script src="{{ url_for('static', filename='js/core/settings-manager.js') }}"></script>
+    <!-- History Page JS -->
+    <script src="{{ url_for('static', filename='js/core/history.js') }}"></script>
+</body>
+</html>

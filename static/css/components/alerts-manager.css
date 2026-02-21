@@ -1,0 +1,519 @@
+/**
+ * Alert Rules Manager & Data Exports Styles
+ * Uses project CSS variables from core/variables.css
+ */
+
+/* ============================================
+   TOOLBAR - Filters + Create button
+   ============================================ */
+.arm-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.arm-filters {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.arm-filter-select {
+    background: var(--bg-tertiary, #120f1e);
+    border: 1px solid var(--border-color, rgba(139, 92, 246, 0.12));
+    border-radius: 4px;
+    padding: 6px 28px 6px 10px;
+    font-size: 12px;
+    color: var(--text-primary, #e8e0f0);
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a6d99' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+}
+
+.arm-filter-select:focus {
+    outline: none;
+    border-color: var(--accent-cyan, #a78bfa);
+}
+
+/* ============================================
+   BUTTONS
+   ============================================ */
+.arm-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid var(--border-color, rgba(139, 92, 246, 0.12));
+    background: var(--bg-tertiary, #120f1e);
+    color: var(--text-primary, #e8e0f0);
+}
+
+.arm-btn:hover {
+    border-color: var(--accent-cyan, #a78bfa);
+    color: var(--accent-cyan, #a78bfa);
+}
+
+.arm-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.arm-btn-create {
+    background: var(--accent-cyan, #a78bfa);
+    color: var(--bg-primary, #08060e);
+    border-color: var(--accent-cyan, #a78bfa);
+    font-weight: 600;
+}
+
+.arm-btn-create:hover {
+    background: var(--accent-cyan-hover, #c4b5fd);
+    border-color: var(--accent-cyan-hover, #c4b5fd);
+    color: var(--bg-primary, #08060e);
+}
+
+.arm-btn-edit {
+    padding: 5px 8px;
+    background: transparent;
+}
+
+.arm-btn-edit:hover {
+    color: var(--accent-cyan, #a78bfa);
+    background: var(--accent-cyan-dim, rgba(167, 139, 250, 0.16));
+}
+
+.arm-btn-delete {
+    padding: 5px 8px;
+    background: transparent;
+}
+
+.arm-btn-delete:hover {
+    color: var(--accent-red, #f87171);
+    border-color: var(--accent-red, #f87171);
+    background: var(--accent-red-dim, rgba(248, 113, 113, 0.16));
+}
+
+.arm-btn-cancel {
+    background: transparent;
+}
+
+.arm-btn-submit {
+    background: var(--accent-cyan, #a78bfa);
+    color: var(--bg-primary, #08060e);
+    border-color: var(--accent-cyan, #a78bfa);
+    font-weight: 600;
+}
+
+.arm-btn-submit:hover {
+    background: var(--accent-cyan-hover, #c4b5fd);
+    border-color: var(--accent-cyan-hover, #c4b5fd);
+    color: var(--bg-primary, #08060e);
+}
+
+/* ============================================
+   RULE CARDS
+   ============================================ */
+.arm-rules-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.arm-rule-card {
+    background: var(--bg-card, #0f0c1a);
+    border: 1px solid var(--border-color, rgba(139, 92, 246, 0.12));
+    border-radius: 6px;
+    padding: 12px;
+    transition: all 0.2s ease;
+}
+
+.arm-rule-card:hover {
+    border-color: var(--border-light, rgba(139, 92, 246, 0.22));
+    background: var(--bg-elevated, #16122a);
+}
+
+.arm-rule-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.arm-rule-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #e8e0f0);
+}
+
+.arm-rule-badges {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+/* Mode Badge */
+.arm-mode-badge {
+    font-family: var(--font-mono, monospace);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: var(--accent-cyan-dim, rgba(167, 139, 250, 0.16));
+    color: var(--accent-cyan, #a78bfa);
+    border: 1px solid rgba(167, 139, 250, 0.25);
+}
+
+/* Severity Badge */
+.arm-severity-badge {
+    font-family: var(--font-mono, monospace);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 8px;
+    border-radius: 3px;
+}
+
+.arm-severity-low {
+    background: rgba(52, 211, 153, 0.12);
+    color: var(--accent-green, #34d399);
+}
+
+.arm-severity-medium {
+    background: var(--accent-orange-dim, rgba(251, 191, 36, 0.16));
+    color: var(--accent-orange, #fbbf24);
+}
+
+.arm-severity-high {
+    background: var(--accent-red-dim, rgba(248, 113, 113, 0.16));
+    color: var(--accent-red, #f87171);
+}
+
+.arm-severity-critical {
+    background: rgba(248, 113, 113, 0.25);
+    color: #ff4444;
+    border: 1px solid rgba(255, 68, 68, 0.3);
+}
+
+/* Rule Details Row */
+.arm-rule-details {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+    font-size: 11px;
+    color: var(--text-dim, #9b8fbf);
+}
+
+.arm-rule-details code {
+    font-family: var(--font-mono, monospace);
+    font-size: 10px;
+    background: var(--bg-tertiary, #120f1e);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--text-secondary, #a89bc2);
+    word-break: break-all;
+}
+
+/* Rule Actions Row */
+.arm-rule-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.arm-toggle {
+    margin-right: auto;
+}
+
+.arm-severity-select {
+    background: var(--bg-tertiary, #120f1e);
+    border: 1px solid var(--border-color, rgba(139, 92, 246, 0.12));
+    border-radius: 4px;
+    padding: 4px 24px 4px 8px;
+    font-size: 11px;
+    color: var(--text-primary, #e8e0f0);
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%237a6d99' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+}
+
+.arm-severity-select:focus {
+    outline: none;
+    border-color: var(--accent-cyan, #a78bfa);
+}
+
+/* Empty State */
+.arm-empty {
+    text-align: center;
+    padding: 24px 12px;
+    color: var(--text-dim, #9b8fbf);
+    font-size: 12px;
+}
+
+/* ============================================
+   CREATE / EDIT FORM
+   ============================================ */
+.arm-form {
+    background: var(--bg-card, #0f0c1a);
+    border: 1px solid var(--accent-cyan, #a78bfa);
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 12px;
+}
+
+.arm-form-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-cyan, #a78bfa);
+    margin-bottom: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.arm-form-row {
+    margin-bottom: 12px;
+}
+
+.arm-form-row-inline {
+    display: flex;
+    gap: 12px;
+}
+
+.arm-form-field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.arm-form-toggle-field {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+}
+
+.arm-form-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-dim, #9b8fbf);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+}
+
+.arm-form-input {
+    width: 100% !important;
+}
+
+.arm-form-select {
+    min-width: 0;
+    width: 100%;
+}
+
+.arm-form-textarea {
+    background: var(--bg-tertiary, #120f1e);
+    border: 1px solid var(--border-color, rgba(139, 92, 246, 0.12));
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-family: var(--font-mono, monospace);
+    color: var(--text-primary, #e8e0f0);
+    resize: vertical;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.arm-form-textarea:focus {
+    outline: none;
+    border-color: var(--accent-cyan, #a78bfa);
+}
+
+.arm-form-textarea::placeholder {
+    color: var(--text-muted, #7a6d99);
+}
+
+.arm-form-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ============================================
+   DATA EXPORTS GRID
+   ============================================ */
+.arm-exports-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+.arm-export-card {
+    background: var(--bg-card, #0f0c1a);
+    border: 1px solid var(--border-color, rgba(139, 92, 246, 0.12));
+    border-radius: 6px;
+    padding: 14px;
+    transition: all 0.2s ease;
+}
+
+.arm-export-card:hover {
+    border-color: var(--border-light, rgba(139, 92, 246, 0.22));
+    background: var(--bg-elevated, #16122a);
+}
+
+.arm-export-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.arm-export-icon {
+    width: 18px;
+    height: 18px;
+    color: var(--accent-cyan, #a78bfa);
+    flex-shrink: 0;
+}
+
+.arm-export-mode-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #e8e0f0);
+}
+
+.arm-export-card-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.arm-btn-export {
+    flex: 1;
+    justify-content: center;
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 6px 10px;
+}
+
+.arm-btn-export:hover {
+    background: var(--accent-cyan-dim, rgba(167, 139, 250, 0.16));
+}
+
+/* Export button states */
+.arm-export-loading {
+    color: var(--accent-orange, #fbbf24) !important;
+    border-color: var(--accent-orange, #fbbf24) !important;
+    cursor: wait !important;
+}
+
+.arm-export-success {
+    color: var(--accent-green, #34d399) !important;
+    border-color: var(--accent-green, #34d399) !important;
+    background: rgba(52, 211, 153, 0.12) !important;
+}
+
+.arm-export-error {
+    color: var(--accent-red, #f87171) !important;
+    border-color: var(--accent-red, #f87171) !important;
+    background: var(--accent-red-dim, rgba(248, 113, 113, 0.16)) !important;
+}
+
+/* TSCM PDF Button */
+.arm-btn-tscm-pdf {
+    display: inline-flex;
+    align-items: center;
+    padding: 10px 20px;
+    font-size: 13px;
+    font-weight: 600;
+    background: var(--bg-tertiary, #120f1e);
+    border: 1px solid var(--accent-cyan, #a78bfa);
+    border-radius: 6px;
+    color: var(--accent-cyan, #a78bfa);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.arm-btn-tscm-pdf:hover {
+    background: var(--accent-cyan-dim, rgba(167, 139, 250, 0.16));
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.15);
+}
+
+.arm-btn-tscm-pdf:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ============================================
+   SCROLLBAR STYLING
+   ============================================ */
+.arm-rules-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.arm-rules-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.arm-rules-list::-webkit-scrollbar-thumb {
+    background: var(--border-color, rgba(139, 92, 246, 0.12));
+    border-radius: 4px;
+}
+
+.arm-rules-list::-webkit-scrollbar-thumb:hover {
+    background: var(--border-light, rgba(139, 92, 246, 0.22));
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+@media (max-width: 640px) {
+    .arm-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .arm-filters {
+        flex-direction: column;
+    }
+
+    .arm-form-row-inline {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .arm-exports-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .arm-rule-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    .arm-rule-actions {
+        flex-wrap: wrap;
+    }
+}

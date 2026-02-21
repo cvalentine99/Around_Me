@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WEATHER SATELLITE // Valentine RF - See the Invisible</title>
+    <!-- Fonts - Conditional CDN/Local loading -->
+    {% if offline_settings.fonts_source == 'local' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts-local.css') }}">
+    {% else %}
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700&display=swap" rel="stylesheet">
+    {% endif %}
+    <!-- Core CSS variables -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global-nav.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/help-modal.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/weather_sat_dashboard.css') }}">
+</head>
+<body>
+    <div class="grid-bg"></div>
+    <div class="scanline"></div>
+
+    <header class="header">
+        <div class="logo">
+            WEATHER SATELLITE
+            <span>// Valentine RF - Orbital Imagery</span>
+        </div>
+        <div class="stats-badges">
+            <div class="stat-badge">
+                <span class="value" id="statImages">0</span>
+                <span class="label">images</span>
+            </div>
+            <div class="stat-badge">
+                <span class="value highlight" id="statPasses">0</span>
+                <span class="label">passes</span>
+            </div>
+            <div class="stat-badge">
+                <span class="value" id="statScheduled">0</span>
+                <span class="label">scheduled</span>
+            </div>
+        </div>
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-dot" id="decoderDot"></div>
+                <span id="decoderStatus">IDLE</span>
+            </div>
+            <div class="datetime" id="utcTime">--:--:-- UTC</div>
+        </div>
+    </header>
+
+    {% set active_mode = 'weathersat' %}
+    {% include 'partials/nav.html' with context %}
+
+    <main class="wxdash">
+        <!-- Left: Controls & Passes -->
+        <div class="wxdash-sidebar">
+            <!-- Capture Controls -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span>CAPTURE CONTROLS</span>
+                    <div class="panel-indicator" id="captureIndicator"></div>
+                </div>
+                <div class="panel-content">
+                    <div class="form-group">
+                        <label>Satellite</label>
+                        <select id="satSelect" class="wxdash-select">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>SDR Device</label>
+                        <select id="deviceSelect" class="wxdash-select">
+                            <option value="0">SDR 0</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group" style="flex:1;">
+                            <label>Gain (dB)</label>
+                            <input type="number" id="gainInput" value="40" min="0" max="50" step="0.1" class="wxdash-input">
+                        </div>
+                        <div class="form-group" style="flex:0;">
+                            <label>Bias-T</label>
+                            <label class="wxdash-toggle">
+                                <input type="checkbox" id="biasTInput">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="wxdash-btn-row">
+                        <button class="wxdash-btn primary" id="startBtn" onclick="startCapture()">START CAPTURE</button>
+                        <button class="wxdash-btn danger" id="stopBtn" onclick="stopCapture()" style="display:none;">STOP</button>
+                    </div>
+
+                    <!-- Progress -->
+                    <div id="captureProgress" class="capture-progress" style="display:none;">
+                        <div class="progress-label" id="progressLabel">Initializing...</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill" style="width:0%"></div>
+                        </div>
+                        <div class="progress-detail" id="progressDetail"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pass Predictions -->
+            <div class="panel pass-panel">
+                <div class="panel-header">
+                    <span>UPCOMING PASSES <span id="passCount" style="color:var(--accent-cyan);"></span></span>
+                    <div class="panel-indicator"></div>
+                </div>
+                <div class="panel-content">
+                    <div class="pass-controls">
+                        <div class="form-row">
+                            <input type="number" id="passLat" placeholder="Latitude" step="0.0001" class="wxdash-input" style="flex:1;">
+                            <input type="number" id="passLon" placeholder="Longitude" step="0.0001" class="wxdash-input" style="flex:1;">
+                        </div>
+                        <div class="form-row">
+                            <input type="number" id="passMinEl" value="15" min="0" max="90" class="wxdash-input" style="flex:1;" title="Min Elevation">
+                            <button class="wxdash-btn small" onclick="getLocation()">GPS</button>
+                            <button class="wxdash-btn small primary" onclick="fetchPasses()">PREDICT</button>
+                        </div>
+                    </div>
+                    <div id="passList" class="pass-list">
+                        <div class="empty-state">Set location and click PREDICT</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Auto-Scheduler -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span>AUTO-SCHEDULER</span>
+                    <div class="panel-indicator" id="schedulerIndicator"></div>
+                </div>
+                <div class="panel-content">
+                    <div class="scheduler-status" id="schedulerStatus">
+                        <span class="status-text">Disabled</span>
+                    </div>
+                    <div class="wxdash-btn-row">
+                        <button class="wxdash-btn primary" id="enableSchedulerBtn" onclick="enableScheduler()">ENABLE</button>
+                        <button class="wxdash-btn danger" id="disableSchedulerBtn" onclick="disableScheduler()" style="display:none;">DISABLE</button>
+                    </div>
+                    <div id="scheduledPassesList" class="scheduled-passes-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center: Image Gallery -->
+        <div class="wxdash-main">
+            <div class="panel gallery-panel">
+                <div class="panel-header">
+                    <span>IMAGE GALLERY <span id="galleryCount" style="color:var(--accent-cyan);"></span></span>
+                    <div class="gallery-controls">
+                        <select id="galleryFilter" class="wxdash-select small" onchange="loadImages()">
+                            <option value="">All Satellites</option>
+                            <option value="NOAA-15">NOAA-15</option>
+                            <option value="NOAA-18">NOAA-18</option>
+                            <option value="NOAA-19">NOAA-19</option>
+                            <option value="METEOR-M2-3">Meteor-M2-3</option>
+                        </select>
+                        <button class="wxdash-btn icon-btn" onclick="loadImages()" title="Refresh">&#x21bb;</button>
+                    </div>
+                </div>
+                <div class="panel-content gallery-content">
+                    <div id="galleryGrid" class="gallery-grid">
+                        <div class="empty-state">
+                            <div class="empty-icon">&#x1F6F0;</div>
+                            <p>No images decoded yet</p>
+                            <p class="empty-hint">Capture a satellite pass to receive weather imagery</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Pass Prediction Table -->
+        <div class="wxdash-table-panel">
+            <div class="panel">
+                <div class="panel-header">
+                    <span>PASS SCHEDULE</span>
+                    <div class="panel-indicator"></div>
+                </div>
+                <div class="panel-content">
+                    <table class="pass-table" id="passTable">
+                        <thead>
+                            <tr>
+                                <th>Satellite</th>
+                                <th>AOS</th>
+                                <th>LOS</th>
+                                <th>Max El</th>
+                                <th>Az</th>
+                            </tr>
+                        </thead>
+                        <tbody id="passTableBody">
+                            <tr><td colspan="5" class="empty-state">No pass data</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Image Modal -->
+    <div class="image-modal" id="imageModal">
+        <button class="modal-close" onclick="closeImageModal()">&times;</button>
+        <div class="modal-toolbar">
+            <button class="modal-btn delete" id="modalDeleteBtn" title="Delete image">&times;</button>
+            <a class="modal-btn" id="modalDownloadBtn" title="Download" download>&#x2B73;</a>
+        </div>
+        <img id="modalImage" src="" alt="Weather satellite image">
+        <div class="modal-info" id="modalInfo"></div>
+    </div>
+
+    <!-- Settings Modal -->
+    {% include 'partials/settings-modal.html' %}
+
+    <!-- Help Modal -->
+    {% include 'partials/help-modal.html' %}
+
+    <script src="{{ url_for('static', filename='js/core/settings-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/global-nav.js') }}"></script>
+
+    <script>
+        // ============================================
+        // State
+        // ============================================
+        let passes = [];
+        let images = [];
+        let isCapturing = false;
+        let sseSource = null;
+        let schedulerEnabled = false;
+
+        // ============================================
+        // Initialization
+        // ============================================
+        document.addEventListener('DOMContentLoaded', () => {
+            updateClock();
+            setInterval(updateClock, 1000);
+            loadSatellites();
+            loadDevices();
+            loadImages();
+            checkDecoderStatus();
+            checkSchedulerStatus();
+            getLocation();
+        });
+
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('utcTime').textContent =
+                now.toISOString().substring(11, 19) + ' UTC';
+        }
+
+        // ============================================
+        // Satellites
+        // ============================================
+        async function loadSatellites() {
+            try {
+                const resp = await fetch('/weather-sat/satellites');
+                const data = await resp.json();
+                const select = document.getElementById('satSelect');
+                select.innerHTML = '';
+                if (data.satellites) {
+                    data.satellites.forEach(sat => {
+                        const opt = document.createElement('option');
+                        opt.value = sat.name || sat.id;
+                        opt.textContent = `${sat.name} (${(sat.frequency / 1e6).toFixed(3)} MHz${sat.mode ? ' ' + sat.mode : ''})`;
+                        select.appendChild(opt);
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to load satellites:', err);
+                // Fallback defaults
+                document.getElementById('satSelect').innerHTML = `
+                    <option value="NOAA-15">NOAA-15 (137.620 MHz APT)</option>
+                    <option value="NOAA-18">NOAA-18 (137.9125 MHz APT)</option>
+                    <option value="NOAA-19">NOAA-19 (137.100 MHz APT)</option>
+                    <option value="METEOR-M2-3">Meteor-M2-3 (137.900 MHz LRPT)</option>
+                `;
+            }
+        }
+
+        async function loadDevices() {
+            try {
+                const resp = await fetch('/devices');
+                const devices = await resp.json();
+                const select = document.getElementById('deviceSelect');
+                select.innerHTML = '';
+                if (devices.length === 0) {
+                    select.innerHTML = '<option value="0">No devices</option>';
+                } else {
+                    devices.forEach(d => {
+                        const opt = document.createElement('option');
+                        opt.value = d.index;
+                        opt.textContent = `SDR ${d.index}: ${d.name}`;
+                        select.appendChild(opt);
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to load devices:', err);
+            }
+        }
+
+        // ============================================
+        // Decoder Status
+        // ============================================
+        async function checkDecoderStatus() {
+            try {
+                const resp = await fetch('/weather-sat/status');
+                const data = await resp.json();
+                updateDecoderUI(data);
+            } catch (err) {
+                setDecoderStatus('OFFLINE', 'var(--accent-red)');
+            }
+        }
+
+        function updateDecoderUI(data) {
+            if (data.status === 'capturing' || data.status === 'decoding' || data.capturing) {
+                isCapturing = true;
+                setDecoderStatus('CAPTURING', 'var(--accent-green)');
+                document.getElementById('startBtn').style.display = 'none';
+                document.getElementById('stopBtn').style.display = '';
+                document.getElementById('captureProgress').style.display = '';
+                document.getElementById('captureIndicator').classList.add('active');
+                if (data.satellite) {
+                    document.getElementById('progressLabel').textContent = `Capturing ${data.satellite}...`;
+                }
+                connectSSE();
+            } else {
+                isCapturing = false;
+                setDecoderStatus('IDLE', 'var(--accent-cyan)');
+                document.getElementById('startBtn').style.display = '';
+                document.getElementById('stopBtn').style.display = 'none';
+                document.getElementById('captureProgress').style.display = 'none';
+                document.getElementById('captureIndicator').classList.remove('active');
+            }
+        }
+
+        function setDecoderStatus(text, color) {
+            document.getElementById('decoderStatus').textContent = text;
+            document.getElementById('decoderDot').style.background = color;
+            document.getElementById('decoderDot').style.boxShadow = `0 0 10px ${color}`;
+        }
+
+        // ============================================
+        // Capture Controls
+        // ============================================
+        async function startCapture() {
+            const satellite = document.getElementById('satSelect').value;
+            const device = document.getElementById('deviceSelect').value;
+            const gain = document.getElementById('gainInput').value;
+            const bias_t = document.getElementById('biasTInput').checked;
+
+            try {
+                const resp = await fetch('/weather-sat/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ satellite, device, gain: parseFloat(gain), bias_t })
+                });
+                const data = await resp.json();
+                if (data.status === 'started' || data.status === 'success' || data.status === 'already_running') {
+                    isCapturing = true;
+                    document.getElementById('startBtn').style.display = 'none';
+                    document.getElementById('stopBtn').style.display = '';
+                    document.getElementById('captureProgress').style.display = '';
+                    document.getElementById('captureIndicator').classList.add('active');
+                    setDecoderStatus('CAPTURING', 'var(--accent-green)');
+                    document.getElementById('progressLabel').textContent = `Capturing ${satellite}...`;
+                    document.getElementById('progressFill').style.width = '0%';
+                    connectSSE();
+                } else {
+                    alert(data.message || data.error || 'Failed to start capture');
+                }
+            } catch (err) {
+                alert('Error starting capture: ' + err.message);
+            }
+        }
+
+        async function stopCapture() {
+            try {
+                await fetch('/weather-sat/stop', { method: 'POST' });
+                isCapturing = false;
+                document.getElementById('startBtn').style.display = '';
+                document.getElementById('stopBtn').style.display = 'none';
+                document.getElementById('captureProgress').style.display = 'none';
+                document.getElementById('captureIndicator').classList.remove('active');
+                setDecoderStatus('IDLE', 'var(--accent-cyan)');
+                disconnectSSE();
+                // Refresh images after stop
+                setTimeout(loadImages, 2000);
+            } catch (err) {
+                console.error('Error stopping capture:', err);
+            }
+        }
+
+        // ============================================
+        // SSE Stream
+        // ============================================
+        function connectSSE() {
+            if (sseSource) return;
+            sseSource = new EventSource('/weather-sat/stream');
+
+            sseSource.onmessage = function(e) {
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data.type === 'keepalive') return;
+
+                    if (data.progress !== undefined) {
+                        document.getElementById('progressFill').style.width = data.progress + '%';
+                    }
+                    if (data.message) {
+                        document.getElementById('progressLabel').textContent = data.message;
+                    }
+                    if (data.detail) {
+                        document.getElementById('progressDetail').textContent = data.detail;
+                    }
+                    if (data.status === 'complete' || data.status === 'finished') {
+                        document.getElementById('progressFill').style.width = '100%';
+                        document.getElementById('progressLabel').textContent = 'Decode complete';
+                        setDecoderStatus('COMPLETE', 'var(--accent-green)');
+                        setTimeout(() => {
+                            loadImages();
+                            checkDecoderStatus();
+                        }, 1000);
+                    }
+                    if (data.status === 'error') {
+                        setDecoderStatus('ERROR', 'var(--accent-red)');
+                        document.getElementById('progressLabel').textContent = data.message || 'Error during capture';
+                    }
+                    if (data.new_image) {
+                        loadImages();
+                    }
+                } catch (err) {}
+            };
+
+            sseSource.onerror = function() {
+                disconnectSSE();
+                if (isCapturing) {
+                    setTimeout(connectSSE, 3000);
+                }
+            };
+        }
+
+        function disconnectSSE() {
+            if (sseSource) {
+                sseSource.close();
+                sseSource = null;
+            }
+        }
+
+        // ============================================
+        // Pass Predictions
+        // ============================================
+        function getLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(pos => {
+                    document.getElementById('passLat').value = pos.coords.latitude.toFixed(4);
+                    document.getElementById('passLon').value = pos.coords.longitude.toFixed(4);
+                    fetchPasses();
+                }, () => {
+                    // Default to London
+                    if (!document.getElementById('passLat').value) {
+                        document.getElementById('passLat').value = '51.5074';
+                        document.getElementById('passLon').value = '-0.1278';
+                    }
+                });
+            }
+        }
+
+        async function fetchPasses() {
+            const lat = parseFloat(document.getElementById('passLat').value);
+            const lon = parseFloat(document.getElementById('passLon').value);
+            const minEl = parseFloat(document.getElementById('passMinEl').value) || 15;
+
+            if (isNaN(lat) || isNaN(lon)) {
+                alert('Please enter valid coordinates');
+                return;
+            }
+
+            try {
+                const resp = await fetch(`/weather-sat/passes?latitude=${lat}&longitude=${lon}&hours=24&min_elevation=${minEl}`);
+                const data = await resp.json();
+                if (data.passes) {
+                    passes = data.passes;
+                    renderPassList();
+                    renderPassTable();
+                    document.getElementById('statPasses').textContent = passes.length;
+                    document.getElementById('passCount').textContent = `(${passes.length})`;
+                }
+            } catch (err) {
+                console.error('Failed to fetch passes:', err);
+            }
+        }
+
+        function renderPassList() {
+            const container = document.getElementById('passList');
+            if (passes.length === 0) {
+                container.innerHTML = '<div class="empty-state">No passes found for this location</div>';
+                return;
+            }
+
+            container.innerHTML = passes.map((pass, idx) => {
+                const maxEl = pass.max_elevation || pass.maxEl || 0;
+                const quality = maxEl >= 60 ? 'excellent' : maxEl >= 30 ? 'good' : 'fair';
+                const qualityText = maxEl >= 60 ? 'EXCELLENT' : maxEl >= 30 ? 'GOOD' : 'FAIR';
+                const aosTime = formatTime(pass.aos || pass.start_time || pass.startTime);
+                const satName = pass.satellite || pass.name || 'Unknown';
+                const mode = satName.includes('METEOR') ? 'LRPT' : 'APT';
+
+                return `
+                    <div class="pass-card" onclick="selectPassForCapture(${idx})">
+                        <div class="pass-card-header">
+                            <span class="pass-sat">${satName}</span>
+                            <span class="pass-mode ${mode.toLowerCase()}">${mode}</span>
+                        </div>
+                        <div class="pass-card-details">
+                            <span class="pass-time">${aosTime}</span>
+                            <span class="pass-el">${maxEl.toFixed(0)}&deg;</span>
+                            <span class="pass-quality ${quality}">${qualityText}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderPassTable() {
+            const tbody = document.getElementById('passTableBody');
+            if (passes.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No pass data</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = passes.map(pass => {
+                const satName = pass.satellite || pass.name || 'Unknown';
+                const aosTime = formatTime(pass.aos || pass.start_time || pass.startTime);
+                const losTime = formatTime(pass.los || pass.end_time || pass.endTime);
+                const maxEl = (pass.max_elevation || pass.maxEl || 0).toFixed(1);
+                const az = (pass.azimuth || pass.az || 0).toFixed(0);
+                const elClass = parseFloat(maxEl) >= 60 ? 'excellent' : parseFloat(maxEl) >= 30 ? 'good' : 'fair';
+
+                return `
+                    <tr>
+                        <td class="sat-name">${satName}</td>
+                        <td>${aosTime}</td>
+                        <td>${losTime}</td>
+                        <td class="${elClass}">${maxEl}&deg;</td>
+                        <td>${az}&deg;</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function selectPassForCapture(idx) {
+            const pass = passes[idx];
+            if (!pass) return;
+            const satName = pass.satellite || pass.name;
+            // Try to match satellite in the selector
+            const select = document.getElementById('satSelect');
+            for (let i = 0; i < select.options.length; i++) {
+                if (select.options[i].value === satName || select.options[i].textContent.includes(satName)) {
+                    select.selectedIndex = i;
+                    break;
+                }
+            }
+        }
+
+        function formatTime(timeStr) {
+            if (!timeStr) return '--:--';
+            try {
+                const d = new Date(timeStr);
+                return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            } catch (e) {
+                if (typeof timeStr === 'string') {
+                    const parts = timeStr.split(' ');
+                    return parts.length > 1 ? parts[1] : timeStr;
+                }
+                return '--:--';
+            }
+        }
+
+        // ============================================
+        // Image Gallery
+        // ============================================
+        async function loadImages() {
+            const satellite = document.getElementById('galleryFilter').value;
+            let url = '/weather-sat/images?limit=50';
+            if (satellite) url += `&satellite=${encodeURIComponent(satellite)}`;
+
+            try {
+                const resp = await fetch(url);
+                const data = await resp.json();
+                images = data.images || data || [];
+                renderGallery();
+                document.getElementById('statImages').textContent = images.length;
+                document.getElementById('galleryCount').textContent = `(${images.length})`;
+            } catch (err) {
+                console.error('Failed to load images:', err);
+            }
+        }
+
+        function renderGallery() {
+            const grid = document.getElementById('galleryGrid');
+            if (!images || images.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">&#x1F6F0;</div>
+                        <p>No images decoded yet</p>
+                        <p class="empty-hint">Capture a satellite pass to receive weather imagery</p>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = images.map(img => {
+                const filename = img.filename || img.name || img;
+                const satellite = img.satellite || extractSatFromFilename(filename);
+                const timestamp = img.timestamp || img.created || '';
+                const displayTime = timestamp ? formatTime(timestamp) : '';
+                const thumbUrl = `/weather-sat/images/${encodeURIComponent(filename)}`;
+
+                return `
+                    <div class="image-card" onclick="openImageModal('${encodeURIComponent(filename)}', '${satellite}', '${displayTime}')">
+                        <div class="image-actions">
+                            <button class="action-btn delete" onclick="event.stopPropagation(); deleteImage('${encodeURIComponent(filename)}')" title="Delete">&times;</button>
+                        </div>
+                        <img class="image-thumb" src="${thumbUrl}" alt="${satellite}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22150%22><rect fill=%22%23120f1e%22 width=%22200%22 height=%22150%22/><text x=%2250%25%22 y=%2250%25%22 fill=%22%239b8fbf%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22 font-family=%22monospace%22>No Preview</text></svg>'">
+                        <div class="image-info">
+                            <div class="image-sat">${satellite}</div>
+                            <div class="image-time">${displayTime}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function extractSatFromFilename(filename) {
+            if (filename.includes('NOAA-15') || filename.includes('noaa15') || filename.includes('noaa_15')) return 'NOAA-15';
+            if (filename.includes('NOAA-18') || filename.includes('noaa18') || filename.includes('noaa_18')) return 'NOAA-18';
+            if (filename.includes('NOAA-19') || filename.includes('noaa19') || filename.includes('noaa_19')) return 'NOAA-19';
+            if (filename.includes('METEOR') || filename.includes('meteor')) return 'Meteor-M2-3';
+            return 'Unknown';
+        }
+
+        function openImageModal(filename, satellite, time) {
+            const modal = document.getElementById('imageModal');
+            const img = document.getElementById('modalImage');
+            const info = document.getElementById('modalInfo');
+            const deleteBtn = document.getElementById('modalDeleteBtn');
+            const downloadBtn = document.getElementById('modalDownloadBtn');
+
+            const url = `/weather-sat/images/${filename}`;
+            img.src = url;
+            info.textContent = `${satellite} ${time ? '// ' + time : ''}`;
+            deleteBtn.onclick = () => { deleteImage(filename); closeImageModal(); };
+            downloadBtn.href = url;
+
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeImageModal() {
+            document.getElementById('imageModal').classList.remove('show');
+            document.body.style.overflow = '';
+        }
+
+        async function deleteImage(filename) {
+            if (!confirm('Delete this image?')) return;
+            try {
+                await fetch(`/weather-sat/images/${filename}`, { method: 'DELETE' });
+                loadImages();
+            } catch (err) {
+                console.error('Failed to delete image:', err);
+            }
+        }
+
+        // Close modal on escape or background click
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeImageModal();
+        });
+        document.getElementById('imageModal').addEventListener('click', e => {
+            if (e.target === e.currentTarget) closeImageModal();
+        });
+
+        // ============================================
+        // Auto-Scheduler
+        // ============================================
+        async function checkSchedulerStatus() {
+            try {
+                const resp = await fetch('/weather-sat/schedule/status');
+                const data = await resp.json();
+                updateSchedulerUI(data);
+                if (data.enabled) {
+                    loadScheduledPasses();
+                }
+            } catch (err) {
+                console.log('Scheduler status check failed');
+            }
+        }
+
+        function updateSchedulerUI(data) {
+            const statusEl = document.getElementById('schedulerStatus');
+            const indicator = document.getElementById('schedulerIndicator');
+            const enableBtn = document.getElementById('enableSchedulerBtn');
+            const disableBtn = document.getElementById('disableSchedulerBtn');
+
+            if (data.enabled) {
+                schedulerEnabled = true;
+                statusEl.innerHTML = `<span class="status-active">ACTIVE</span> <span class="status-detail">${data.min_elevation || 15}&deg; min el</span>`;
+                indicator.classList.add('active');
+                enableBtn.style.display = 'none';
+                disableBtn.style.display = '';
+            } else {
+                schedulerEnabled = false;
+                statusEl.innerHTML = '<span class="status-text">Disabled</span>';
+                indicator.classList.remove('active');
+                enableBtn.style.display = '';
+                disableBtn.style.display = 'none';
+            }
+        }
+
+        async function enableScheduler() {
+            const lat = parseFloat(document.getElementById('passLat').value);
+            const lon = parseFloat(document.getElementById('passLon').value);
+            const minEl = parseFloat(document.getElementById('passMinEl').value) || 15;
+            const device = document.getElementById('deviceSelect').value;
+            const gain = parseFloat(document.getElementById('gainInput').value);
+            const bias_t = document.getElementById('biasTInput').checked;
+
+            if (isNaN(lat) || isNaN(lon)) {
+                alert('Set your location first (in pass predictions)');
+                return;
+            }
+
+            try {
+                const resp = await fetch('/weather-sat/schedule/enable', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ latitude: lat, longitude: lon, min_elevation: minEl, device, gain, bias_t })
+                });
+                const data = await resp.json();
+                if (data.status === 'enabled' || data.status === 'success') {
+                    checkSchedulerStatus();
+                    loadScheduledPasses();
+                } else {
+                    alert(data.message || 'Failed to enable scheduler');
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        async function disableScheduler() {
+            try {
+                await fetch('/weather-sat/schedule/disable', { method: 'POST' });
+                checkSchedulerStatus();
+                document.getElementById('scheduledPassesList').innerHTML = '';
+                document.getElementById('statScheduled').textContent = '0';
+            } catch (err) {
+                console.error('Failed to disable scheduler:', err);
+            }
+        }
+
+        async function loadScheduledPasses() {
+            try {
+                const resp = await fetch('/weather-sat/schedule/passes');
+                const data = await resp.json();
+                const passesList = data.passes || data || [];
+                document.getElementById('statScheduled').textContent = passesList.length;
+
+                const container = document.getElementById('scheduledPassesList');
+                if (passesList.length === 0) {
+                    container.innerHTML = '<div class="empty-state small">No scheduled captures</div>';
+                    return;
+                }
+
+                container.innerHTML = passesList.slice(0, 5).map(pass => {
+                    const satName = pass.satellite || pass.name || 'Unknown';
+                    const time = formatTime(pass.aos || pass.start_time);
+                    const maxEl = (pass.max_elevation || pass.maxEl || 0).toFixed(0);
+                    return `
+                        <div class="scheduled-pass">
+                            <span class="sched-sat">${satName}</span>
+                            <span class="sched-time">${time}</span>
+                            <span class="sched-el">${maxEl}&deg;</span>
+                        </div>
+                    `;
+                }).join('');
+            } catch (err) {
+                console.error('Failed to load scheduled passes:', err);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BT LOCATE // VALENTINE RF - IRK Tracker</title>
+    <!-- Fonts - Conditional CDN/Local loading -->
+    {% if offline_settings.fonts_source == 'local' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts-local.css') }}">
+    {% else %}
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700&display=swap" rel="stylesheet">
+    {% endif %}
+    <!-- Leaflet.js - Conditional CDN/Local loading -->
+    {% if offline_settings.assets_source == 'local' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet/leaflet.css') }}">
+    <script src="{{ url_for('static', filename='vendor/leaflet/leaflet.js') }}"></script>
+    {% else %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    {% endif %}
+    <!-- Core CSS variables -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bt_locate.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global-nav.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/help-modal.css') }}">
+    <script>
+        window.VALENTINE_SHARED_OBSERVER_LOCATION = {{ shared_observer_location | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/core/observer-location.js') }}"></script>
+</head>
+<body>
+    <!-- Background effects -->
+    <div class="grid-bg"></div>
+    <div class="scanline"></div>
+
+    <header class="header">
+        <div class="logo">
+            BT LOCATE
+            <span>// VALENTINE RF - IRK Tracker</span>
+        </div>
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-dot" id="trackingDot"></div>
+                <span id="trackingStatus">STANDBY</span>
+            </div>
+            <div class="stats-badges">
+                <div class="stat-badge">
+                    <span class="value" id="statDetections">0</span>
+                    <span class="label">detections</span>
+                </div>
+                <div class="stat-badge">
+                    <span class="value highlight" id="statDistance">--</span>
+                    <span class="label">est. meters</span>
+                </div>
+                <div class="stat-badge">
+                    <span class="value" id="statRssi">--</span>
+                    <span class="label">RSSI dBm</span>
+                </div>
+            </div>
+            <div class="datetime" id="utcTime">--:--:-- UTC</div>
+        </div>
+    </header>
+
+    {% set active_mode = 'bluetooth' %}
+    {% include 'partials/nav.html' with context %}
+
+    <main class="btl-dashboard">
+        <!-- Left Sidebar: Target Configuration -->
+        <aside class="btl-sidebar">
+            <!-- Target Config Panel -->
+            <div class="btl-panel">
+                <div class="btl-panel-header">
+                    <span>TARGET CONFIGURATION</span>
+                    <div class="btl-panel-indicator"></div>
+                </div>
+                <div class="btl-panel-content">
+                    <div class="btl-form-group">
+                        <label for="macAddress">MAC ADDRESS</label>
+                        <input type="text" id="macAddress" placeholder="AA:BB:CC:DD:EE:FF" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="btl-form-group">
+                        <label for="namePattern">NAME PATTERN</label>
+                        <input type="text" id="namePattern" placeholder="Device name or regex" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="btl-form-group">
+                        <label for="irkHex">IRK HEX KEY</label>
+                        <input type="text" id="irkHex" placeholder="32-char hex IRK for RPA resolution" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="btl-form-group">
+                        <label for="knownName">KNOWN NAME</label>
+                        <input type="text" id="knownName" placeholder="Optional label for target" spellcheck="false" autocomplete="off">
+                    </div>
+                    <div class="btl-form-divider"></div>
+                    <div class="btl-form-group">
+                        <label for="envSelect">ENVIRONMENT</label>
+                        <select id="envSelect">
+                            <option value="indoor">Indoor (n=3.0)</option>
+                            <option value="outdoor">Outdoor (n=2.0)</option>
+                            <option value="urban" selected>Urban (n=2.7)</option>
+                            <option value="suburban">Suburban (n=2.5)</option>
+                            <option value="rural">Rural (n=2.2)</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                    </div>
+                    <div class="btl-form-group" id="customExponentGroup" style="display: none;">
+                        <label for="customExponent">PATH-LOSS EXPONENT</label>
+                        <input type="number" id="customExponent" value="2.7" min="1.5" max="5.0" step="0.1">
+                    </div>
+                    <div class="btl-form-actions">
+                        <button class="btl-btn btl-btn-start" id="btnStart" onclick="BtLocate.startTracking()">
+                            START TRACKING
+                        </button>
+                        <button class="btl-btn btl-btn-stop" id="btnStop" onclick="BtLocate.stopTracking()" style="display: none;">
+                            STOP TRACKING
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Session Status Panel -->
+            <div class="btl-panel">
+                <div class="btl-panel-header">
+                    <span>SESSION STATUS</span>
+                    <div class="btl-panel-indicator" id="sessionIndicator"></div>
+                </div>
+                <div class="btl-panel-content" id="sessionStatus">
+                    <div class="btl-status-grid">
+                        <div class="btl-status-item">
+                            <span class="btl-status-label">STATE</span>
+                            <span class="btl-status-value" id="sessionState">INACTIVE</span>
+                        </div>
+                        <div class="btl-status-item">
+                            <span class="btl-status-label">TARGET</span>
+                            <span class="btl-status-value" id="sessionTarget">--</span>
+                        </div>
+                        <div class="btl-status-item">
+                            <span class="btl-status-label">MATCHES</span>
+                            <span class="btl-status-value" id="sessionMatches">0</span>
+                        </div>
+                        <div class="btl-status-item">
+                            <span class="btl-status-label">DISTANCE</span>
+                            <span class="btl-status-value" id="sessionDistance">--</span>
+                        </div>
+                        <div class="btl-status-item">
+                            <span class="btl-status-label">LAST RSSI</span>
+                            <span class="btl-status-value" id="sessionRssi">--</span>
+                        </div>
+                        <div class="btl-status-item">
+                            <span class="btl-status-label">SESSION</span>
+                            <span class="btl-status-value" id="sessionTimer">00:00:00</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- IRK Tools Panel -->
+            <div class="btl-panel">
+                <div class="btl-panel-header">
+                    <span>IRK TOOLS</span>
+                    <div class="btl-panel-indicator"></div>
+                </div>
+                <div class="btl-panel-content">
+                    <div class="btl-irk-section">
+                        <h4 class="btl-section-title">RPA RESOLUTION TESTER</h4>
+                        <div class="btl-form-group">
+                            <label for="testIrk">IRK HEX</label>
+                            <input type="text" id="testIrk" placeholder="32-char hex IRK" spellcheck="false" autocomplete="off">
+                        </div>
+                        <div class="btl-form-group">
+                            <label for="testRpa">RPA ADDRESS</label>
+                            <input type="text" id="testRpa" placeholder="AA:BB:CC:DD:EE:FF" spellcheck="false" autocomplete="off">
+                        </div>
+                        <button class="btl-btn btl-btn-secondary" onclick="BtLocate.testResolveRpa()">
+                            TEST RESOLVE
+                        </button>
+                        <div class="btl-resolve-result" id="resolveResult" style="display: none;"></div>
+                    </div>
+                    <div class="btl-form-divider"></div>
+                    <div class="btl-irk-section">
+                        <h4 class="btl-section-title">
+                            PAIRED DEVICES WITH IRK
+                            <button class="btl-btn-mini" onclick="BtLocate.loadPairedIrks()">REFRESH</button>
+                        </h4>
+                        <div class="btl-paired-list" id="pairedIrkList">
+                            <div class="btl-empty-state">Click REFRESH to load paired devices</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <div class="btl-main">
+            <!-- Map Panel -->
+            <div class="btl-map-container">
+                <div class="btl-panel-header btl-map-header">
+                    <span>DETECTION MAP // PROXIMITY TRAIL</span>
+                    <div class="btl-map-controls">
+                        <button class="btl-btn-mini" onclick="BtLocate.clearTrail()">CLEAR TRAIL</button>
+                        <button class="btl-btn-mini" onclick="BtLocate.centerMap()">CENTER</button>
+                    </div>
+                </div>
+                <div id="btlMap"></div>
+            </div>
+
+            <!-- Detection Feed + Trail History -->
+            <div class="btl-bottom-panels">
+                <!-- Live Detection Feed -->
+                <div class="btl-panel btl-feed-panel">
+                    <div class="btl-panel-header">
+                        <span>LIVE DETECTION FEED</span>
+                        <div class="btl-feed-count" id="feedCount">0 events</div>
+                    </div>
+                    <div class="btl-panel-content btl-feed-scroll" id="detectionFeed">
+                        <div class="btl-empty-state">
+                            <div>No detections yet</div>
+                            <div class="btl-empty-hint">Start a tracking session to see live events</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Trail History Table -->
+                <div class="btl-panel btl-trail-panel">
+                    <div class="btl-panel-header">
+                        <span>TRAIL HISTORY</span>
+                        <div class="btl-trail-count" id="trailCount">0 points</div>
+                    </div>
+                    <div class="btl-panel-content btl-trail-scroll">
+                        <table class="btl-trail-table">
+                            <thead>
+                                <tr>
+                                    <th>TIME</th>
+                                    <th>RSSI</th>
+                                    <th>DISTANCE</th>
+                                    <th>ADDRESS</th>
+                                    <th>COORDS</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trailTableBody">
+                                <tr class="btl-trail-empty">
+                                    <td colspan="5">No trail data available</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Settings Modal -->
+    {% include 'partials/settings-modal.html' %}
+
+    <!-- Help Modal -->
+    {% include 'partials/help-modal.html' %}
+
+    <script src="{{ url_for('static', filename='js/core/settings-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/global-nav.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/bt-locate.js') }}"></script>
+</body>
+</html>

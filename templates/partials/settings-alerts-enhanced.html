@@ -1,0 +1,199 @@
+<!-- Enhanced Alerts Section - replaces #settings-alerts content -->
+<div id="settings-alerts" class="settings-section">
+
+    <!-- Alert Feed (existing) -->
+    <div class="settings-group">
+        <div class="settings-group-title">Alert Feed <span id="alertsFeedCount" style="color: var(--text-dim); font-weight: 500;"></span></div>
+        <div id="alertsFeedList" class="settings-feed">
+            <div class="settings-feed-empty">No alerts yet</div>
+        </div>
+    </div>
+
+    <!-- Quick Rules (existing) -->
+    <div class="settings-group">
+        <div class="settings-group-title">Quick Rules</div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button class="check-assets-btn" onclick="AlertCenter.enableTrackerAlerts()">Enable Tracker Alerts</button>
+            <button class="check-assets-btn" onclick="AlertCenter.disableTrackerAlerts()">Disable Tracker Alerts</button>
+        </div>
+    </div>
+
+    <!-- Alert Rules Manager -->
+    <div class="settings-group">
+        <div class="settings-group-title">Alert Rules</div>
+
+        <!-- Filters + Create button -->
+        <div class="arm-toolbar">
+            <div class="arm-filters">
+                <select class="arm-filter-select" onchange="AlertRulesManager.setFilterMode(this.value)">
+                    <option value="">All Modes</option>
+                    <option value="pager">Pager</option>
+                    <option value="sensor">Sensors</option>
+                    <option value="wifi">WiFi</option>
+                    <option value="bluetooth">Bluetooth</option>
+                    <option value="adsb">ADS-B</option>
+                    <option value="ais">AIS</option>
+                    <option value="acars">ACARS</option>
+                    <option value="aprs">APRS</option>
+                    <option value="dsc">DSC</option>
+                    <option value="dmr">DMR</option>
+                    <option value="tscm">TSCM</option>
+                    <option value="meshtastic">Meshtastic</option>
+                </select>
+                <select class="arm-filter-select" onchange="AlertRulesManager.setFilterEnabled(this.value)">
+                    <option value="">All Status</option>
+                    <option value="enabled">Enabled</option>
+                    <option value="disabled">Disabled</option>
+                </select>
+            </div>
+            <button class="arm-btn arm-btn-create" onclick="AlertRulesManager.showCreateForm()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New Rule
+            </button>
+        </div>
+
+        <!-- Create / Edit Rule Form (hidden by default) -->
+        <div id="alertRuleCreateForm" class="arm-form" style="display: none;">
+            <div class="arm-form-title">Create Alert Rule</div>
+
+            <div class="arm-form-row">
+                <label class="arm-form-label" for="armRuleName">Rule Name</label>
+                <input type="text" id="armRuleName" class="settings-input arm-form-input" placeholder="e.g. Emergency Pager Alert">
+            </div>
+
+            <div class="arm-form-row arm-form-row-inline">
+                <div class="arm-form-field">
+                    <label class="arm-form-label" for="armRuleMode">Mode</label>
+                    <select id="armRuleMode" class="settings-select arm-form-select">
+                        <option value="">Any</option>
+                        <option value="pager">Pager</option>
+                        <option value="sensor">Sensors</option>
+                        <option value="wifi">WiFi</option>
+                        <option value="bluetooth">Bluetooth</option>
+                        <option value="adsb">ADS-B</option>
+                        <option value="ais">AIS</option>
+                        <option value="acars">ACARS</option>
+                        <option value="aprs">APRS</option>
+                        <option value="dsc">DSC</option>
+                        <option value="dmr">DMR</option>
+                        <option value="tscm">TSCM</option>
+                        <option value="meshtastic">Meshtastic</option>
+                    </select>
+                </div>
+                <div class="arm-form-field">
+                    <label class="arm-form-label" for="armRuleSeverity">Severity</label>
+                    <select id="armRuleSeverity" class="settings-select arm-form-select">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="arm-form-row">
+                <label class="arm-form-label" for="armRuleEventType">Event Type</label>
+                <input type="text" id="armRuleEventType" class="settings-input arm-form-input" placeholder="e.g. device_update, message, new_aircraft">
+            </div>
+
+            <div class="arm-form-row">
+                <label class="arm-form-label" for="armRuleMatch">Match Conditions (JSON)</label>
+                <textarea id="armRuleMatch" class="arm-form-textarea" rows="3" placeholder='{"is_tracker": true}'>{}</textarea>
+            </div>
+
+            <div class="arm-form-row arm-form-row-inline">
+                <div class="arm-form-field arm-form-toggle-field">
+                    <label class="arm-form-label">Enabled</label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="armRuleEnabled" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="arm-form-field arm-form-toggle-field">
+                    <label class="arm-form-label">Webhook</label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="armRuleWebhook">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="arm-form-actions">
+                <button class="arm-btn arm-btn-cancel" onclick="AlertRulesManager.hideCreateForm()">Cancel</button>
+                <button class="arm-btn arm-btn-submit arm-form-submit" onclick="AlertRulesManager.submitForm()">Create Rule</button>
+            </div>
+        </div>
+
+        <!-- Rules List -->
+        <div id="alertRulesList" class="arm-rules-list">
+            <div class="arm-empty">Loading rules...</div>
+        </div>
+    </div>
+
+    <!-- Notification Settings -->
+    <div class="settings-group">
+        <div class="settings-group-title">Notification Settings</div>
+
+        <div class="settings-row">
+            <div class="settings-label">
+                <span class="settings-label-text">Webhook URL</span>
+                <span class="settings-label-desc">POST alert payloads to this endpoint</span>
+            </div>
+            <input type="text" id="alertWebhookUrl" class="settings-input" placeholder="https://hooks.example.com/alert" style="width: 240px;">
+        </div>
+
+        <div class="settings-row">
+            <div class="settings-label">
+                <span class="settings-label-text">Notify on Critical</span>
+                <span class="settings-label-desc">Browser + webhook for critical alerts</span>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="notifyCritical" checked>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+
+        <div class="settings-row">
+            <div class="settings-label">
+                <span class="settings-label-text">Notify on High</span>
+                <span class="settings-label-desc">Browser + webhook for high severity</span>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="notifyHigh" checked>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+
+        <div class="settings-row">
+            <div class="settings-label">
+                <span class="settings-label-text">Notify on Medium</span>
+                <span class="settings-label-desc">Browser notification for medium severity</span>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="notifyMedium">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+
+        <div class="settings-row">
+            <div class="settings-label">
+                <span class="settings-label-text">Notify on Low</span>
+                <span class="settings-label-desc">Silent log only</span>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="notifyLow">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+    </div>
+
+    <!-- Geofence Alerts -->
+    <div class="settings-group">
+        <div class="settings-group-title">Geofence Alerts</div>
+        <div class="settings-info" style="margin-top: 0;">
+            Geofence-based alerts can be configured from the Analytics dashboard.
+            Draw geofence regions on the map and assign alert rules to trigger when
+            aircraft, vessels, or devices enter or exit the zone.
+        </div>
+    </div>
+</div>

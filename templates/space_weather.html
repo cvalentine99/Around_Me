@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPACE WEATHER // VALENTINE RF</title>
+    <!-- Fonts - Conditional CDN/Local loading -->
+    {% if offline_settings.fonts_source == 'local' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts-local.css') }}">
+    {% else %}
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    {% endif %}
+    <!-- Core CSS variables -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global-nav.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/help-modal.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/space_weather.css') }}">
+    <script>
+        window.VALENTINE_SHARED_OBSERVER_LOCATION = {{ shared_observer_location | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/core/observer-location.js') }}"></script>
+</head>
+<body>
+    <div class="grid-bg"></div>
+    <div class="scanline"></div>
+
+    <!-- ============================
+         HEADER
+         ============================ -->
+    <header class="header">
+        <div class="logo">
+            SPACE WEATHER
+            <span>// VALENTINE RF - Solar &amp; Geomagnetic Monitor</span>
+        </div>
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-dot" id="swStatusDot"></div>
+                <span id="swStatusLabel">LOADING</span>
+            </div>
+            <div class="datetime" id="utcTime">--:--:-- UTC</div>
+        </div>
+    </header>
+
+    <!-- ============================
+         NAVIGATION
+         ============================ -->
+    {% set active_mode = 'space_weather' %}
+    {% include 'partials/nav.html' with context %}
+
+    <!-- ============================
+         STATS STRIP
+         ============================ -->
+    <div class="stats-strip">
+        <div class="strip-stat">
+            <span class="strip-value accent" id="stripKp">--</span>
+            <span class="strip-label">Kp INDEX</span>
+        </div>
+        <div class="strip-divider"></div>
+        <div class="strip-stat">
+            <span class="strip-value" id="stripWind">--</span>
+            <span class="strip-label">SW km/s</span>
+        </div>
+        <div class="strip-divider"></div>
+        <div class="strip-stat">
+            <span class="strip-value" id="stripFlares">0</span>
+            <span class="strip-label">FLARES 7d</span>
+        </div>
+        <div class="strip-divider"></div>
+        <div class="strip-stat">
+            <span class="strip-value" id="stripAlerts">0</span>
+            <span class="strip-label">ALERTS</span>
+        </div>
+    </div>
+
+    <!-- Error display -->
+    <div id="swErrorMsg" class="sw-error" style="display: none;"></div>
+
+    <!-- ============================
+         MAIN DASHBOARD
+         ============================ -->
+    <main class="sw-dashboard">
+
+        <!-- ===== Kp Index Gauge ===== -->
+        <div class="sw-panel">
+            <div class="sw-panel-header">
+                <span class="sw-panel-title">Kp INDEX <span class="accent">// GEOMAGNETIC</span></span>
+                <span class="sw-panel-indicator" id="kpIndicator"></span>
+            </div>
+            <div class="sw-panel-body">
+                <div class="kp-gauge-container">
+                    <div class="kp-value-display kp-quiet" id="kpValue">--</div>
+                    <div class="kp-label" id="kpLabel">LOADING</div>
+
+                    <!-- Segmented bar (0-9) -->
+                    <div class="kp-bar-track">
+                        <div class="kp-bar-segments" id="kpBarSegments">
+                            <div class="kp-bar-segment green"></div>
+                            <div class="kp-bar-segment green"></div>
+                            <div class="kp-bar-segment green"></div>
+                            <div class="kp-bar-segment yellow"></div>
+                            <div class="kp-bar-segment yellow"></div>
+                            <div class="kp-bar-segment orange"></div>
+                            <div class="kp-bar-segment orange"></div>
+                            <div class="kp-bar-segment red"></div>
+                            <div class="kp-bar-segment red"></div>
+                        </div>
+                    </div>
+                    <div class="kp-bar-labels">
+                        <span>0</span><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span>
+                    </div>
+
+                    <!-- Forecast -->
+                    <div class="kp-forecast-row" id="kpForecast">
+                        <div class="sw-loading">Loading forecast...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== X-Ray Flux ===== -->
+        <div class="sw-panel">
+            <div class="sw-panel-header">
+                <span class="sw-panel-title">X-RAY FLUX <span class="accent">// GOES</span></span>
+                <span class="sw-panel-indicator"></span>
+            </div>
+            <div class="sw-panel-body">
+                <div class="sw-metric">
+                    <div class="sw-metric-value" id="xrayValue">--</div>
+                    <div class="sw-metric-unit" id="xrayClass">Loading...</div>
+                    <div class="sw-metric-detail" id="xrayDetail"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== NOAA Scales ===== -->
+        <div class="sw-panel">
+            <div class="sw-panel-header">
+                <span class="sw-panel-title">NOAA SCALES <span class="accent">// CURRENT</span></span>
+                <span class="sw-panel-indicator"></span>
+            </div>
+            <div class="sw-panel-body">
+                <div class="sw-scales">
+                    <div class="sw-scale-badge">
+                        <span class="sw-scale-value scale-none" id="scaleR">R0</span>
+                        <span class="sw-scale-label">Radio Blackout</span>
+                    </div>
+                    <div class="sw-scale-badge">
+                        <span class="sw-scale-value scale-none" id="scaleS">S0</span>
+                        <span class="sw-scale-label">Solar Radiation</span>
+                    </div>
+                    <div class="sw-scale-badge">
+                        <span class="sw-scale-value scale-none" id="scaleG">G0</span>
+                        <span class="sw-scale-label">Geomagnetic</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== Solar Wind ===== -->
+        <div class="sw-panel">
+            <div class="sw-panel-header">
+                <span class="sw-panel-title">SOLAR WIND <span class="accent">// ACE/DSCOVR</span></span>
+                <span class="sw-panel-indicator"></span>
+            </div>
+            <div class="sw-panel-body">
+                <div class="sw-metric-row">
+                    <div class="sw-metric-cell">
+                        <div class="value" id="swSpeed">--</div>
+                        <div class="label">Speed (km/s)</div>
+                    </div>
+                    <div class="sw-metric-cell">
+                        <div class="value" id="swDensity">--</div>
+                        <div class="label">Density (p/cm3)</div>
+                    </div>
+                    <div class="sw-metric-cell">
+                        <div class="value" id="swTemp">--</div>
+                        <div class="label">Temp (K)</div>
+                    </div>
+                </div>
+                <div class="sw-metric-row" style="margin-top: 12px;">
+                    <div class="sw-metric-cell">
+                        <div class="value" id="swBt">--</div>
+                        <div class="label">Bt (nT)</div>
+                    </div>
+                    <div class="sw-metric-cell">
+                        <div class="value" id="swBz">--</div>
+                        <div class="label">Bz (nT)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== HF Band Conditions ===== -->
+        <div class="sw-panel wide">
+            <div class="sw-panel-header">
+                <span class="sw-panel-title">HF BAND CONDITIONS <span class="accent">// HamQSL</span></span>
+                <span class="sw-panel-indicator"></span>
+            </div>
+            <div class="sw-panel-body">
+                <!-- Indices row -->
+                <div class="sw-metric-row" style="margin-bottom: 12px;">
+                    <div class="sw-metric-cell">
+                        <div class="value" id="bandSfi">--</div>
+                        <div class="label">SFI</div>
+                    </div>
+                    <div class="sw-metric-cell">
+                        <div class="value" id="bandAindex">--</div>
+                        <div class="label">A-Index</div>
+                    </div>
+                    <div class="sw-metric-cell">
+                        <div class="value" id="bandSn">--</div>
+                        <div class="label">Sunspots</div>
+                    </div>
+                </div>
+
+                <table class="band-table">
+                    <thead>
+                        <tr>
+                            <th style="text-align: left;">Band</th>
+                            <th>Day</th>
+                            <th>Night</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bandConditionsBody">
+                        <tr><td colspan="3" class="sw-loading">Loading band conditions...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ===== Solar Flares ===== -->
+        <div class="sw-panel">
+            <div class="sw-panel-header">
+                <span class="sw-panel-title">SOLAR FLARES <span class="accent">// 7 DAY</span></span>
+                <span class="sw-panel-indicator"></span>
+            </div>
+            <div class="sw-panel-body">
+                <ul class="flare-list" id="flareList">
+                    <li class="sw-loading">Loading flare data...</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- ===== Space Weather Alerts ===== -->
+        <div class="sw-panel wide">
+            <div class="sw-panel-header">
+                <span class="sw-panel-title">ALERTS <span class="accent">// SWPC NOTIFICATIONS</span></span>
+                <span class="sw-panel-indicator"></span>
+            </div>
+            <div class="sw-panel-body">
+                <div class="sw-alerts" id="swAlerts">
+                    <div class="sw-loading">Loading alerts...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== Solar / Aurora Imagery ===== -->
+        <div class="sw-panel full-width">
+            <div class="sw-panel-header">
+                <span class="sw-panel-title">IMAGERY <span class="accent">// SDO / SWPC</span></span>
+                <span class="sw-panel-indicator"></span>
+            </div>
+            <div class="sw-panel-body">
+                <div class="sw-image-grid" id="swImageGrid">
+                    <div class="sw-loading">Loading imagery...</div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- ============================
+         FOOTER
+         ============================ -->
+    <footer class="sw-footer">
+        <span id="swLastUpdate">LAST UPDATE: --</span>
+        <button class="refresh-btn" onclick="SpaceWeather.refresh()">REFRESH</button>
+    </footer>
+
+    <!-- ============================
+         IMAGE MODAL
+         ============================ -->
+    <div class="sw-image-modal" id="swImageModal" onclick="SpaceWeather.closeImageModal()">
+        <img id="swImageModalImg" src="" alt="Space weather imagery">
+    </div>
+
+    <!-- ============================
+         MODALS
+         ============================ -->
+    {% include 'partials/settings-modal.html' %}
+    {% include 'partials/help-modal.html' %}
+
+    <!-- ============================
+         SCRIPTS
+         ============================ -->
+    <script src="{{ url_for('static', filename='js/core/settings-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/updater.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/alerts.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/recordings.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/global-nav.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/space-weather.js') }}"></script>
+
+    <script>
+        // UTC Clock
+        function updateClock() {
+            var now = new Date();
+            var el = document.getElementById('utcTime');
+            if (el) el.textContent = now.toISOString().substring(11, 19) + ' UTC';
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+    </script>
+</body>
+</html>

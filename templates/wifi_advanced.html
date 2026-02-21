@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme|default('dark') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WIFI ANALYSIS // VALENTINE RF - See the Invisible</title>
+    <!-- Fonts - Conditional CDN/Local loading -->
+    {% if offline_settings and offline_settings.fonts_source == 'local' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts-local.css') }}">
+    {% else %}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    {% endif %}
+    <!-- Core CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global-nav.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/help-modal.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/wifi_advanced.css') }}">
+</head>
+<body>
+    <div class="radar-bg"></div>
+    <div class="scanline"></div>
+
+    <header class="header">
+        <div class="logo">
+            WIFI ANALYSIS
+            <span>// VALENTINE RF - See the Invisible</span>
+        </div>
+        <div class="status-bar">
+            <div class="scan-indicator" id="scanIndicator">
+                <span class="scan-dot"></span>
+                <span class="scan-label" id="scanStatusLabel">IDLE</span>
+            </div>
+        </div>
+    </header>
+
+    {% set active_mode = 'wifi' %}
+    {% include 'partials/nav.html' with context %}
+    {% include 'partials/settings-modal.html' %}
+    {% include 'partials/help-modal.html' %}
+
+    <!-- Stats Strip -->
+    <div class="stats-strip">
+        <div class="stats-strip-inner">
+            <div class="strip-stat">
+                <span class="strip-value" id="stripNetworks">0</span>
+                <span class="strip-label">NETWORKS</span>
+            </div>
+            <div class="strip-stat">
+                <span class="strip-value" id="stripClients">0</span>
+                <span class="strip-label">CLIENTS</span>
+            </div>
+            <div class="strip-stat">
+                <span class="strip-value" id="stripHidden">0</span>
+                <span class="strip-label">HIDDEN</span>
+            </div>
+            <div class="strip-stat">
+                <span class="strip-value" id="strip24">0</span>
+                <span class="strip-label">2.4 GHz</span>
+            </div>
+            <div class="strip-stat">
+                <span class="strip-value" id="strip5">0</span>
+                <span class="strip-label">5 GHz</span>
+            </div>
+            <div class="strip-stat">
+                <span class="strip-value" id="stripOpen">0</span>
+                <span class="strip-label">OPEN</span>
+            </div>
+            <div class="strip-stat">
+                <span class="strip-value" id="stripSecured">0</span>
+                <span class="strip-label">SECURED</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="wifi-layout">
+        <!-- Controls Panel -->
+        <div class="wifi-controls">
+            <div class="panel">
+                <div class="panel-header">
+                    <h3>Scanner Controls</h3>
+                    <span class="badge" id="capBadge">--</span>
+                </div>
+                <div class="panel-body">
+                    <!-- Interface selector -->
+                    <div class="control-group">
+                        <label class="control-label">Interface</label>
+                        <select id="interfaceSelect" class="control-select">
+                            <option value="">Auto-detect</option>
+                        </select>
+                    </div>
+
+                    <!-- Band selector -->
+                    <div class="control-group">
+                        <label class="control-label">Band</label>
+                        <div class="band-selector">
+                            <button class="band-btn active" data-band="all" onclick="WiFiAdv.setBand('all')">All</button>
+                            <button class="band-btn" data-band="2.4" onclick="WiFiAdv.setBand('2.4')">2.4 GHz</button>
+                            <button class="band-btn" data-band="5" onclick="WiFiAdv.setBand('5')">5 GHz</button>
+                        </div>
+                    </div>
+
+                    <!-- Channel selector (deep scan) -->
+                    <div class="control-group" id="channelGroup" style="display: none;">
+                        <label class="control-label">Channels</label>
+                        <input type="text" id="channelInput" class="control-input" placeholder="e.g. 1,6,11 or blank for all">
+                    </div>
+
+                    <!-- Scan buttons -->
+                    <div class="control-actions">
+                        <button class="btn btn-primary" id="quickScanBtn" onclick="WiFiAdv.quickScan()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>
+                            Quick Scan
+                        </button>
+                        <button class="btn btn-accent" id="deepScanBtn" onclick="WiFiAdv.toggleDeepScan()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            Start Deep Scan
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filters Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h3>Filters</h3>
+                    <button class="btn-sm" onclick="WiFiAdv.clearFilters()">Clear</button>
+                </div>
+                <div class="panel-body">
+                    <div class="control-group">
+                        <label class="control-label">Security</label>
+                        <select id="filterSecurity" class="control-select" onchange="WiFiAdv.applyFilters()">
+                            <option value="">All</option>
+                            <option value="open">Open</option>
+                            <option value="wep">WEP</option>
+                            <option value="wpa">WPA</option>
+                            <option value="wpa2">WPA2</option>
+                            <option value="wpa3">WPA3</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label">Min RSSI (dBm)</label>
+                        <input type="number" id="filterRssi" class="control-input" placeholder="-100" min="-100" max="0" onchange="WiFiAdv.applyFilters()">
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label">
+                            <input type="checkbox" id="filterHidden" onchange="WiFiAdv.applyFilters()">
+                            Show hidden only
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Export Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h3>Export</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="control-actions">
+                        <button class="btn btn-outline" onclick="WiFiAdv.exportData('json')">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            JSON
+                        </button>
+                        <button class="btn btn-outline" onclick="WiFiAdv.exportData('csv')">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            CSV
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Data Area -->
+        <div class="wifi-main">
+            <!-- Networks Table -->
+            <div class="panel panel-fill">
+                <div class="panel-header">
+                    <h3>Networks <span class="count-badge" id="networkCount">0</span></h3>
+                    <div class="panel-header-actions">
+                        <select id="networkSort" class="control-select-sm" onchange="WiFiAdv.sortNetworks()">
+                            <option value="rssi">Sort: Signal</option>
+                            <option value="ssid">Sort: SSID</option>
+                            <option value="channel">Sort: Channel</option>
+                            <option value="security">Sort: Security</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="networksTable">
+                        <thead>
+                            <tr>
+                                <th class="sortable" onclick="WiFiAdv.sortBy('ssid')">SSID</th>
+                                <th class="sortable" onclick="WiFiAdv.sortBy('bssid')">BSSID</th>
+                                <th class="sortable" onclick="WiFiAdv.sortBy('channel')">CH</th>
+                                <th class="sortable" onclick="WiFiAdv.sortBy('rssi')">RSSI</th>
+                                <th class="sortable" onclick="WiFiAdv.sortBy('security')">Security</th>
+                                <th class="sortable" onclick="WiFiAdv.sortBy('band')">Band</th>
+                                <th>Hidden</th>
+                            </tr>
+                        </thead>
+                        <tbody id="networksBody">
+                            <tr class="empty-row">
+                                <td colspan="7">
+                                    <div class="empty-state">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32"><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>
+                                        <p>No networks discovered yet</p>
+                                        <p class="empty-hint">Run a quick scan or start a deep scan to discover WiFi networks</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Clients Table -->
+            <div class="panel panel-fill">
+                <div class="panel-header">
+                    <h3>Clients <span class="count-badge" id="clientCount">0</span></h3>
+                    <div class="panel-header-actions">
+                        <label class="control-label-inline">
+                            <input type="checkbox" id="filterAssociated" onchange="WiFiAdv.loadClients()">
+                            Associated only
+                        </label>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="clientsTable">
+                        <thead>
+                            <tr>
+                                <th>MAC Address</th>
+                                <th>Vendor</th>
+                                <th>Associated AP</th>
+                                <th>RSSI</th>
+                                <th>Last Seen</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clientsBody">
+                            <tr class="empty-row">
+                                <td colspan="5">
+                                    <div class="empty-state">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                        <p>No clients detected</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Network Details Sidebar -->
+        <div class="wifi-detail" id="networkDetail">
+            <div class="panel">
+                <div class="panel-header">
+                    <h3>Network Details</h3>
+                    <button class="btn-close" onclick="WiFiAdv.closeDetail()">&times;</button>
+                </div>
+                <div class="panel-body" id="detailContent">
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        <p>Select a network to view details</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Inline JavaScript -->
+    <script>
+    (function() {
+        'use strict';
+
+        const API_BASE = '/wifi/v2';
+        let currentNetworks = [];
+        let currentClients = [];
+        let deepScanActive = false;
+        let currentSort = { field: 'rssi', order: 'desc' };
+        let currentBand = 'all';
+        let selectedNetwork = null;
+
+        const WiFiAdv = {
+            // ---------------------------------------------------------------
+            // Initialization
+            // ---------------------------------------------------------------
+            async init() {
+                await this.loadCapabilities();
+                this.startStatusPolling();
+            },
+
+            async loadCapabilities() {
+                try {
+                    const resp = await fetch(`${API_BASE}/capabilities`);
+                    if (!resp.ok) throw new Error('Failed to load capabilities');
+                    const caps = await resp.json();
+                    const sel = document.getElementById('interfaceSelect');
+                    if (caps.interfaces && caps.interfaces.length > 0) {
+                        caps.interfaces.forEach(iface => {
+                            const opt = document.createElement('option');
+                            opt.value = iface.name || iface;
+                            opt.textContent = iface.name || iface;
+                            sel.appendChild(opt);
+                        });
+                    }
+                    const badge = document.getElementById('capBadge');
+                    if (caps.tool) {
+                        badge.textContent = caps.tool;
+                        badge.classList.add('badge-active');
+                    } else {
+                        badge.textContent = 'No scanner';
+                        badge.classList.add('badge-warn');
+                    }
+                } catch (err) {
+                    console.warn('WiFi capabilities:', err);
+                    document.getElementById('capBadge').textContent = 'Offline';
+                }
+            },
+
+            // ---------------------------------------------------------------
+            // Quick Scan
+            // ---------------------------------------------------------------
+            async quickScan() {
+                const btn = document.getElementById('quickScanBtn');
+                btn.disabled = true;
+                btn.textContent = 'Scanning...';
+                this.setScanStatus('scanning');
+
+                try {
+                    const iface = document.getElementById('interfaceSelect').value;
+                    const body = { timeout: 15 };
+                    if (iface) body.interface = iface;
+
+                    const resp = await fetch(`${API_BASE}/scan/quick`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+
+                    if (!resp.ok) throw new Error('Quick scan failed');
+                    const data = await resp.json();
+                    if (data.networks) {
+                        currentNetworks = data.networks;
+                        this.renderNetworks();
+                    }
+                    if (data.clients) {
+                        currentClients = data.clients;
+                        this.renderClients();
+                    }
+                    this.updateStats();
+                    this.setScanStatus('complete');
+                } catch (err) {
+                    console.error('Quick scan error:', err);
+                    this.setScanStatus('error');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg> Quick Scan';
+                }
+            },
+
+            // ---------------------------------------------------------------
+            // Deep Scan
+            // ---------------------------------------------------------------
+            async toggleDeepScan() {
+                if (deepScanActive) {
+                    await this.stopDeepScan();
+                } else {
+                    await this.startDeepScan();
+                }
+            },
+
+            async startDeepScan() {
+                const iface = document.getElementById('interfaceSelect').value;
+                if (!iface) {
+                    alert('Please select an interface for deep scan');
+                    return;
+                }
+
+                const body = { interface: iface, band: currentBand };
+                const channelsInput = document.getElementById('channelInput').value.trim();
+                if (channelsInput) {
+                    body.channels = channelsInput.split(',').map(c => c.trim());
+                }
+
+                try {
+                    const resp = await fetch(`${API_BASE}/scan/start`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+
+                    if (!resp.ok) throw new Error('Failed to start deep scan');
+                    deepScanActive = true;
+                    this.updateDeepScanBtn();
+                    this.setScanStatus('scanning');
+                    document.getElementById('channelGroup').style.display = 'block';
+                } catch (err) {
+                    console.error('Start deep scan error:', err);
+                    this.setScanStatus('error');
+                }
+            },
+
+            async stopDeepScan() {
+                try {
+                    await fetch(`${API_BASE}/scan/stop`, { method: 'POST' });
+                    deepScanActive = false;
+                    this.updateDeepScanBtn();
+                    this.setScanStatus('idle');
+                } catch (err) {
+                    console.error('Stop deep scan error:', err);
+                }
+            },
+
+            updateDeepScanBtn() {
+                const btn = document.getElementById('deepScanBtn');
+                if (deepScanActive) {
+                    btn.classList.remove('btn-accent');
+                    btn.classList.add('btn-danger');
+                    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="6" y="6" width="12" height="12" rx="2"/></svg> Stop Deep Scan';
+                } else {
+                    btn.classList.remove('btn-danger');
+                    btn.classList.add('btn-accent');
+                    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Start Deep Scan';
+                }
+            },
+
+            // ---------------------------------------------------------------
+            // Band selection
+            // ---------------------------------------------------------------
+            setBand(band) {
+                currentBand = band;
+                document.querySelectorAll('.band-btn').forEach(b => b.classList.remove('active'));
+                document.querySelector(`.band-btn[data-band="${band}"]`).classList.add('active');
+                if (currentNetworks.length > 0) {
+                    this.renderNetworks();
+                }
+            },
+
+            // ---------------------------------------------------------------
+            // Filters
+            // ---------------------------------------------------------------
+            applyFilters() {
+                this.renderNetworks();
+            },
+
+            clearFilters() {
+                document.getElementById('filterSecurity').value = '';
+                document.getElementById('filterRssi').value = '';
+                document.getElementById('filterHidden').checked = false;
+                this.renderNetworks();
+            },
+
+            getFilteredNetworks() {
+                let nets = [...currentNetworks];
+                const sec = document.getElementById('filterSecurity').value;
+                const rssi = parseInt(document.getElementById('filterRssi').value);
+                const hidden = document.getElementById('filterHidden').checked;
+
+                if (currentBand !== 'all') {
+                    nets = nets.filter(n => {
+                        const ch = n.channel || 0;
+                        if (currentBand === '2.4') return ch >= 1 && ch <= 14;
+                        if (currentBand === '5') return ch >= 36;
+                        return true;
+                    });
+                }
+                if (sec) {
+                    nets = nets.filter(n => (n.security || '').toLowerCase().includes(sec.toLowerCase()));
+                }
+                if (!isNaN(rssi)) {
+                    nets = nets.filter(n => (n.rssi || -100) >= rssi);
+                }
+                if (hidden) {
+                    nets = nets.filter(n => n.hidden);
+                }
+
+                // Sort
+                nets.sort((a, b) => {
+                    let va = a[currentSort.field] || '';
+                    let vb = b[currentSort.field] || '';
+                    if (typeof va === 'number' && typeof vb === 'number') {
+                        return currentSort.order === 'asc' ? va - vb : vb - va;
+                    }
+                    va = String(va).toLowerCase();
+                    vb = String(vb).toLowerCase();
+                    const cmp = va.localeCompare(vb);
+                    return currentSort.order === 'asc' ? cmp : -cmp;
+                });
+
+                return nets;
+            },
+
+            // ---------------------------------------------------------------
+            // Sorting
+            // ---------------------------------------------------------------
+            sortBy(field) {
+                if (currentSort.field === field) {
+                    currentSort.order = currentSort.order === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSort.field = field;
+                    currentSort.order = field === 'rssi' ? 'desc' : 'asc';
+                }
+                this.renderNetworks();
+            },
+
+            sortNetworks() {
+                const val = document.getElementById('networkSort').value;
+                currentSort.field = val;
+                currentSort.order = val === 'rssi' ? 'desc' : 'asc';
+                this.renderNetworks();
+            },
+
+            // ---------------------------------------------------------------
+            // Render Networks
+            // ---------------------------------------------------------------
+            renderNetworks() {
+                const nets = this.getFilteredNetworks();
+                const tbody = document.getElementById('networksBody');
+                document.getElementById('networkCount').textContent = nets.length;
+
+                if (nets.length === 0) {
+                    tbody.innerHTML = `<tr class="empty-row"><td colspan="7">
+                        <div class="empty-state">
+                            <p>No networks match current filters</p>
+                        </div></td></tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = nets.map(n => {
+                    const ssid = n.ssid || '<hidden>';
+                    const hiddenClass = n.hidden ? ' class="text-dim"' : '';
+                    const signalClass = this.rssiClass(n.rssi);
+                    const bandLabel = (n.channel >= 36) ? '5 GHz' : '2.4 GHz';
+                    const bssid = n.bssid || '--';
+                    const security = n.security || 'Unknown';
+                    const secClass = security.toLowerCase().includes('open') ? 'sec-open' : 'sec-encrypted';
+                    const isSelected = selectedNetwork && selectedNetwork.bssid === n.bssid ? ' row-selected' : '';
+
+                    return `<tr class="data-row${isSelected}" onclick="WiFiAdv.selectNetwork('${bssid}')">
+                        <td${hiddenClass}>${this.escHtml(ssid)}</td>
+                        <td class="mono">${bssid}</td>
+                        <td class="center">${n.channel || '--'}</td>
+                        <td class="center ${signalClass}">${n.rssi != null ? n.rssi + ' dBm' : '--'}</td>
+                        <td class="${secClass}">${this.escHtml(security)}</td>
+                        <td class="center">${bandLabel}</td>
+                        <td class="center">${n.hidden ? '<span class="badge-hidden">YES</span>' : '--'}</td>
+                    </tr>`;
+                }).join('');
+            },
+
+            // ---------------------------------------------------------------
+            // Render Clients
+            // ---------------------------------------------------------------
+            renderClients() {
+                const tbody = document.getElementById('clientsBody');
+                const associated = document.getElementById('filterAssociated').checked;
+                let clients = [...currentClients];
+                if (associated) {
+                    clients = clients.filter(c => c.associated_ap || c.bssid);
+                }
+                document.getElementById('clientCount').textContent = clients.length;
+
+                if (clients.length === 0) {
+                    tbody.innerHTML = `<tr class="empty-row"><td colspan="5">
+                        <div class="empty-state"><p>No clients detected</p></div></td></tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = clients.map(c => {
+                    const mac = c.mac || c.address || '--';
+                    const vendor = c.vendor || '--';
+                    const ap = c.associated_ap || c.bssid || '<unassociated>';
+                    const rssi = c.rssi != null ? c.rssi + ' dBm' : '--';
+                    const seen = c.last_seen ? new Date(c.last_seen).toLocaleTimeString() : '--';
+                    return `<tr class="data-row">
+                        <td class="mono">${mac}</td>
+                        <td>${this.escHtml(vendor)}</td>
+                        <td class="mono">${ap}</td>
+                        <td class="center ${this.rssiClass(c.rssi)}">${rssi}</td>
+                        <td class="center">${seen}</td>
+                    </tr>`;
+                }).join('');
+            },
+
+            // ---------------------------------------------------------------
+            // Load clients from API
+            // ---------------------------------------------------------------
+            async loadClients() {
+                try {
+                    const associated = document.getElementById('filterAssociated').checked;
+                    let url = `${API_BASE}/clients?sort=rssi&order=desc`;
+                    if (associated) url += '&associated=true';
+
+                    const resp = await fetch(url);
+                    if (!resp.ok) return;
+                    const data = await resp.json();
+                    currentClients = data.clients || data || [];
+                    this.renderClients();
+                } catch (err) {
+                    console.warn('Load clients error:', err);
+                }
+            },
+
+            // ---------------------------------------------------------------
+            // Network Detail
+            // ---------------------------------------------------------------
+            selectNetwork(bssid) {
+                selectedNetwork = currentNetworks.find(n => n.bssid === bssid) || null;
+                this.renderNetworks();
+                this.renderDetail();
+            },
+
+            renderDetail() {
+                const el = document.getElementById('detailContent');
+                if (!selectedNetwork) {
+                    el.innerHTML = `<div class="empty-state">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        <p>Select a network to view details</p></div>`;
+                    return;
+                }
+
+                const n = selectedNetwork;
+                const bandLabel = (n.channel >= 36) ? '5 GHz' : '2.4 GHz';
+                const secClass = (n.security || '').toLowerCase().includes('open') ? 'sec-open' : 'sec-encrypted';
+                const signalPct = Math.min(100, Math.max(0, 100 + (n.rssi || -100)));
+                const signalColor = signalPct > 66 ? 'var(--accent-green)' : signalPct > 33 ? 'var(--accent-orange)' : 'var(--accent-red)';
+
+                el.innerHTML = `
+                    <div class="detail-ssid">${this.escHtml(n.ssid || '<hidden>')}</div>
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <span class="detail-label">BSSID</span>
+                            <span class="detail-value mono">${n.bssid || '--'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Channel</span>
+                            <span class="detail-value">${n.channel || '--'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Band</span>
+                            <span class="detail-value">${bandLabel}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Security</span>
+                            <span class="detail-value ${secClass}">${this.escHtml(n.security || 'Unknown')}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Frequency</span>
+                            <span class="detail-value">${n.frequency ? n.frequency + ' MHz' : '--'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Hidden</span>
+                            <span class="detail-value">${n.hidden ? 'Yes' : 'No'}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Vendor</span>
+                            <span class="detail-value">${this.escHtml(n.vendor || '--')}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Last Seen</span>
+                            <span class="detail-value">${n.last_seen ? new Date(n.last_seen).toLocaleString() : '--'}</span>
+                        </div>
+                    </div>
+                    <div class="detail-signal">
+                        <span class="detail-label">Signal Strength</span>
+                        <div class="signal-bar-track">
+                            <div class="signal-bar-fill" style="width:${signalPct}%; background:${signalColor};"></div>
+                        </div>
+                        <span class="detail-value ${this.rssiClass(n.rssi)}">${n.rssi != null ? n.rssi + ' dBm' : '--'}</span>
+                    </div>
+                `;
+            },
+
+            closeDetail() {
+                selectedNetwork = null;
+                this.renderNetworks();
+                this.renderDetail();
+            },
+
+            // ---------------------------------------------------------------
+            // Status polling
+            // ---------------------------------------------------------------
+            startStatusPolling() {
+                setInterval(async () => {
+                    try {
+                        const resp = await fetch(`${API_BASE}/scan/status`);
+                        if (!resp.ok) return;
+                        const status = await resp.json();
+                        if (status.scanning && !deepScanActive) {
+                            deepScanActive = true;
+                            this.updateDeepScanBtn();
+                            this.setScanStatus('scanning');
+                        } else if (!status.scanning && deepScanActive) {
+                            deepScanActive = false;
+                            this.updateDeepScanBtn();
+                            this.setScanStatus('idle');
+                        }
+
+                        // Refresh data periodically during deep scan
+                        if (deepScanActive) {
+                            await this.refreshData();
+                        }
+                    } catch (err) {
+                        // ignore polling errors
+                    }
+                }, 5000);
+            },
+
+            async refreshData() {
+                try {
+                    const params = new URLSearchParams();
+                    if (currentBand !== 'all') params.set('band', currentBand);
+                    params.set('sort', currentSort.field);
+                    params.set('order', currentSort.order);
+
+                    const resp = await fetch(`${API_BASE}/networks?${params}`);
+                    if (!resp.ok) return;
+                    const data = await resp.json();
+                    currentNetworks = data.networks || data || [];
+                    this.renderNetworks();
+                    this.updateStats();
+
+                    await this.loadClients();
+                } catch (err) {
+                    console.warn('Refresh data error:', err);
+                }
+            },
+
+            // ---------------------------------------------------------------
+            // Stats
+            // ---------------------------------------------------------------
+            updateStats() {
+                const nets = currentNetworks;
+                document.getElementById('stripNetworks').textContent = nets.length;
+                document.getElementById('stripClients').textContent = currentClients.length;
+                document.getElementById('stripHidden').textContent = nets.filter(n => n.hidden).length;
+                document.getElementById('strip24').textContent = nets.filter(n => (n.channel || 0) >= 1 && (n.channel || 0) <= 14).length;
+                document.getElementById('strip5').textContent = nets.filter(n => (n.channel || 0) >= 36).length;
+                document.getElementById('stripOpen').textContent = nets.filter(n => (n.security || '').toLowerCase().includes('open')).length;
+                document.getElementById('stripSecured').textContent = nets.filter(n => !(n.security || '').toLowerCase().includes('open')).length;
+            },
+
+            // ---------------------------------------------------------------
+            // Export
+            // ---------------------------------------------------------------
+            async exportData(format) {
+                try {
+                    const resp = await fetch(`${API_BASE}/export?format=${format}`);
+                    if (!resp.ok) throw new Error('Export failed');
+                    const blob = await resp.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `wifi_scan_${new Date().toISOString().slice(0,19)}.${format}`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                } catch (err) {
+                    console.error('Export error:', err);
+                    alert('Export failed: ' + err.message);
+                }
+            },
+
+            // ---------------------------------------------------------------
+            // Scan status indicator
+            // ---------------------------------------------------------------
+            setScanStatus(state) {
+                const indicator = document.getElementById('scanIndicator');
+                const label = document.getElementById('scanStatusLabel');
+                indicator.className = 'scan-indicator';
+                switch (state) {
+                    case 'scanning':
+                        indicator.classList.add('scanning');
+                        label.textContent = 'SCANNING';
+                        break;
+                    case 'complete':
+                        indicator.classList.add('complete');
+                        label.textContent = 'COMPLETE';
+                        break;
+                    case 'error':
+                        indicator.classList.add('error');
+                        label.textContent = 'ERROR';
+                        break;
+                    default:
+                        label.textContent = 'IDLE';
+                }
+            },
+
+            // ---------------------------------------------------------------
+            // Utility
+            // ---------------------------------------------------------------
+            rssiClass(rssi) {
+                if (rssi == null) return '';
+                if (rssi >= -50) return 'signal-strong';
+                if (rssi >= -70) return 'signal-good';
+                if (rssi >= -85) return 'signal-fair';
+                return 'signal-weak';
+            },
+
+            escHtml(str) {
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            }
+        };
+
+        // Expose globally
+        window.WiFiAdv = WiFiAdv;
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', () => WiFiAdv.init());
+    })();
+    </script>
+</body>
+</html>

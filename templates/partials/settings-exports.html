@@ -1,0 +1,92 @@
+<!-- Data Exports Section for Settings Modal -->
+<div id="settings-exports" class="settings-section">
+
+    <!-- Mode Data Exports -->
+    <div class="settings-group">
+        <div class="settings-group-title">Data Exports</div>
+        <p style="color: var(--text-dim); margin-bottom: 15px; font-size: 12px;">
+            Download captured signal data as JSON or CSV files.
+            Exports include all data currently stored for each mode.
+        </p>
+
+        <div id="dataExportsGrid" class="arm-exports-grid">
+            <!-- WiFi -->
+            <div class="arm-export-card">
+                <div class="arm-export-card-header">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="arm-export-icon"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+                    <span class="arm-export-mode-label">WiFi</span>
+                </div>
+                <div class="arm-export-card-actions">
+                    <button id="export-wifi-json" class="arm-btn arm-btn-export" onclick="DataExports.exportMode('wifi', 'json')">JSON</button>
+                    <button id="export-wifi-csv" class="arm-btn arm-btn-export" onclick="DataExports.exportMode('wifi', 'csv')">CSV</button>
+                </div>
+            </div>
+
+            <!-- Bluetooth -->
+            <div class="arm-export-card">
+                <div class="arm-export-card-header">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="arm-export-icon"><polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/></svg>
+                    <span class="arm-export-mode-label">Bluetooth</span>
+                </div>
+                <div class="arm-export-card-actions">
+                    <button id="export-bluetooth-json" class="arm-btn arm-btn-export" onclick="DataExports.exportMode('bluetooth', 'json')">JSON</button>
+                    <button id="export-bluetooth-csv" class="arm-btn arm-btn-export" onclick="DataExports.exportMode('bluetooth', 'csv')">CSV</button>
+                </div>
+            </div>
+
+            <!-- ADS-B -->
+            <div class="arm-export-card">
+                <div class="arm-export-card-header">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="arm-export-icon"><path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>
+                    <span class="arm-export-mode-label">ADS-B</span>
+                </div>
+                <div class="arm-export-card-actions">
+                    <button id="export-adsb-json" class="arm-btn arm-btn-export" onclick="DataExports.exportMode('adsb', 'json')">JSON</button>
+                    <button id="export-adsb-csv" class="arm-btn arm-btn-export" onclick="DataExports.exportMode('adsb', 'csv')">CSV</button>
+                </div>
+            </div>
+
+            <!-- AIS -->
+            <div class="arm-export-card">
+                <div class="arm-export-card-header">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="arm-export-icon"><circle cx="12" cy="5" r="3"/><line x1="12" y1="22" x2="12" y2="8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/></svg>
+                    <span class="arm-export-mode-label">AIS</span>
+                </div>
+                <div class="arm-export-card-actions">
+                    <button id="export-ais-json" class="arm-btn arm-btn-export" onclick="DataExports.exportMode('ais', 'json')">JSON</button>
+                    <button id="export-ais-csv" class="arm-btn arm-btn-export" onclick="DataExports.exportMode('ais', 'csv')">CSV</button>
+                </div>
+            </div>
+
+            <!-- Sensors -->
+            <div class="arm-export-card">
+                <div class="arm-export-card-header">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="arm-export-icon"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+                    <span class="arm-export-mode-label">Sensors</span>
+                </div>
+                <div class="arm-export-card-actions">
+                    <button id="export-sensor-json" class="arm-btn arm-btn-export" onclick="DataExports.exportMode('sensor', 'json')">JSON</button>
+                    <button id="export-sensor-csv" class="arm-btn arm-btn-export" onclick="DataExports.exportMode('sensor', 'csv')">CSV</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TSCM Report -->
+    <div class="settings-group">
+        <div class="settings-group-title">TSCM Report</div>
+        <p style="color: var(--text-dim); margin-bottom: 15px; font-size: 12px;">
+            Generate a comprehensive PDF report of counter-surveillance analysis,
+            including baseline comparisons, anomaly detections, and device tracking data.
+        </p>
+        <button id="exportTscmPdfBtn" class="arm-btn arm-btn-tscm-pdf" onclick="DataExports.exportTscmPdf()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width: 16px; height: 16px; vertical-align: -3px; margin-right: 8px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            Download TSCM PDF Report
+        </button>
+    </div>
+
+    <div class="settings-info">
+        <strong>Note:</strong> Exports contain data from the current session. For historical data,
+        use the ADS-B History profile with Postgres enabled via <code>docker compose --profile history</code>.
+    </div>
+</div>

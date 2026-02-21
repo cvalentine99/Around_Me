@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TSCM ADVANCED // Valentine RF - See the Invisible</title>
+    {% if offline_settings.fonts_source == 'local' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts-local.css') }}">
+    {% else %}
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700&display=swap" rel="stylesheet">
+    {% endif %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global-nav.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/help-modal.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tscm_dashboard.css') }}">
+</head>
+<body>
+    <div class="grid-bg"></div>
+    <div class="scanline"></div>
+
+    <header class="header">
+        <div class="logo">
+            TSCM ADVANCED
+            <span>// Valentine RF - Counter-Surveillance</span>
+        </div>
+        <div class="stats-badges">
+            <div class="stat-badge">
+                <span class="value threat-critical" id="statCritical">0</span>
+                <span class="label">critical</span>
+            </div>
+            <div class="stat-badge">
+                <span class="value threat-high" id="statHigh">0</span>
+                <span class="label">high</span>
+            </div>
+            <div class="stat-badge">
+                <span class="value threat-medium" id="statMedium">0</span>
+                <span class="label">medium</span>
+            </div>
+            <div class="stat-badge">
+                <span class="value threat-low" id="statLow">0</span>
+                <span class="label">low</span>
+            </div>
+        </div>
+        <div class="status-bar">
+            <div class="datetime" id="utcTime">--:--:-- UTC</div>
+        </div>
+    </header>
+
+    {% set active_mode = 'tscm' %}
+    {% include 'partials/nav.html' with context %}
+
+    <main class="tscm-dash">
+        <!-- Threat Summary Cards -->
+        <section class="threat-summary" id="threatSummary">
+            <div class="summary-card critical" onclick="filterThreats('critical')">
+                <div class="summary-count" id="sumCritical">0</div>
+                <div class="summary-label">CRITICAL</div>
+                <div class="summary-bar"><div class="bar-fill critical" id="barCritical" style="width:0%"></div></div>
+            </div>
+            <div class="summary-card high" onclick="filterThreats('high')">
+                <div class="summary-count" id="sumHigh">0</div>
+                <div class="summary-label">HIGH</div>
+                <div class="summary-bar"><div class="bar-fill high" id="barHigh" style="width:0%"></div></div>
+            </div>
+            <div class="summary-card medium" onclick="filterThreats('medium')">
+                <div class="summary-count" id="sumMedium">0</div>
+                <div class="summary-label">MEDIUM</div>
+                <div class="summary-bar"><div class="bar-fill medium" id="barMedium" style="width:0%"></div></div>
+            </div>
+            <div class="summary-card low" onclick="filterThreats('low')">
+                <div class="summary-count" id="sumLow">0</div>
+                <div class="summary-label">LOW</div>
+                <div class="summary-bar"><div class="bar-fill low" id="barLow" style="width:0%"></div></div>
+            </div>
+        </section>
+
+        <!-- Main Grid -->
+        <div class="tscm-grid">
+            <!-- Left Column: Threats & Findings -->
+            <div class="tscm-col-left">
+                <!-- Threat Manager -->
+                <div class="tscm-panel threats-panel">
+                    <div class="tscm-panel-hdr">
+                        <span class="hdr-title">THREAT MANAGER</span>
+                        <div class="hdr-controls">
+                            <select id="threatSeverityFilter" class="td-select" onchange="loadThreats()">
+                                <option value="">All Severities</option>
+                                <option value="critical">Critical</option>
+                                <option value="high">High</option>
+                                <option value="medium">Medium</option>
+                                <option value="low">Low</option>
+                            </select>
+                            <select id="threatAckFilter" class="td-select" onchange="loadThreats()">
+                                <option value="">All</option>
+                                <option value="false">Unacknowledged</option>
+                                <option value="true">Acknowledged</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="tscm-panel-body" id="threatList">
+                        <div class="td-empty">Loading threats...</div>
+                    </div>
+                </div>
+
+                <!-- Findings: High Interest & Correlations -->
+                <div class="tscm-panel findings-panel">
+                    <div class="tscm-panel-hdr">
+                        <span class="hdr-title">FINDINGS</span>
+                        <div class="hdr-tabs">
+                            <button class="tab-btn active" onclick="showFindingsTab('high-interest', this)">High Interest</button>
+                            <button class="tab-btn" onclick="showFindingsTab('correlations', this)">Correlations</button>
+                        </div>
+                    </div>
+                    <div class="tscm-panel-body">
+                        <div id="findingsHighInterest" class="findings-content active">
+                            <div class="td-empty">Loading...</div>
+                        </div>
+                        <div id="findingsCorrelations" class="findings-content" style="display:none;">
+                            <div class="td-empty">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Playbooks, Schedules, Reports -->
+            <div class="tscm-col-right">
+                <!-- Playbooks -->
+                <div class="tscm-panel playbooks-panel">
+                    <div class="tscm-panel-hdr">
+                        <span class="hdr-title">INVESTIGATION PLAYBOOKS</span>
+                        <span class="hdr-count" id="playbookCount"></span>
+                    </div>
+                    <div class="tscm-panel-body" id="playbookList">
+                        <div class="td-empty">Loading playbooks...</div>
+                    </div>
+                </div>
+
+                <!-- Scheduled Sweeps -->
+                <div class="tscm-panel schedules-panel">
+                    <div class="tscm-panel-hdr">
+                        <span class="hdr-title">SCHEDULED SWEEPS</span>
+                        <button class="td-btn primary small" onclick="showCreateSchedule()">+ NEW</button>
+                    </div>
+                    <div class="tscm-panel-body" id="scheduleList">
+                        <div class="td-empty">Loading schedules...</div>
+                    </div>
+                    <!-- Create Schedule Form (hidden by default) -->
+                    <div id="scheduleForm" class="schedule-form" style="display:none;">
+                        <div class="form-title">Create Sweep Schedule</div>
+                        <div class="form-group">
+                            <label>Name</label>
+                            <input type="text" id="schedName" class="td-input" placeholder="Evening check">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group" style="flex:1;">
+                                <label>Cron Expression</label>
+                                <input type="text" id="schedCron" class="td-input" placeholder="0 */4 * * *" title="Standard cron format">
+                            </div>
+                            <div class="form-group" style="flex:1;">
+                                <label>Sweep Type</label>
+                                <select id="schedType" class="td-select">
+                                    <option value="quick">Quick</option>
+                                    <option value="standard" selected>Standard</option>
+                                    <option value="full">Full</option>
+                                    <option value="wireless_cameras">Wireless Cameras</option>
+                                    <option value="body_worn">Body-Worn</option>
+                                    <option value="gps_trackers">GPS Trackers</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group" style="flex:1;">
+                                <label>Baseline ID (optional)</label>
+                                <input type="text" id="schedBaseline" class="td-input" placeholder="baseline_id">
+                            </div>
+                            <div class="form-group" style="flex:1;">
+                                <label>Zone (optional)</label>
+                                <input type="text" id="schedZone" class="td-input" placeholder="Zone name">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <label class="td-checkbox">
+                                <input type="checkbox" id="schedEnabled" checked> Enabled
+                            </label>
+                            <label class="td-checkbox">
+                                <input type="checkbox" id="schedNotify"> Notify on Threat
+                            </label>
+                        </div>
+                        <div class="form-group" id="schedEmailGroup" style="display:none;">
+                            <label>Notification Email</label>
+                            <input type="email" id="schedEmail" class="td-input" placeholder="alert@example.com">
+                        </div>
+                        <div class="form-actions">
+                            <button class="td-btn" onclick="hideScheduleForm()">Cancel</button>
+                            <button class="td-btn primary" onclick="createSchedule()">Create</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reports -->
+                <div class="tscm-panel reports-panel">
+                    <div class="tscm-panel-hdr">
+                        <span class="hdr-title">REPORTS</span>
+                    </div>
+                    <div class="tscm-panel-body">
+                        <div class="report-actions">
+                            <button class="td-btn report-btn" onclick="downloadJSONReport()">
+                                <span class="report-icon">{ }</span>
+                                <span>JSON Report</span>
+                                <span class="report-desc">Full raw threat data export</span>
+                            </button>
+                            <button class="td-btn report-btn" onclick="downloadPDFReport()">
+                                <span class="report-icon">PDF</span>
+                                <span>PDF Report</span>
+                                <span class="report-desc">Formatted report for stakeholders</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Threat Detail Modal -->
+    <div class="td-modal-overlay" id="threatModal" style="display:none;">
+        <div class="td-modal">
+            <button class="td-modal-close" onclick="closeThreatModal()">&times;</button>
+            <div class="td-modal-header" id="threatModalHeader">
+                <h3 id="threatModalTitle">Threat Details</h3>
+            </div>
+            <div class="td-modal-body" id="threatModalBody">
+            </div>
+            <div class="td-modal-footer">
+                <div class="form-group" style="flex:1;">
+                    <label>Notes</label>
+                    <textarea id="threatNotes" class="td-textarea" rows="3" placeholder="Investigation notes..."></textarea>
+                </div>
+                <div class="form-actions">
+                    <button class="td-btn" id="threatAckBtn" onclick="acknowledgeThreat()">Acknowledge</button>
+                    <button class="td-btn primary" onclick="saveThreatNotes()">Save Notes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Playbook Detail Modal -->
+    <div class="td-modal-overlay" id="playbookModal" style="display:none;">
+        <div class="td-modal td-modal-wide">
+            <button class="td-modal-close" onclick="closePlaybookModal()">&times;</button>
+            <div class="td-modal-header">
+                <h3 id="playbookModalTitle">Playbook</h3>
+            </div>
+            <div class="td-modal-body" id="playbookModalBody">
+            </div>
+        </div>
+    </div>
+
+    {% include 'partials/settings-modal.html' %}
+    {% include 'partials/help-modal.html' %}
+
+    <script src="{{ url_for('static', filename='js/core/settings-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/global-nav.js') }}"></script>
+
+    <script>
+        // ============================================
+        // State
+        // ============================================
+        let threats = [];
+        let selectedThreatId = null;
+        let allPlaybooks = [];
+
+        // ============================================
+        // Initialization
+        // ============================================
+        document.addEventListener('DOMContentLoaded', () => {
+            updateClock();
+            setInterval(updateClock, 1000);
+            loadThreatSummary();
+            loadThreats();
+            loadPlaybooks();
+            loadSchedules();
+            loadFindings();
+
+            // Toggle email field on notify checkbox
+            document.getElementById('schedNotify').addEventListener('change', function() {
+                document.getElementById('schedEmailGroup').style.display = this.checked ? '' : 'none';
+            });
+        });
+
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('utcTime').textContent =
+                now.toISOString().substring(11, 19) + ' UTC';
+        }
+
+        // ============================================
+        // Threat Summary
+        // ============================================
+        async function loadThreatSummary() {
+            try {
+                const resp = await fetch('/tscm/threats/summary');
+                const data = await resp.json();
+                const summary = data.summary || data;
+
+                const critical = summary.critical || 0;
+                const high = summary.high || 0;
+                const medium = summary.medium || 0;
+                const low = summary.low || 0;
+                const total = critical + high + medium + low || 1;
+
+                document.getElementById('sumCritical').textContent = critical;
+                document.getElementById('sumHigh').textContent = high;
+                document.getElementById('sumMedium').textContent = medium;
+                document.getElementById('sumLow').textContent = low;
+
+                document.getElementById('statCritical').textContent = critical;
+                document.getElementById('statHigh').textContent = high;
+                document.getElementById('statMedium').textContent = medium;
+                document.getElementById('statLow').textContent = low;
+
+                document.getElementById('barCritical').style.width = (critical / total * 100) + '%';
+                document.getElementById('barHigh').style.width = (high / total * 100) + '%';
+                document.getElementById('barMedium').style.width = (medium / total * 100) + '%';
+                document.getElementById('barLow').style.width = (low / total * 100) + '%';
+            } catch (err) {
+                console.error('Failed to load threat summary:', err);
+            }
+        }
+
+        function filterThreats(severity) {
+            document.getElementById('threatSeverityFilter').value = severity;
+            loadThreats();
+        }
+
+        // ============================================
+        // Threat Manager
+        // ============================================
+        async function loadThreats() {
+            const severity = document.getElementById('threatSeverityFilter').value;
+            const acknowledged = document.getElementById('threatAckFilter').value;
+
+            let url = '/tscm/threats?limit=100';
+            if (severity) url += `&severity=${severity}`;
+            if (acknowledged) url += `&acknowledged=${acknowledged}`;
+
+            try {
+                const resp = await fetch(url);
+                const data = await resp.json();
+                threats = data.threats || data || [];
+                renderThreats();
+            } catch (err) {
+                document.getElementById('threatList').innerHTML =
+                    '<div class="td-empty">Failed to load threats</div>';
+            }
+        }
+
+        function renderThreats() {
+            const container = document.getElementById('threatList');
+            if (!threats || threats.length === 0) {
+                container.innerHTML = '<div class="td-empty">No threats found</div>';
+                return;
+            }
+
+            container.innerHTML = threats.map(t => {
+                const sev = (t.severity || 'low').toLowerCase();
+                const acked = t.acknowledged ? 'acknowledged' : '';
+                const desc = t.description || t.threat_type || t.type || 'Unknown threat';
+                const time = t.detected_at || t.timestamp || '';
+                const displayTime = time ? formatTime(time) : '';
+                const id = t.threat_id || t.id;
+
+                return `
+                    <div class="threat-row ${sev} ${acked}" onclick="openThreatModal('${id}')">
+                        <div class="threat-severity-badge ${sev}">${sev.toUpperCase()}</div>
+                        <div class="threat-info">
+                            <div class="threat-desc">${escapeHTML(desc)}</div>
+                            <div class="threat-meta">
+                                ${t.device_name ? `<span class="meta-device">${escapeHTML(t.device_name)}</span>` : ''}
+                                ${displayTime ? `<span class="meta-time">${displayTime}</span>` : ''}
+                                ${t.sweep_id ? `<span class="meta-sweep">Sweep: ${t.sweep_id.substring(0, 8)}</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="threat-actions">
+                            ${!t.acknowledged ? `<button class="td-btn tiny ack-btn" onclick="event.stopPropagation(); quickAck('${id}')" title="Acknowledge">ACK</button>` : '<span class="ack-badge">ACK</span>'}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function openThreatModal(threatId) {
+            selectedThreatId = threatId;
+            const t = threats.find(x => (x.threat_id || x.id) === threatId);
+            if (!t) return;
+
+            const sev = (t.severity || 'low').toLowerCase();
+            document.getElementById('threatModalHeader').className = `td-modal-header ${sev}`;
+            document.getElementById('threatModalTitle').textContent = t.description || t.threat_type || 'Threat Details';
+
+            const body = document.getElementById('threatModalBody');
+            body.innerHTML = `
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <span class="detail-label">Severity</span>
+                        <span class="threat-severity-badge ${sev}">${sev.toUpperCase()}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Status</span>
+                        <span>${t.acknowledged ? 'Acknowledged' : 'Pending Review'}</span>
+                    </div>
+                    ${t.device_name ? `
+                    <div class="detail-item">
+                        <span class="detail-label">Device</span>
+                        <span>${escapeHTML(t.device_name)}</span>
+                    </div>` : ''}
+                    ${t.device_mac ? `
+                    <div class="detail-item">
+                        <span class="detail-label">MAC</span>
+                        <span class="mono">${escapeHTML(t.device_mac)}</span>
+                    </div>` : ''}
+                    ${t.protocol ? `
+                    <div class="detail-item">
+                        <span class="detail-label">Protocol</span>
+                        <span>${escapeHTML(t.protocol)}</span>
+                    </div>` : ''}
+                    ${t.frequency ? `
+                    <div class="detail-item">
+                        <span class="detail-label">Frequency</span>
+                        <span class="mono">${t.frequency} MHz</span>
+                    </div>` : ''}
+                    ${t.detected_at ? `
+                    <div class="detail-item">
+                        <span class="detail-label">Detected</span>
+                        <span>${formatTime(t.detected_at)}</span>
+                    </div>` : ''}
+                    ${t.sweep_id ? `
+                    <div class="detail-item">
+                        <span class="detail-label">Sweep ID</span>
+                        <span class="mono">${escapeHTML(t.sweep_id)}</span>
+                    </div>` : ''}
+                </div>
+                ${t.indicators && t.indicators.length > 0 ? `
+                <div class="detail-section">
+                    <h4>Indicators</h4>
+                    <div class="indicator-list">
+                        ${t.indicators.map(ind => `
+                            <div class="indicator-row">
+                                <span class="indicator-type-badge">${escapeHTML(ind.type || 'INFO')}</span>
+                                <span>${escapeHTML(ind.description || ind.value || '')}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>` : ''}
+                ${t.recommended_action ? `
+                <div class="detail-section">
+                    <h4>Recommended Action</h4>
+                    <p class="action-text">${escapeHTML(t.recommended_action)}</p>
+                </div>` : ''}
+            `;
+
+            document.getElementById('threatNotes').value = t.notes || '';
+            document.getElementById('threatAckBtn').style.display = t.acknowledged ? 'none' : '';
+            document.getElementById('threatModal').style.display = 'flex';
+        }
+
+        function closeThreatModal() {
+            document.getElementById('threatModal').style.display = 'none';
+            selectedThreatId = null;
+        }
+
+        async function quickAck(threatId) {
+            try {
+                await fetch(`/tscm/threats/${threatId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ acknowledged: true })
+                });
+                loadThreats();
+                loadThreatSummary();
+            } catch (err) {
+                console.error('Failed to acknowledge threat:', err);
+            }
+        }
+
+        async function acknowledgeThreat() {
+            if (!selectedThreatId) return;
+            try {
+                await fetch(`/tscm/threats/${selectedThreatId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ acknowledged: true })
+                });
+                closeThreatModal();
+                loadThreats();
+                loadThreatSummary();
+            } catch (err) {
+                alert('Failed to acknowledge: ' + err.message);
+            }
+        }
+
+        async function saveThreatNotes() {
+            if (!selectedThreatId) return;
+            const notes = document.getElementById('threatNotes').value;
+            try {
+                await fetch(`/tscm/threats/${selectedThreatId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ notes })
+                });
+                closeThreatModal();
+                loadThreats();
+            } catch (err) {
+                alert('Failed to save notes: ' + err.message);
+            }
+        }
+
+        // ============================================
+        // Findings
+        // ============================================
+        async function loadFindings() {
+            loadHighInterest();
+            loadCorrelations();
+        }
+
+        function showFindingsTab(tab, btn) {
+            document.querySelectorAll('.findings-content').forEach(el => el.style.display = 'none');
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tab === 'high-interest' ? 'findingsHighInterest' : 'findingsCorrelations').style.display = '';
+            btn.classList.add('active');
+        }
+
+        async function loadHighInterest() {
+            try {
+                const resp = await fetch('/tscm/findings/high-interest');
+                const data = await resp.json();
+                const devices = data.devices || data || [];
+                const container = document.getElementById('findingsHighInterest');
+
+                if (devices.length === 0) {
+                    container.innerHTML = '<div class="td-empty">No high-interest devices detected</div>';
+                    return;
+                }
+
+                container.innerHTML = devices.map(d => {
+                    const score = d.threat_score || d.score || 0;
+                    const scoreClass = score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low';
+                    return `
+                        <div class="finding-item">
+                            <div class="finding-header">
+                                <span class="finding-name">${escapeHTML(d.name || d.device_name || 'Unknown')}</span>
+                                <span class="finding-score ${scoreClass}">${score}</span>
+                            </div>
+                            <div class="finding-meta">
+                                ${d.protocol ? `<span class="protocol-tag">${d.protocol}</span>` : ''}
+                                ${d.mac ? `<span class="mono">${d.mac}</span>` : ''}
+                            </div>
+                            ${d.reasons && d.reasons.length > 0 ? `
+                                <div class="finding-reasons">
+                                    ${d.reasons.slice(0, 3).map(r => `<span class="reason-tag">${escapeHTML(r)}</span>`).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }).join('');
+            } catch (err) {
+                document.getElementById('findingsHighInterest').innerHTML =
+                    '<div class="td-empty">Failed to load findings</div>';
+            }
+        }
+
+        async function loadCorrelations() {
+            try {
+                const resp = await fetch('/tscm/findings/correlations');
+                const data = await resp.json();
+                const correlations = data.correlations || data || [];
+                const container = document.getElementById('findingsCorrelations');
+
+                if (correlations.length === 0) {
+                    container.innerHTML = '<div class="td-empty">No cross-protocol correlations found</div>';
+                    return;
+                }
+
+                container.innerHTML = correlations.map(c => `
+                    <div class="correlation-card">
+                        <div class="corr-header">
+                            <span class="corr-type">${escapeHTML(c.type || c.correlation_type || 'Cross-Protocol')}</span>
+                            <span class="corr-confidence">${(c.confidence || c.score || 0).toFixed(0)}%</span>
+                        </div>
+                        <div class="corr-devices">
+                            ${(c.devices || []).map(d => `<span class="corr-device">${escapeHTML(d.name || d)}</span>`).join(' <span class="corr-link-icon">&#x2194;</span> ')}
+                        </div>
+                        ${c.description ? `<div class="corr-desc">${escapeHTML(c.description)}</div>` : ''}
+                    </div>
+                `).join('');
+            } catch (err) {
+                document.getElementById('findingsCorrelations').innerHTML =
+                    '<div class="td-empty">Failed to load correlations</div>';
+            }
+        }
+
+        // ============================================
+        // Playbooks
+        // ============================================
+        async function loadPlaybooks() {
+            try {
+                const resp = await fetch('/tscm/playbooks');
+                const data = await resp.json();
+                allPlaybooks = data.playbooks || data || [];
+                document.getElementById('playbookCount').textContent = `(${allPlaybooks.length})`;
+                renderPlaybooks();
+            } catch (err) {
+                document.getElementById('playbookList').innerHTML =
+                    '<div class="td-empty">Failed to load playbooks</div>';
+            }
+        }
+
+        function renderPlaybooks() {
+            const container = document.getElementById('playbookList');
+            if (allPlaybooks.length === 0) {
+                container.innerHTML = '<div class="td-empty">No playbooks available</div>';
+                return;
+            }
+
+            container.innerHTML = allPlaybooks.map(pb => {
+                const risk = (pb.risk_level || pb.category || 'informational').toLowerCase();
+                const riskLabel = risk.replace(/_/g, ' ').toUpperCase();
+                return `
+                    <div class="playbook-card" onclick="openPlaybook('${pb.id || pb.playbook_id}')">
+                        <div class="pb-header">
+                            <span class="pb-title">${escapeHTML(pb.name || pb.title)}</span>
+                            <span class="pb-risk ${risk}">${riskLabel}</span>
+                        </div>
+                        <div class="pb-desc">${escapeHTML(pb.description || '')}</div>
+                        ${pb.steps ? `<div class="pb-steps-count">${pb.steps.length || 0} steps</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function openPlaybook(pbId) {
+            try {
+                const resp = await fetch(`/tscm/playbooks/${pbId}`);
+                const pb = await resp.json();
+
+                document.getElementById('playbookModalTitle').textContent = pb.name || pb.title || 'Playbook';
+
+                const body = document.getElementById('playbookModalBody');
+                body.innerHTML = `
+                    <div class="pb-detail-desc">${escapeHTML(pb.description || '')}</div>
+                    ${pb.category ? `<div class="pb-detail-category"><span class="protocol-tag">${escapeHTML(pb.category)}</span></div>` : ''}
+                    ${pb.risk_level ? `<div class="pb-detail-risk"><span class="pb-risk ${(pb.risk_level || '').toLowerCase()}">${(pb.risk_level || '').replace(/_/g, ' ').toUpperCase()}</span></div>` : ''}
+                    <div class="pb-steps-list">
+                        <h4>Procedure Steps</h4>
+                        ${(pb.steps || []).map((step, idx) => `
+                            <div class="pb-step">
+                                <div class="pb-step-num">${idx + 1}</div>
+                                <div class="pb-step-content">
+                                    <div class="pb-step-title">${escapeHTML(step.title || step.name || `Step ${idx + 1}`)}</div>
+                                    <div class="pb-step-desc">${escapeHTML(step.description || step.action || step.text || '')}</div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    ${pb.notes || pb.warning ? `
+                    <div class="pb-warning">
+                        ${escapeHTML(pb.notes || pb.warning)}
+                    </div>` : ''}
+                `;
+
+                document.getElementById('playbookModal').style.display = 'flex';
+            } catch (err) {
+                alert('Failed to load playbook details');
+            }
+        }
+
+        function closePlaybookModal() {
+            document.getElementById('playbookModal').style.display = 'none';
+        }
+
+        // ============================================
+        // Scheduled Sweeps
+        // ============================================
+        async function loadSchedules() {
+            try {
+                const resp = await fetch('/tscm/schedules');
+                const data = await resp.json();
+                const schedules = data.schedules || data || [];
+                renderSchedules(schedules);
+            } catch (err) {
+                document.getElementById('scheduleList').innerHTML =
+                    '<div class="td-empty">Failed to load schedules</div>';
+            }
+        }
+
+        function renderSchedules(schedules) {
+            const container = document.getElementById('scheduleList');
+            if (schedules.length === 0) {
+                container.innerHTML = '<div class="td-empty">No scheduled sweeps. Create one to automate your TSCM monitoring.</div>';
+                return;
+            }
+
+            container.innerHTML = schedules.map(s => {
+                const id = s.schedule_id || s.id;
+                const enabled = s.enabled !== false;
+                return `
+                    <div class="schedule-row ${enabled ? 'enabled' : 'disabled'}">
+                        <div class="sched-info">
+                            <div class="sched-name">${escapeHTML(s.name)}</div>
+                            <div class="sched-meta">
+                                <span class="mono">${escapeHTML(s.cron_expression || s.cron || '')}</span>
+                                <span class="sched-type-badge">${escapeHTML(s.sweep_type || 'standard')}</span>
+                            </div>
+                        </div>
+                        <div class="sched-actions">
+                            <label class="td-toggle small" title="Enable/Disable">
+                                <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleSchedule('${id}', this.checked)">
+                                <span class="toggle-slider-sm"></span>
+                            </label>
+                            <button class="td-btn tiny primary" onclick="runScheduleNow('${id}')" title="Run Now">RUN</button>
+                            <button class="td-btn tiny danger" onclick="deleteSchedule('${id}')" title="Delete">&times;</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function showCreateSchedule() {
+            document.getElementById('scheduleForm').style.display = '';
+        }
+
+        function hideScheduleForm() {
+            document.getElementById('scheduleForm').style.display = 'none';
+        }
+
+        async function createSchedule() {
+            const payload = {
+                name: document.getElementById('schedName').value,
+                cron_expression: document.getElementById('schedCron').value,
+                sweep_type: document.getElementById('schedType').value,
+                enabled: document.getElementById('schedEnabled').checked,
+                notify_on_threat: document.getElementById('schedNotify').checked,
+            };
+
+            const baseline = document.getElementById('schedBaseline').value;
+            if (baseline) payload.baseline_id = baseline;
+
+            const zone = document.getElementById('schedZone').value;
+            if (zone) payload.zone_name = zone;
+
+            if (payload.notify_on_threat) {
+                const email = document.getElementById('schedEmail').value;
+                if (email) payload.notify_email = email;
+            }
+
+            if (!payload.name || !payload.cron_expression) {
+                alert('Name and cron expression are required');
+                return;
+            }
+
+            try {
+                const resp = await fetch('/tscm/schedules', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    hideScheduleForm();
+                    loadSchedules();
+                    // Clear form
+                    document.getElementById('schedName').value = '';
+                    document.getElementById('schedCron').value = '';
+                } else {
+                    alert(data.error || data.message || 'Failed to create schedule');
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        async function toggleSchedule(scheduleId, enabled) {
+            try {
+                await fetch(`/tscm/schedules/${scheduleId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled })
+                });
+            } catch (err) {
+                console.error('Failed to toggle schedule:', err);
+                loadSchedules();
+            }
+        }
+
+        async function runScheduleNow(scheduleId) {
+            try {
+                await fetch(`/tscm/schedules/${scheduleId}/run`, { method: 'POST' });
+                alert('Sweep triggered');
+            } catch (err) {
+                alert('Failed to trigger sweep');
+            }
+        }
+
+        async function deleteSchedule(scheduleId) {
+            if (!confirm('Delete this schedule?')) return;
+            try {
+                await fetch(`/tscm/schedules/${scheduleId}`, { method: 'DELETE' });
+                loadSchedules();
+            } catch (err) {
+                alert('Failed to delete schedule');
+            }
+        }
+
+        // ============================================
+        // Reports
+        // ============================================
+        async function downloadJSONReport() {
+            try {
+                const resp = await fetch('/tscm/report');
+                const data = await resp.json();
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `tscm_report_${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                alert('Failed to generate JSON report');
+            }
+        }
+
+        function downloadPDFReport() {
+            window.open('/tscm/report/pdf', '_blank');
+        }
+
+        // ============================================
+        // Utilities
+        // ============================================
+        function formatTime(timeStr) {
+            if (!timeStr) return '';
+            try {
+                const d = new Date(timeStr);
+                return d.toLocaleString('en-GB', {
+                    month: 'short', day: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                });
+            } catch (e) {
+                return timeStr;
+            }
+        }
+
+        function escapeHTML(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // Close modals on escape
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                closeThreatModal();
+                closePlaybookModal();
+            }
+        });
+
+        // Close modals on background click
+        document.querySelectorAll('.td-modal-overlay').forEach(overlay => {
+            overlay.addEventListener('click', e => {
+                if (e.target === overlay) {
+                    overlay.style.display = 'none';
+                    selectedThreatId = null;
+                }
+            });
+        });
+    </script>
+</body>
+</html>

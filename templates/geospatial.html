@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GEOSPATIAL MAP // Valentine RF - See the Invisible</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <!-- Fonts - Conditional CDN/Local loading -->
+    {% if offline_settings.fonts_source == 'local' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts-local.css') }}">
+    {% else %}
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    {% endif %}
+    <!-- Leaflet.js - Conditional CDN/Local loading -->
+    {% if offline_settings.assets_source == 'local' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet/leaflet.css') }}">
+    <script src="{{ url_for('static', filename='vendor/leaflet/leaflet.js') }}"></script>
+    {% else %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    {% endif %}
+    <!-- Core CSS variables -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global-nav.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/help-modal.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/geospatial.css') }}">
+    <script>
+        window.VALENTINE_SHARED_OBSERVER_LOCATION = {{ shared_observer_location | tojson }};
+        window.VALENTINE_DEFAULT_LAT = {{ default_latitude | tojson }};
+        window.VALENTINE_DEFAULT_LON = {{ default_longitude | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/core/observer-location.js') }}"></script>
+</head>
+<body>
+    <!-- Subtle grid background -->
+    <div class="geo-grid-bg"></div>
+
+    <!-- Header -->
+    <header class="geo-header">
+        <div class="geo-logo">
+            GEOSPATIAL MAP
+            <span>// Valentine RF - See the Invisible</span>
+        </div>
+        <div class="geo-header-status">
+            <div class="geo-status-item">
+                <div class="geo-status-dot" id="geoStatusDot"></div>
+                <span id="geoStatusText">INITIALIZING</span>
+            </div>
+            <div class="geo-datetime" id="geoUtcTime">--:--:-- UTC</div>
+        </div>
+    </header>
+
+    {% set active_mode = 'geospatial' %}
+    {% include 'partials/nav.html' with context %}
+
+    <!-- Full-screen map container -->
+    <div id="geoMapContainer" class="geo-map-container">
+        <div id="geoMap" class="geo-map"></div>
+
+        <!-- Layer toggle panel (top-right) -->
+        <div class="geo-layer-panel" id="geoLayerPanel">
+            <div class="geo-layer-panel-header" onclick="Geospatial.toggleLayerPanel()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                    <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+                    <polyline points="2 17 12 22 22 17"/>
+                    <polyline points="2 12 12 17 22 12"/>
+                </svg>
+                <span>LAYERS</span>
+                <svg class="geo-layer-chevron" id="layerChevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                    <polyline points="6 9 12 15 18 9"/>
+                </svg>
+            </div>
+            <div class="geo-layer-panel-body" id="layerPanelBody">
+                <label class="geo-layer-toggle">
+                    <input type="checkbox" id="layerAircraft" checked onchange="Geospatial.toggleLayer('aircraft', this.checked)">
+                    <span class="geo-layer-swatch" style="background: #60a5fa;"></span>
+                    <span class="geo-layer-label">Aircraft (ADS-B)</span>
+                    <span class="geo-layer-count" id="countAircraft">0</span>
+                </label>
+                <label class="geo-layer-toggle">
+                    <input type="checkbox" id="layerVessels" checked onchange="Geospatial.toggleLayer('vessels', this.checked)">
+                    <span class="geo-layer-swatch" style="background: #2dd4bf;"></span>
+                    <span class="geo-layer-label">Vessels (AIS)</span>
+                    <span class="geo-layer-count" id="countVessels">0</span>
+                </label>
+                <label class="geo-layer-toggle">
+                    <input type="checkbox" id="layerMesh" checked onchange="Geospatial.toggleLayer('mesh', this.checked)">
+                    <span class="geo-layer-swatch" style="background: #a78bfa;"></span>
+                    <span class="geo-layer-label">Mesh Nodes</span>
+                    <span class="geo-layer-count" id="countMesh">0</span>
+                </label>
+                <label class="geo-layer-toggle">
+                    <input type="checkbox" id="layerSatellites" checked onchange="Geospatial.toggleLayer('satellites', this.checked)">
+                    <span class="geo-layer-swatch" style="background: #fbbf24;"></span>
+                    <span class="geo-layer-label">Satellites</span>
+                    <span class="geo-layer-count" id="countSatellites">0</span>
+                </label>
+                <label class="geo-layer-toggle">
+                    <input type="checkbox" id="layerReceivers" checked onchange="Geospatial.toggleLayer('receivers', this.checked)">
+                    <span class="geo-layer-swatch" style="background: #34d399;"></span>
+                    <span class="geo-layer-label">WebSDR Receivers</span>
+                    <span class="geo-layer-count" id="countReceivers">0</span>
+                </label>
+                <label class="geo-layer-toggle">
+                    <input type="checkbox" id="layerTrilaterated" checked onchange="Geospatial.toggleLayer('trilaterated', this.checked)">
+                    <span class="geo-layer-swatch" style="background: #f87171;"></span>
+                    <span class="geo-layer-label">Trilaterated Devices</span>
+                    <span class="geo-layer-count" id="countTrilaterated">0</span>
+                </label>
+                <label class="geo-layer-toggle">
+                    <input type="checkbox" id="layerBtTrail" checked onchange="Geospatial.toggleLayer('btTrail', this.checked)">
+                    <span class="geo-layer-swatch" style="background: #fb923c;"></span>
+                    <span class="geo-layer-label">BT Locate Trail</span>
+                    <span class="geo-layer-count" id="countBtTrail">0</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Info / Stats panel (bottom-left) -->
+        <div class="geo-info-panel" id="geoInfoPanel">
+            <div class="geo-info-header" onclick="Geospatial.toggleInfoPanel()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                </svg>
+                <span>INTEL SUMMARY</span>
+                <svg class="geo-info-chevron" id="infoChevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                    <polyline points="18 15 12 9 6 15"/>
+                </svg>
+            </div>
+            <div class="geo-info-body" id="infoPanelBody">
+                <div class="geo-info-grid">
+                    <div class="geo-info-stat">
+                        <span class="geo-info-value" id="infoAircraft">0</span>
+                        <span class="geo-info-label">Aircraft</span>
+                    </div>
+                    <div class="geo-info-stat">
+                        <span class="geo-info-value" id="infoVessels">0</span>
+                        <span class="geo-info-label">Vessels</span>
+                    </div>
+                    <div class="geo-info-stat">
+                        <span class="geo-info-value" id="infoMesh">0</span>
+                        <span class="geo-info-label">Mesh</span>
+                    </div>
+                    <div class="geo-info-stat">
+                        <span class="geo-info-value" id="infoSatellites">0</span>
+                        <span class="geo-info-label">Satellites</span>
+                    </div>
+                    <div class="geo-info-stat">
+                        <span class="geo-info-value" id="infoReceivers">0</span>
+                        <span class="geo-info-label">Receivers</span>
+                    </div>
+                    <div class="geo-info-stat">
+                        <span class="geo-info-value" id="infoTrilaterated">0</span>
+                        <span class="geo-info-label">Trilaterated</span>
+                    </div>
+                    <div class="geo-info-stat">
+                        <span class="geo-info-value" id="infoBtTrail">0</span>
+                        <span class="geo-info-label">BT Trail</span>
+                    </div>
+                    <div class="geo-info-stat">
+                        <span class="geo-info-value" id="infoTotal">0</span>
+                        <span class="geo-info-label">Total</span>
+                    </div>
+                </div>
+                <div class="geo-info-observer" id="geoObserverInfo">
+                    <span class="geo-info-observer-label">Observer:</span>
+                    <span class="geo-info-observer-coords" id="geoObserverCoords">--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Legend panel (bottom-right) -->
+        <div class="geo-legend-panel" id="geoLegendPanel">
+            <div class="geo-legend-header" onclick="Geospatial.toggleLegendPanel()">
+                <span>LEGEND</span>
+                <svg class="geo-legend-chevron" id="legendChevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                    <polyline points="18 15 12 9 6 15"/>
+                </svg>
+            </div>
+            <div class="geo-legend-body" id="legendPanelBody">
+                <div class="geo-legend-item">
+                    <span class="geo-legend-icon" style="color: #60a5fa;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
+                        </svg>
+                    </span>
+                    <span>Aircraft - color by altitude</span>
+                </div>
+                <div class="geo-legend-item">
+                    <span class="geo-legend-icon" style="color: #2dd4bf;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <path d="M3 18l2 2h14l2-2"/><path d="M5 18v-4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v4"/><path d="M12 12V6"/>
+                        </svg>
+                    </span>
+                    <span>Vessels (AIS)</span>
+                </div>
+                <div class="geo-legend-item">
+                    <span class="geo-legend-icon" style="color: #a78bfa;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+                        </svg>
+                    </span>
+                    <span>Mesh Nodes (Meshtastic)</span>
+                </div>
+                <div class="geo-legend-item">
+                    <span class="geo-legend-icon" style="color: #fbbf24;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <path d="M13 7L9 3 5 7l4 4"/><path d="m17 11 4 4-4 4-4-4"/><path d="m8 12 4 4 6-6-4-4-6 6"/>
+                        </svg>
+                    </span>
+                    <span>Satellites - orbit tracks</span>
+                </div>
+                <div class="geo-legend-item">
+                    <span class="geo-legend-icon" style="color: #34d399;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49"/>
+                        </svg>
+                    </span>
+                    <span>WebSDR Receivers</span>
+                </div>
+                <div class="geo-legend-item">
+                    <span class="geo-legend-icon" style="color: #f87171;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <circle cx="12" cy="12" r="10"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="12" y1="4" x2="12" y2="20"/>
+                        </svg>
+                    </span>
+                    <span>Trilaterated Devices</span>
+                </div>
+                <div class="geo-legend-item">
+                    <span class="geo-legend-icon" style="color: #fb923c;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>
+                        </svg>
+                    </span>
+                    <span>BT Locate Trail</span>
+                </div>
+                <div class="geo-legend-divider"></div>
+                <div class="geo-legend-item">
+                    <span class="geo-legend-icon" style="color: #c084fc;">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                            <circle cx="12" cy="12" r="6"/>
+                        </svg>
+                    </span>
+                    <span>Observer Location</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings & Help modals -->
+    {% include 'partials/settings-modal.html' %}
+    {% include 'partials/help-modal.html' %}
+
+    <!-- Core JS -->
+    <script src="{{ url_for('static', filename='js/core/settings-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/geospatial.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            Geospatial.init();
+        });
+    </script>
+</body>
+</html>

@@ -17,6 +17,7 @@
             <button class="settings-tab" data-tab="tools" onclick="switchSettingsTab('tools')">Tools</button>
             <button class="settings-tab" data-tab="alerts" onclick="switchSettingsTab('alerts')">Alerts</button>
             <button class="settings-tab" data-tab="recording" onclick="switchSettingsTab('recording')">Recording</button>
+            <button class="settings-tab" data-tab="exports" onclick="switchSettingsTab('exports')">Exports</button>
             <button class="settings-tab" data-tab="about" onclick="switchSettingsTab('about')">About</button>
         </div>
 
@@ -282,11 +283,11 @@
             </div>
         </div>
 
-        <!-- Alerts Section -->
+        <!-- Alerts Section (Enhanced) -->
         <div id="settings-alerts" class="settings-section">
             <div class="settings-group">
                 <div class="settings-group-title">Alert Feed <span id="alertsFeedCount" style="color: var(--text-dim); font-weight: 500;"></span></div>
-                <div id="alertsFeedList" class="settings-feed">
+                <div id="alertsFeedList" class="settings-feed" style="max-height: 200px; overflow-y: auto;">
                     <div class="settings-feed-empty">No alerts yet</div>
                 </div>
             </div>
@@ -297,8 +298,103 @@
                     <button class="check-assets-btn" onclick="AlertCenter.enableTrackerAlerts()">Enable Tracker Alerts</button>
                     <button class="check-assets-btn" onclick="AlertCenter.disableTrackerAlerts()">Disable Tracker Alerts</button>
                 </div>
-                <div class="settings-info" style="margin-top: 10px;">
-                    Use Bluetooth device details to add specific device watchlist alerts.
+            </div>
+
+            <div class="settings-group">
+                <div class="settings-group-title">Alert Rules <span id="alertRulesCount" style="color: var(--text-dim); font-weight: 500;"></span></div>
+                <div id="alertRulesList" class="settings-feed" style="max-height: 250px; overflow-y: auto;">
+                    <div class="settings-feed-empty">Loading rules...</div>
+                </div>
+                <button class="check-assets-btn" onclick="AlertRulesUI.showCreateForm()" style="margin-top: 10px;">+ Create Rule</button>
+            </div>
+
+            <!-- Create Rule Form (hidden by default) -->
+            <div class="settings-group" id="createRuleForm" style="display: none;">
+                <div class="settings-group-title">New Alert Rule</div>
+                <div class="settings-row" style="border-bottom: none;">
+                    <div class="settings-label"><span class="settings-label-text">Name</span></div>
+                    <input type="text" id="ruleNameInput" class="settings-input" placeholder="Rule name" style="width: 200px;">
+                </div>
+                <div class="settings-row" style="border-bottom: none;">
+                    <div class="settings-label"><span class="settings-label-text">Mode</span></div>
+                    <select id="ruleModeSelect" class="settings-select" style="width: 200px;">
+                        <option value="pager">Pager</option>
+                        <option value="sensor">433 Sensors</option>
+                        <option value="wifi">WiFi</option>
+                        <option value="bluetooth">Bluetooth</option>
+                        <option value="adsb">ADS-B</option>
+                        <option value="ais">AIS</option>
+                        <option value="acars">ACARS</option>
+                        <option value="aprs">APRS</option>
+                        <option value="dsc">DSC</option>
+                        <option value="dmr">DMR</option>
+                        <option value="tscm">TSCM</option>
+                        <option value="meshtastic">Meshtastic</option>
+                        <option value="subghz">Sub-GHz</option>
+                        <option value="vdl2">VDL2</option>
+                    </select>
+                </div>
+                <div class="settings-row" style="border-bottom: none;">
+                    <div class="settings-label"><span class="settings-label-text">Event Type</span></div>
+                    <input type="text" id="ruleEventTypeInput" class="settings-input" placeholder="device_update" style="width: 200px;">
+                </div>
+                <div class="settings-row" style="border-bottom: none;">
+                    <div class="settings-label"><span class="settings-label-text">Severity</span></div>
+                    <select id="ruleSeveritySelect" class="settings-select" style="width: 200px;">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                </div>
+                <div class="settings-row" style="border-bottom: none;">
+                    <div class="settings-label">
+                        <span class="settings-label-text">Match (JSON)</span>
+                        <span class="settings-label-desc">e.g. {"is_tracker": true}</span>
+                    </div>
+                    <textarea id="ruleMatchInput" class="settings-input" placeholder='{"key": "value"}' style="width: 200px; height: 60px; font-family: var(--font-mono); font-size: 11px; resize: vertical;"></textarea>
+                </div>
+                <div class="settings-row" style="border-bottom: none;">
+                    <div class="settings-label"><span class="settings-label-text">Enabled</span></div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="ruleEnabledInput" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button class="check-assets-btn" style="background: var(--accent-cyan); color: #000;" onclick="AlertRulesUI.createRule()">Save Rule</button>
+                    <button class="check-assets-btn" onclick="AlertRulesUI.hideCreateForm()">Cancel</button>
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <div class="settings-group-title">Notification Settings</div>
+                <div class="settings-row">
+                    <div class="settings-label">
+                        <span class="settings-label-text">Webhook URL</span>
+                        <span class="settings-label-desc">POST alerts to external endpoint</span>
+                    </div>
+                    <input type="text" id="webhookUrlInput" class="settings-input" placeholder="https://hooks.example.com/..." style="width: 250px;" onchange="AlertRulesUI.saveWebhookUrl(this.value)">
+                </div>
+                <div class="settings-row">
+                    <div class="settings-label">
+                        <span class="settings-label-text">Critical Notifications</span>
+                        <span class="settings-label-desc">Browser notification for critical alerts</span>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="notifyCriticalToggle" checked onchange="AlertRulesUI.saveNotifySetting('critical', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-label">
+                        <span class="settings-label-text">High Notifications</span>
+                        <span class="settings-label-desc">Browser notification for high alerts</span>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="notifyHighToggle" checked onchange="AlertRulesUI.saveNotifySetting('high', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
                 </div>
             </div>
         </div>
@@ -355,6 +451,68 @@
                 <div class="settings-group-title">Recent Recordings</div>
                 <div id="recordingList" class="settings-feed">
                     <div class="settings-feed-empty">No recordings yet</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Exports Section -->
+        <div id="settings-exports" class="settings-section">
+            <div class="settings-group">
+                <div class="settings-group-title">Data Exports</div>
+                <p style="color: var(--text-dim); margin-bottom: 15px; font-size: 12px;">
+                    Export current data from each mode as JSON or CSV.
+                </p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <div style="padding: 10px; background: var(--bg-tertiary); border-radius: 6px;">
+                        <div style="font-weight: 600; margin-bottom: 8px; font-size: 12px;">ADS-B Aircraft</div>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.download('adsb', 'json')">JSON</button>
+                            <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.download('adsb', 'csv')">CSV</button>
+                        </div>
+                    </div>
+                    <div style="padding: 10px; background: var(--bg-tertiary); border-radius: 6px;">
+                        <div style="font-weight: 600; margin-bottom: 8px; font-size: 12px;">AIS Vessels</div>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.download('ais', 'json')">JSON</button>
+                            <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.download('ais', 'csv')">CSV</button>
+                        </div>
+                    </div>
+                    <div style="padding: 10px; background: var(--bg-tertiary); border-radius: 6px;">
+                        <div style="font-weight: 600; margin-bottom: 8px; font-size: 12px;">WiFi Networks</div>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.download('wifi', 'json')">JSON</button>
+                            <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.download('wifi', 'csv')">CSV</button>
+                        </div>
+                    </div>
+                    <div style="padding: 10px; background: var(--bg-tertiary); border-radius: 6px;">
+                        <div style="font-weight: 600; margin-bottom: 8px; font-size: 12px;">Bluetooth Devices</div>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.download('bluetooth', 'json')">JSON</button>
+                            <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.download('bluetooth', 'csv')">CSV</button>
+                        </div>
+                    </div>
+                    <div style="padding: 10px; background: var(--bg-tertiary); border-radius: 6px;">
+                        <div style="font-weight: 600; margin-bottom: 8px; font-size: 12px;">433MHz Sensors</div>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.download('sensor', 'json')">JSON</button>
+                            <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.download('sensor', 'csv')">CSV</button>
+                        </div>
+                    </div>
+                    <div style="padding: 10px; background: var(--bg-tertiary); border-radius: 6px;">
+                        <div style="font-weight: 600; margin-bottom: 8px; font-size: 12px;">TSCM Report</div>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.downloadTscmPdf()">PDF</button>
+                            <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.download('tscm', 'json')">JSON</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <div class="settings-group-title">WiFi v2 Export</div>
+                <div style="display: flex; gap: 6px;">
+                    <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.downloadWifiV2('json')">WiFi v2 JSON</button>
+                    <button class="check-assets-btn" style="font-size: 10px; padding: 4px 10px;" onclick="DataExportUI.downloadWifiV2('csv')">WiFi v2 CSV</button>
                 </div>
             </div>
         </div>

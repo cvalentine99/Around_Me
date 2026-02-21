@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme|default('dark') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SYSTEM STATUS // VALENTINE RF - See the Invisible</title>
+    <!-- Fonts - Conditional CDN/Local loading -->
+    {% if offline_settings and offline_settings.fonts_source == 'local' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts-local.css') }}">
+    {% else %}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    {% endif %}
+    <!-- Core CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global-nav.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/help-modal.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/system_status.css') }}">
+</head>
+<body>
+    <div class="radar-bg"></div>
+    <div class="scanline"></div>
+
+    <header class="header">
+        <div class="logo">
+            SYSTEM STATUS
+            <span>// VALENTINE RF - See the Invisible</span>
+        </div>
+        <div class="status-bar">
+            <div class="system-uptime" id="systemUptime">
+                <span class="uptime-label">UPTIME</span>
+                <span class="uptime-value" id="uptimeValue">--</span>
+            </div>
+        </div>
+    </header>
+
+    {% set active_mode = 'system' %}
+    {% include 'partials/nav.html' with context %}
+    {% include 'partials/settings-modal.html' %}
+    {% include 'partials/help-modal.html' %}
+
+    <!-- Main Content -->
+    <div class="status-layout">
+        <div class="status-content">
+
+            <!-- ============================================
+                 Offline Mode Section
+                 ============================================ -->
+            <section class="status-section">
+                <div class="section-header">
+                    <div class="section-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    </div>
+                    <h2>Offline Mode</h2>
+                    <span class="section-badge" id="offlineBadge">Checking...</span>
+                </div>
+
+                <!-- Current Settings -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Current Settings</h3>
+                        <button class="btn-sm" onclick="SysStatus.refreshOffline()">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <span class="setting-name">Offline Mode</span>
+                                <span class="setting-desc">Use local assets instead of CDN</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="sysOfflineEnabled" onchange="SysStatus.saveSetting('offline_enabled', this.checked)">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <span class="setting-name">Asset Source</span>
+                                <span class="setting-desc">Leaflet, Chart.js libraries</span>
+                            </div>
+                            <select id="sysAssetsSource" class="setting-select" onchange="SysStatus.saveSetting('assets_source', this.value)">
+                                <option value="cdn">CDN (Online)</option>
+                                <option value="local">Local</option>
+                            </select>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <span class="setting-name">Font Source</span>
+                                <span class="setting-desc">Google Fonts / local woff2 files</span>
+                            </div>
+                            <select id="sysFontsSource" class="setting-select" onchange="SysStatus.saveSetting('fonts_source', this.value)">
+                                <option value="cdn">Google Fonts</option>
+                                <option value="local">Local</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Asset Status -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Local Asset Status</h3>
+                        <button class="btn-sm" onclick="SysStatus.checkAssets()">Check All</button>
+                    </div>
+                    <div class="card-body" id="assetStatusList">
+                        <div class="asset-row">
+                            <div class="asset-info">
+                                <span class="asset-icon">JS</span>
+                                <span class="asset-name">Leaflet JS/CSS</span>
+                            </div>
+                            <span class="asset-status checking" id="assetLeaflet">Checking...</span>
+                        </div>
+                        <div class="asset-row">
+                            <div class="asset-info">
+                                <span class="asset-icon">JS</span>
+                                <span class="asset-name">Chart.js</span>
+                            </div>
+                            <span class="asset-status checking" id="assetChartjs">Checking...</span>
+                        </div>
+                        <div class="asset-row">
+                            <div class="asset-info">
+                                <span class="asset-icon">Aa</span>
+                                <span class="asset-name">IBM Plex Mono Font</span>
+                            </div>
+                            <span class="asset-status checking" id="assetIBMPlex">Checking...</span>
+                        </div>
+                        <div class="asset-row">
+                            <div class="asset-info">
+                                <span class="asset-icon">Aa</span>
+                                <span class="asset-name">Space Grotesk Font</span>
+                            </div>
+                            <span class="asset-status checking" id="assetSpaceGrotesk">Checking...</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================
+                 WebSDR Receivers Section
+                 ============================================ -->
+            <section class="status-section">
+                <div class="section-header">
+                    <div class="section-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                    </div>
+                    <h2>WebSDR Receivers</h2>
+                    <span class="section-badge" id="websdrBadge">--</span>
+                </div>
+
+                <!-- Connection Status -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Connection Status</h3>
+                        <button class="btn-sm" onclick="SysStatus.refreshWebSDR()">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="status-indicator-row">
+                            <span class="status-dot" id="websdrStatusDot"></span>
+                            <span class="status-text" id="websdrStatusText">Checking connection...</span>
+                        </div>
+                        <div class="mini-stats" id="websdrMiniStats">
+                            <div class="mini-stat">
+                                <span class="mini-value" id="websdrReceiverCount">--</span>
+                                <span class="mini-label">Receivers</span>
+                            </div>
+                            <div class="mini-stat">
+                                <span class="mini-value" id="websdrCacheAge">--</span>
+                                <span class="mini-label">Cache Age</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Frequency Filter & Nearest -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Find Receivers</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="control-row">
+                            <div class="control-group-inline">
+                                <label class="control-label">Frequency (kHz)</label>
+                                <input type="number" id="websdrFreqFilter" class="control-input" placeholder="e.g. 14074">
+                            </div>
+                            <button class="btn btn-primary btn-compact" onclick="SysStatus.filterReceivers()">Filter</button>
+                            <button class="btn btn-outline btn-compact" onclick="SysStatus.findNearest()">Nearest</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Receiver List -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Available Receivers <span class="count-badge" id="receiverListCount">0</span></h3>
+                    </div>
+                    <div class="card-body receiver-list-container">
+                        <div id="receiverList" class="receiver-list">
+                            <div class="empty-state-sm">
+                                <p>Loading receivers...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================
+                 System Updates Section
+                 ============================================ -->
+            <section class="status-section">
+                <div class="section-header">
+                    <div class="section-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                    </div>
+                    <h2>System Updates</h2>
+                    <span class="section-badge" id="updateBadge">--</span>
+                </div>
+
+                <!-- Version & Status -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Current Version</h3>
+                        <button class="btn-sm" onclick="SysStatus.checkUpdates(true)">Check Now</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="version-display">
+                            <span class="version-label">Installed</span>
+                            <span class="version-value" id="currentVersion">{{ version|default('unknown') }}</span>
+                        </div>
+                        <div id="updateStatusContent" class="update-status-area">
+                            <div class="empty-state-sm">
+                                <p>Checking for updates...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Update Actions -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Actions</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="action-group">
+                            <button class="btn btn-primary" id="updateBtn" onclick="SysStatus.performUpdate()" disabled>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                Update System
+                            </button>
+                            <button class="btn btn-danger" id="restartBtn" onclick="SysStatus.restartApp()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                                Restart Application
+                            </button>
+                        </div>
+                        <div class="update-progress" id="updateProgress" style="display: none;">
+                            <div class="progress-bar-track">
+                                <div class="progress-bar-fill" id="updateProgressBar"></div>
+                            </div>
+                            <span class="progress-text" id="updateProgressText">Updating...</span>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <span class="setting-name">Stash Local Changes</span>
+                                <span class="setting-desc">Automatically stash uncommitted changes before update</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="stashChanges" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============================================
+                 System Info Section
+                 ============================================ -->
+            <section class="status-section">
+                <div class="section-header">
+                    <div class="section-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                    </div>
+                    <h2>System Information</h2>
+                </div>
+
+                <div class="card">
+                    <div class="card-body">
+                        <div class="sysinfo-grid" id="sysinfoGrid">
+                            <div class="sysinfo-item">
+                                <span class="sysinfo-label">Platform</span>
+                                <span class="sysinfo-value" id="sysPlatform">--</span>
+                            </div>
+                            <div class="sysinfo-item">
+                                <span class="sysinfo-label">Python</span>
+                                <span class="sysinfo-value" id="sysPython">--</span>
+                            </div>
+                            <div class="sysinfo-item">
+                                <span class="sysinfo-label">Hostname</span>
+                                <span class="sysinfo-value" id="sysHostname">--</span>
+                            </div>
+                            <div class="sysinfo-item">
+                                <span class="sysinfo-label">Uptime</span>
+                                <span class="sysinfo-value" id="sysUptime">--</span>
+                            </div>
+                            <div class="sysinfo-item">
+                                <span class="sysinfo-label">Disk Usage</span>
+                                <div class="disk-bar-container">
+                                    <div class="disk-bar-track">
+                                        <div class="disk-bar-fill" id="sysDiskBar" style="width: 0%;"></div>
+                                    </div>
+                                    <span class="sysinfo-value" id="sysDiskText">--</span>
+                                </div>
+                            </div>
+                            <div class="sysinfo-item">
+                                <span class="sysinfo-label">Memory</span>
+                                <div class="disk-bar-container">
+                                    <div class="disk-bar-track">
+                                        <div class="disk-bar-fill memory" id="sysMemBar" style="width: 0%;"></div>
+                                    </div>
+                                    <span class="sysinfo-value" id="sysMemText">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <!-- Inline JavaScript -->
+    <script>
+    (function() {
+        'use strict';
+
+        const SysStatus = {
+
+            // ---------------------------------------------------------------
+            // Initialization
+            // ---------------------------------------------------------------
+            async init() {
+                await Promise.all([
+                    this.refreshOffline(),
+                    this.refreshWebSDR(),
+                    this.checkUpdates(false),
+                    this.loadSystemInfo()
+                ]);
+                this.checkAssets();
+            },
+
+            // ---------------------------------------------------------------
+            // Offline Mode
+            // ---------------------------------------------------------------
+            async refreshOffline() {
+                try {
+                    const resp = await fetch('/offline/settings');
+                    if (!resp.ok) throw new Error('Failed to load offline settings');
+                    const settings = await resp.json();
+
+                    document.getElementById('sysOfflineEnabled').checked = settings.offline_enabled === true || settings.offline_enabled === 'true';
+                    document.getElementById('sysAssetsSource').value = settings.assets_source || 'cdn';
+                    document.getElementById('sysFontsSource').value = settings.fonts_source || 'cdn';
+
+                    const badge = document.getElementById('offlineBadge');
+                    if (settings.offline_enabled === true || settings.offline_enabled === 'true') {
+                        badge.textContent = 'ENABLED';
+                        badge.className = 'section-badge badge-green';
+                    } else {
+                        badge.textContent = 'ONLINE';
+                        badge.className = 'section-badge badge-cyan';
+                    }
+                } catch (err) {
+                    console.warn('Offline settings load error:', err);
+                    document.getElementById('offlineBadge').textContent = 'ERROR';
+                    document.getElementById('offlineBadge').className = 'section-badge badge-red';
+                }
+            },
+
+            async saveSetting(key, value) {
+                try {
+                    const resp = await fetch('/offline/settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ key, value })
+                    });
+                    if (!resp.ok) throw new Error('Failed to save setting');
+                    await this.refreshOffline();
+                } catch (err) {
+                    console.error('Save setting error:', err);
+                    alert('Failed to save setting: ' + err.message);
+                }
+            },
+
+            async checkAssets() {
+                const assets = [
+                    { id: 'assetLeaflet', path: 'vendor/leaflet/leaflet.js' },
+                    { id: 'assetChartjs', path: 'vendor/chart.js/chart.min.js' },
+                    { id: 'assetIBMPlex', path: 'fonts/IBMPlexMono-Regular.woff2' },
+                    { id: 'assetSpaceGrotesk', path: 'fonts/SpaceGrotesk-Regular.woff2' }
+                ];
+
+                for (const asset of assets) {
+                    const el = document.getElementById(asset.id);
+                    el.textContent = 'Checking...';
+                    el.className = 'asset-status checking';
+
+                    try {
+                        const resp = await fetch(`/offline/check-asset?path=${encodeURIComponent(asset.path)}`);
+                        if (!resp.ok) throw new Error('check failed');
+                        const data = await resp.json();
+                        if (data.exists) {
+                            el.textContent = 'Available';
+                            el.className = 'asset-status available';
+                        } else {
+                            el.textContent = 'Missing';
+                            el.className = 'asset-status missing';
+                        }
+                    } catch (err) {
+                        el.textContent = 'Error';
+                        el.className = 'asset-status missing';
+                    }
+                }
+            },
+
+            // ---------------------------------------------------------------
+            // WebSDR Receivers
+            // ---------------------------------------------------------------
+            async refreshWebSDR() {
+                try {
+                    // Get status
+                    const statusResp = await fetch('/websdr/status');
+                    if (statusResp.ok) {
+                        const status = await statusResp.json();
+                        const dot = document.getElementById('websdrStatusDot');
+                        const text = document.getElementById('websdrStatusText');
+
+                        if (status.connected || status.receivers_cached > 0) {
+                            dot.className = 'status-dot online';
+                            text.textContent = 'Connected - ' + (status.receivers_cached || 0) + ' receivers cached';
+                        } else {
+                            dot.className = 'status-dot offline';
+                            text.textContent = 'No receivers loaded';
+                        }
+
+                        document.getElementById('websdrReceiverCount').textContent = status.receivers_cached || 0;
+                        document.getElementById('websdrCacheAge').textContent = status.cache_age ? this.formatDuration(status.cache_age) : '--';
+                    }
+
+                    // Load receivers
+                    const resp = await fetch('/websdr/receivers?refresh=false');
+                    if (!resp.ok) throw new Error('Failed to load receivers');
+                    const data = await resp.json();
+                    const receivers = data.receivers || data || [];
+                    this.renderReceivers(receivers);
+
+                    const badge = document.getElementById('websdrBadge');
+                    badge.textContent = receivers.length + ' receivers';
+                    badge.className = 'section-badge badge-cyan';
+
+                } catch (err) {
+                    console.warn('WebSDR load error:', err);
+                    document.getElementById('websdrBadge').textContent = 'OFFLINE';
+                    document.getElementById('websdrBadge').className = 'section-badge badge-red';
+                    document.getElementById('websdrStatusDot').className = 'status-dot offline';
+                    document.getElementById('websdrStatusText').textContent = 'Unable to connect';
+                }
+            },
+
+            async filterReceivers() {
+                const freq = document.getElementById('websdrFreqFilter').value;
+                try {
+                    let url = '/websdr/receivers?refresh=false';
+                    if (freq) url += `&freq_khz=${freq}`;
+                    const resp = await fetch(url);
+                    if (!resp.ok) throw new Error('Filter failed');
+                    const data = await resp.json();
+                    this.renderReceivers(data.receivers || data || []);
+                } catch (err) {
+                    console.error('Filter receivers error:', err);
+                }
+            },
+
+            async findNearest() {
+                try {
+                    // Try to get location from shared observer location or GPS
+                    let lat, lon;
+                    if (window.VALENTINE_SHARED_OBSERVER_LOCATION) {
+                        lat = window.VALENTINE_SHARED_OBSERVER_LOCATION.lat;
+                        lon = window.VALENTINE_SHARED_OBSERVER_LOCATION.lon;
+                    }
+
+                    if (!lat || !lon) {
+                        alert('Observer location not set. Configure location in Settings > Location.');
+                        return;
+                    }
+
+                    const freq = document.getElementById('websdrFreqFilter').value;
+                    let url = `/websdr/receivers/nearest?lat=${lat}&lon=${lon}`;
+                    if (freq) url += `&freq_khz=${freq}`;
+
+                    const resp = await fetch(url);
+                    if (!resp.ok) throw new Error('Find nearest failed');
+                    const data = await resp.json();
+                    this.renderReceivers(data.receivers || data || []);
+                } catch (err) {
+                    console.error('Find nearest error:', err);
+                    alert('Find nearest failed: ' + err.message);
+                }
+            },
+
+            renderReceivers(receivers) {
+                const container = document.getElementById('receiverList');
+                document.getElementById('receiverListCount').textContent = receivers.length;
+
+                if (receivers.length === 0) {
+                    container.innerHTML = '<div class="empty-state-sm"><p>No receivers found</p></div>';
+                    return;
+                }
+
+                container.innerHTML = receivers.slice(0, 50).map(r => {
+                    const name = r.name || r.url || 'Unknown';
+                    const loc = r.location || r.city || '--';
+                    const freq = r.frequency_range || r.bands || '--';
+                    const statusClass = (r.available !== false) ? 'online' : 'offline';
+                    const statusText = (r.available !== false) ? 'Online' : 'Offline';
+
+                    return `<div class="receiver-item">
+                        <div class="receiver-main">
+                            <span class="status-dot-sm ${statusClass}"></span>
+                            <div class="receiver-info">
+                                <span class="receiver-name">${this.escHtml(name)}</span>
+                                <span class="receiver-location">${this.escHtml(loc)}</span>
+                            </div>
+                        </div>
+                        <div class="receiver-meta">
+                            <span class="receiver-freq">${this.escHtml(String(freq))}</span>
+                            <span class="receiver-status ${statusClass}">${statusText}</span>
+                        </div>
+                    </div>`;
+                }).join('');
+            },
+
+            // ---------------------------------------------------------------
+            // System Updates
+            // ---------------------------------------------------------------
+            async checkUpdates(force) {
+                try {
+                    const url = force ? '/updater/check?force=true' : '/updater/status';
+                    const resp = await fetch(url);
+                    if (!resp.ok) throw new Error('Update check failed');
+                    const data = await resp.json();
+
+                    const badge = document.getElementById('updateBadge');
+                    const statusArea = document.getElementById('updateStatusContent');
+                    const updateBtn = document.getElementById('updateBtn');
+
+                    if (data.update_available) {
+                        badge.textContent = 'UPDATE AVAILABLE';
+                        badge.className = 'section-badge badge-orange';
+                        updateBtn.disabled = false;
+
+                        statusArea.innerHTML = `
+                            <div class="update-info">
+                                <div class="update-row">
+                                    <span class="update-label">Latest</span>
+                                    <span class="update-value accent">${this.escHtml(data.latest_version || data.remote_version || '--')}</span>
+                                </div>
+                                <div class="update-row">
+                                    <span class="update-label">Current</span>
+                                    <span class="update-value">${this.escHtml(data.current_version || '--')}</span>
+                                </div>
+                                ${data.commits_behind ? `<div class="update-row">
+                                    <span class="update-label">Behind</span>
+                                    <span class="update-value accent">${data.commits_behind} commits</span>
+                                </div>` : ''}
+                                ${data.changelog ? `<div class="update-changelog">
+                                    <span class="update-label">Changes</span>
+                                    <pre class="changelog-text">${this.escHtml(data.changelog)}</pre>
+                                </div>` : ''}
+                            </div>`;
+                    } else {
+                        badge.textContent = 'UP TO DATE';
+                        badge.className = 'section-badge badge-green';
+                        updateBtn.disabled = true;
+
+                        statusArea.innerHTML = `
+                            <div class="update-info">
+                                <div class="update-row">
+                                    <span class="update-label">Status</span>
+                                    <span class="update-value" style="color: var(--accent-green);">System is up to date</span>
+                                </div>
+                                ${data.last_checked ? `<div class="update-row">
+                                    <span class="update-label">Last Checked</span>
+                                    <span class="update-value">${new Date(data.last_checked).toLocaleString()}</span>
+                                </div>` : ''}
+                            </div>`;
+                    }
+                } catch (err) {
+                    console.warn('Update check error:', err);
+                    document.getElementById('updateBadge').textContent = 'ERROR';
+                    document.getElementById('updateBadge').className = 'section-badge badge-red';
+                    document.getElementById('updateStatusContent').innerHTML = `
+                        <div class="empty-state-sm"><p>Unable to check for updates</p></div>`;
+                }
+            },
+
+            async performUpdate() {
+                if (!confirm('Apply system update? This will pull the latest changes from the repository.')) return;
+
+                const stash = document.getElementById('stashChanges').checked;
+                const btn = document.getElementById('updateBtn');
+                const progress = document.getElementById('updateProgress');
+                const progressBar = document.getElementById('updateProgressBar');
+                const progressText = document.getElementById('updateProgressText');
+
+                btn.disabled = true;
+                progress.style.display = 'block';
+                progressBar.style.width = '30%';
+                progressText.textContent = 'Pulling updates...';
+
+                try {
+                    const resp = await fetch('/updater/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ stash_changes: stash })
+                    });
+
+                    if (!resp.ok) throw new Error('Update failed');
+                    const data = await resp.json();
+
+                    progressBar.style.width = '100%';
+                    if (data.success) {
+                        progressText.textContent = 'Update complete! Restart to apply changes.';
+                        progressBar.classList.add('success');
+                        document.getElementById('restartBtn').classList.add('pulse-attention');
+                    } else {
+                        progressText.textContent = data.message || 'Update failed';
+                        progressBar.classList.add('error');
+                    }
+                } catch (err) {
+                    console.error('Update error:', err);
+                    progressBar.style.width = '100%';
+                    progressBar.classList.add('error');
+                    progressText.textContent = 'Update failed: ' + err.message;
+                }
+            },
+
+            async restartApp() {
+                if (!confirm('Restart the application? This will briefly interrupt all active connections.')) return;
+
+                const btn = document.getElementById('restartBtn');
+                btn.disabled = true;
+                btn.textContent = 'Restarting...';
+
+                try {
+                    await fetch('/updater/restart', { method: 'POST' });
+                    // Wait a few seconds then try to reload
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 5000);
+                } catch (err) {
+                    // Expected - server is restarting
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 5000);
+                }
+            },
+
+            // ---------------------------------------------------------------
+            // System Info
+            // ---------------------------------------------------------------
+            async loadSystemInfo() {
+                // Populate with basic info from the page context or API
+                try {
+                    // Try a lightweight system info endpoint if available
+                    const resp = await fetch('/offline/status');
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data.platform) document.getElementById('sysPlatform').textContent = data.platform;
+                        if (data.python_version) document.getElementById('sysPython').textContent = data.python_version;
+                        if (data.hostname) document.getElementById('sysHostname').textContent = data.hostname;
+                        if (data.uptime) {
+                            document.getElementById('sysUptime').textContent = this.formatDuration(data.uptime);
+                            document.getElementById('uptimeValue').textContent = this.formatDuration(data.uptime);
+                        }
+                        if (data.disk_usage) {
+                            const pct = data.disk_usage.percent || 0;
+                            document.getElementById('sysDiskBar').style.width = pct + '%';
+                            document.getElementById('sysDiskBar').className = 'disk-bar-fill' + (pct > 90 ? ' critical' : pct > 75 ? ' warning' : '');
+                            document.getElementById('sysDiskText').textContent = `${pct}% (${data.disk_usage.used || '--'} / ${data.disk_usage.total || '--'})`;
+                        }
+                        if (data.memory_usage) {
+                            const pct = data.memory_usage.percent || 0;
+                            document.getElementById('sysMemBar').style.width = pct + '%';
+                            document.getElementById('sysMemBar').className = 'disk-bar-fill memory' + (pct > 90 ? ' critical' : pct > 75 ? ' warning' : '');
+                            document.getElementById('sysMemText').textContent = `${pct}% (${data.memory_usage.used || '--'} / ${data.memory_usage.total || '--'})`;
+                        }
+                    }
+                } catch (err) {
+                    console.warn('System info load error:', err);
+                    document.getElementById('sysPlatform').textContent = navigator.platform || '--';
+                    document.getElementById('sysHostname').textContent = window.location.hostname || '--';
+                }
+            },
+
+            // ---------------------------------------------------------------
+            // Utility
+            // ---------------------------------------------------------------
+            formatDuration(seconds) {
+                if (!seconds && seconds !== 0) return '--';
+                const s = Math.floor(seconds);
+                if (s < 60) return s + 's';
+                if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+                const h = Math.floor(s / 3600);
+                const m = Math.floor((s % 3600) / 60);
+                if (h < 24) return h + 'h ' + m + 'm';
+                const d = Math.floor(h / 24);
+                return d + 'd ' + (h % 24) + 'h';
+            },
+
+            escHtml(str) {
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            }
+        };
+
+        // Expose globally
+        window.SysStatus = SysStatus;
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', () => SysStatus.init());
+    })();
+    </script>
+</body>
+</html>

@@ -38,6 +38,7 @@ def register_blueprints(app):
     from .bt_locate import bt_locate_bp
     from .space_weather import space_weather_bp
     from .analytics import analytics_bp
+    from .views import views_bp
 
     app.register_blueprint(pager_bp)
     app.register_blueprint(sensor_bp)
@@ -75,6 +76,7 @@ def register_blueprints(app):
     app.register_blueprint(bt_locate_bp)  # Bluetooth device location tracking
     app.register_blueprint(space_weather_bp)  # Space weather / solar conditions
     app.register_blueprint(analytics_bp)  # Cross-mode analytics & insights
+    app.register_blueprint(views_bp)  # Dashboard page views for new panels
 
     # Initialize TSCM state with queue and lock from app
     import app as app_module

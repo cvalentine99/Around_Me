@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANALYTICS // VALENTINE RF - See the Invisible</title>
+    <!-- Fonts - Conditional CDN/Local loading -->
+    {% if offline_settings.fonts_source == 'local' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts-local.css') }}">
+    {% else %}
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    {% endif %}
+    <!-- Chart.js - Conditional CDN/Local loading -->
+    {% if offline_settings.assets_source == 'local' %}
+    <script src="{{ url_for('static', filename='vendor/chartjs/chart.umd.min.js') }}"></script>
+    {% else %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    {% endif %}
+    <!-- Core CSS variables -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global-nav.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/help-modal.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/analytics_dashboard.css') }}">
+    <script>
+        window.VALENTINE_SHARED_OBSERVER_LOCATION = {{ shared_observer_location | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/core/observer-location.js') }}"></script>
+</head>
+<body>
+    <div class="radar-bg"></div>
+    <div class="scanline"></div>
+
+    <header class="header">
+        <div class="logo">
+            SIGNAL ANALYTICS
+            <span>// VALENTINE RF - Cross-Mode Intelligence</span>
+        </div>
+        <div class="status-bar">
+            <div class="header-refresh-indicator" id="refreshIndicator" title="Auto-refresh active">
+                <span class="refresh-dot"></span>
+                <span class="refresh-label">LIVE</span>
+            </div>
+        </div>
+    </header>
+
+    {% set active_mode = 'analytics' %}
+    {% include 'partials/nav.html' with context %}
+
+    <!-- Main Content -->
+    <main class="analytics-main">
+
+        <!-- ==================== SUMMARY STRIP ==================== -->
+        <section class="analytics-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                    LIVE SIGNAL COUNTS
+                </h2>
+                <span class="section-timestamp" id="summaryTimestamp">--</span>
+            </div>
+            <div class="summary-strip" id="summaryStrip">
+                <div class="summary-card" data-mode="wifi">
+                    <div class="summary-value" id="countWifi">0</div>
+                    <div class="summary-label">WiFi Networks</div>
+                    <div class="summary-bar wifi"></div>
+                </div>
+                <div class="summary-card" data-mode="bluetooth">
+                    <div class="summary-value" id="countBluetooth">0</div>
+                    <div class="summary-label">BT Devices</div>
+                    <div class="summary-bar bluetooth"></div>
+                </div>
+                <div class="summary-card" data-mode="adsb">
+                    <div class="summary-value" id="countAdsb">0</div>
+                    <div class="summary-label">Aircraft</div>
+                    <div class="summary-bar adsb"></div>
+                </div>
+                <div class="summary-card" data-mode="ais">
+                    <div class="summary-value" id="countAis">0</div>
+                    <div class="summary-label">Vessels</div>
+                    <div class="summary-bar ais"></div>
+                </div>
+                <div class="summary-card" data-mode="acars">
+                    <div class="summary-value" id="countAcars">0</div>
+                    <div class="summary-label">ACARS Msgs</div>
+                    <div class="summary-bar acars"></div>
+                </div>
+                <div class="summary-card" data-mode="aprs">
+                    <div class="summary-value" id="countAprs">0</div>
+                    <div class="summary-label">APRS Stations</div>
+                    <div class="summary-bar aprs"></div>
+                </div>
+                <div class="summary-card" data-mode="dsc">
+                    <div class="summary-value" id="countDsc">0</div>
+                    <div class="summary-label">DSC Messages</div>
+                    <div class="summary-bar dsc"></div>
+                </div>
+                <div class="summary-card" data-mode="meshtastic">
+                    <div class="summary-value" id="countMeshtastic">0</div>
+                    <div class="summary-label">Mesh Nodes</div>
+                    <div class="summary-bar meshtastic"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== INSIGHT CARDS ==================== -->
+        <section class="analytics-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    OPERATIONAL INSIGHTS
+                </h2>
+            </div>
+            <div class="insight-cards" id="insightCards">
+                <div class="insight-card" data-insight="fastest_change">
+                    <div class="insight-severity low"></div>
+                    <div class="insight-title">Fastest Change</div>
+                    <div class="insight-value" id="insightFastestChange">--</div>
+                    <div class="insight-label" id="insightFastestChangeLabel">waiting for data</div>
+                </div>
+                <div class="insight-card" data-insight="busiest_mode">
+                    <div class="insight-severity low"></div>
+                    <div class="insight-title">Busiest Mode</div>
+                    <div class="insight-value" id="insightBusiestMode">--</div>
+                    <div class="insight-label" id="insightBusiestModeLabel">current observed entities</div>
+                </div>
+                <div class="insight-card" data-insight="critical_alerts">
+                    <div class="insight-severity low"></div>
+                    <div class="insight-title">Critical Alerts (1h)</div>
+                    <div class="insight-value" id="insightCriticalAlerts">0</div>
+                    <div class="insight-label" id="insightCriticalAlertsLabel">critical/high severities</div>
+                </div>
+                <div class="insight-card" data-insight="emergency_squawks">
+                    <div class="insight-severity low"></div>
+                    <div class="insight-title">Emergency Squawks</div>
+                    <div class="insight-value" id="insightEmergencySquawks">0</div>
+                    <div class="insight-label" id="insightEmergencySquawksLabel">active ADS-B emergency codes</div>
+                </div>
+                <div class="insight-card" data-insight="recurring_emitters">
+                    <div class="insight-severity low"></div>
+                    <div class="insight-title">Recurring Emitters</div>
+                    <div class="insight-value" id="insightRecurringEmitters">0</div>
+                    <div class="insight-label" id="insightRecurringEmittersLabel">pattern confidence >= 0.70</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Two-column layout for sparklines and squawks -->
+        <div class="analytics-two-col">
+
+            <!-- ==================== ACTIVITY SPARKLINES ==================== -->
+            <section class="analytics-section analytics-col-wide">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        ACTIVITY SPARKLINES
+                    </h2>
+                </div>
+                <div class="sparkline-grid" id="sparklineGrid">
+                    <!-- Sparkline charts rendered by JS -->
+                    <div class="sparkline-empty" id="sparklineEmpty">
+                        <span>Collecting activity data...</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==================== EMERGENCY SQUAWKS ==================== -->
+            <section class="analytics-section analytics-col-narrow">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        EMERGENCY SQUAWKS
+                    </h2>
+                </div>
+                <div class="squawk-table-container">
+                    <table class="squawk-table" id="squawkTable">
+                        <thead>
+                            <tr>
+                                <th>ICAO</th>
+                                <th>Squawk</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody id="squawkTableBody">
+                            <tr class="squawk-empty-row">
+                                <td colspan="3">No active emergency squawks</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- ==================== PATTERN DETECTION ==================== -->
+        <section class="analytics-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    TEMPORAL PATTERNS
+                </h2>
+                <span class="section-badge" id="patternCount">0</span>
+            </div>
+            <div class="pattern-cards" id="patternCards">
+                <div class="pattern-empty" id="patternEmpty">
+                    <span>No temporal patterns detected yet. Patterns emerge as data accumulates over time.</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Two-column layout for geofence and export -->
+        <div class="analytics-two-col">
+
+            <!-- ==================== GEOFENCE MANAGER ==================== -->
+            <section class="analytics-section analytics-col-wide">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                        GEOFENCE ZONES
+                    </h2>
+                    <span class="section-badge" id="geofenceCount">0</span>
+                </div>
+                <div class="geofence-list" id="geofenceList">
+                    <div class="geofence-empty" id="geofenceEmpty">
+                        No geofence zones defined. Create one below.
+                    </div>
+                </div>
+                <form class="geofence-form" id="geofenceForm" onsubmit="return AnalyticsDashboard.createGeofence(event)">
+                    <div class="geofence-form-title">Create Geofence Zone</div>
+                    <div class="geofence-form-row">
+                        <div class="form-field">
+                            <label for="geoName">Name</label>
+                            <input type="text" id="geoName" placeholder="Zone name" required>
+                        </div>
+                        <div class="form-field">
+                            <label for="geoLat">Latitude</label>
+                            <input type="number" id="geoLat" step="any" min="-90" max="90" placeholder="0.0000" required>
+                        </div>
+                        <div class="form-field">
+                            <label for="geoLon">Longitude</label>
+                            <input type="number" id="geoLon" step="any" min="-180" max="180" placeholder="0.0000" required>
+                        </div>
+                        <div class="form-field">
+                            <label for="geoRadius">Radius (m)</label>
+                            <input type="number" id="geoRadius" step="any" min="1" placeholder="1000" required>
+                        </div>
+                        <div class="form-field">
+                            <label for="geoAlertOn">Alert On</label>
+                            <select id="geoAlertOn">
+                                <option value="enter_exit">Enter/Exit</option>
+                                <option value="enter">Enter Only</option>
+                                <option value="exit">Exit Only</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button type="submit" class="geofence-submit-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Create Zone
+                    </button>
+                </form>
+            </section>
+
+            <!-- ==================== DATA EXPORT ==================== -->
+            <section class="analytics-section analytics-col-narrow">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        DATA EXPORT
+                    </h2>
+                </div>
+                <div class="export-grid">
+                    <div class="export-row">
+                        <span class="export-mode-label">ADS-B</span>
+                        <div class="export-buttons">
+                            <button class="export-btn json" onclick="AnalyticsDashboard.exportData('adsb', 'json')" title="Export ADS-B as JSON">JSON</button>
+                            <button class="export-btn csv" onclick="AnalyticsDashboard.exportData('adsb', 'csv')" title="Export ADS-B as CSV">CSV</button>
+                        </div>
+                    </div>
+                    <div class="export-row">
+                        <span class="export-mode-label">AIS</span>
+                        <div class="export-buttons">
+                            <button class="export-btn json" onclick="AnalyticsDashboard.exportData('ais', 'json')" title="Export AIS as JSON">JSON</button>
+                            <button class="export-btn csv" onclick="AnalyticsDashboard.exportData('ais', 'csv')" title="Export AIS as CSV">CSV</button>
+                        </div>
+                    </div>
+                    <div class="export-row">
+                        <span class="export-mode-label">WiFi</span>
+                        <div class="export-buttons">
+                            <button class="export-btn json" onclick="AnalyticsDashboard.exportData('wifi', 'json')" title="Export WiFi as JSON">JSON</button>
+                            <button class="export-btn csv" onclick="AnalyticsDashboard.exportData('wifi', 'csv')" title="Export WiFi as CSV">CSV</button>
+                        </div>
+                    </div>
+                    <div class="export-row">
+                        <span class="export-mode-label">Bluetooth</span>
+                        <div class="export-buttons">
+                            <button class="export-btn json" onclick="AnalyticsDashboard.exportData('bluetooth', 'json')" title="Export Bluetooth as JSON">JSON</button>
+                            <button class="export-btn csv" onclick="AnalyticsDashboard.exportData('bluetooth', 'csv')" title="Export Bluetooth as CSV">CSV</button>
+                        </div>
+                    </div>
+                    <div class="export-row">
+                        <span class="export-mode-label">DSC</span>
+                        <div class="export-buttons">
+                            <button class="export-btn json" onclick="AnalyticsDashboard.exportData('dsc', 'json')" title="Export DSC as JSON">JSON</button>
+                            <button class="export-btn csv" onclick="AnalyticsDashboard.exportData('dsc', 'csv')" title="Export DSC as CSV">CSV</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- ==================== TARGET SEARCH ==================== -->
+        <section class="analytics-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    TARGET SEARCH
+                </h2>
+            </div>
+            <div class="target-search-container">
+                <div class="target-search-input-wrap">
+                    <input type="text" id="targetSearchInput" class="target-search-input" placeholder="Search across all modes (ICAO, MMSI, callsign, MAC, SSID...)" autocomplete="off">
+                    <button class="target-search-btn" onclick="AnalyticsDashboard.searchTarget()" title="Search">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    </button>
+                </div>
+                <div class="target-results" id="targetResults"></div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Settings Modal -->
+    {% include 'partials/settings-modal.html' %}
+
+    <!-- Help Modal -->
+    {% include 'partials/help-modal.html' %}
+
+    <script src="{{ url_for('static', filename='js/core/settings-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/updater.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/alerts.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/recordings.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/global-nav.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/analytics-dashboard.js') }}"></script>
+</body>
+</html>
