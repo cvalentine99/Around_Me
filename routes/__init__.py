@@ -33,6 +33,11 @@ def register_blueprints(app):
     from .alerts import alerts_bp
     from .recordings import recordings_bp
     from .uat import uat_bp
+    from .subghz import subghz_bp
+    from .vdl2 import vdl2_bp
+    from .bt_locate import bt_locate_bp
+    from .space_weather import space_weather_bp
+    from .analytics import analytics_bp
 
     app.register_blueprint(pager_bp)
     app.register_blueprint(sensor_bp)
@@ -65,6 +70,11 @@ def register_blueprints(app):
     app.register_blueprint(alerts_bp)  # Cross-mode alerts
     app.register_blueprint(recordings_bp)  # Session recordings
     app.register_blueprint(uat_bp)  # UAT 978 MHz ADS-B decoder
+    app.register_blueprint(subghz_bp)  # Sub-GHz / 433 MHz ISM band decoder
+    app.register_blueprint(vdl2_bp)  # VDL Mode 2 aviation data link
+    app.register_blueprint(bt_locate_bp)  # Bluetooth device location tracking
+    app.register_blueprint(space_weather_bp)  # Space weather / solar conditions
+    app.register_blueprint(analytics_bp)  # Cross-mode analytics & insights
 
     # Initialize TSCM state with queue and lock from app
     import app as app_module

@@ -21,7 +21,7 @@ from utils.dependencies import check_tool, get_tool_path
 from utils.logging import wifi_logger as logger
 from utils.process import is_valid_mac, is_valid_channel
 from utils.validation import validate_wifi_channel, validate_mac_address, validate_network_interface
-from utils.sse import format_sse
+from utils.sse import async_sse_stream, async_sse_stream_fanout, format_sse
 from utils.event_pipeline import process_event
 from data.oui import get_manufacturer
 from utils.constants import (
@@ -1136,29 +1136,20 @@ async def get_wifi_networks():
 @wifi_bp.route('/stream')
 async def stream_wifi():
     """SSE stream for WiFi events."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = 30.0
+    def _on_wifi_msg(msg):
+        try:
+            process_event('wifi', msg, msg.get('type'))
+        except Exception:
+            pass
 
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: app_module.wifi_queue.get(timeout=1)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('wifi', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
+    response = Response(
+        async_sse_stream_fanout(
+            source_queue=app_module.wifi_queue,
+            channel_key='wifi',
+            on_message=_on_wifi_msg,
+        ),
+        mimetype='text/event-stream',
+    )
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
     response.headers['Connection'] = 'keep-alive'
@@ -1561,26 +1552,13 @@ async def v2_deauth_stream():
         - deauth_error: An error occurred
         - keepalive: Periodic keepalive
     """
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = SSE_KEEPALIVE_INTERVAL
-
-        while True:
-            try:
-                # Try to get from the dedicated deauth queue
-                msg = await loop.run_in_executor(
-                    None, lambda: app_module.deauth_detector_queue.get(timeout=SSE_QUEUE_TIMEOUT)
-                )
-                last_keepalive = time.time()
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
+    response = Response(
+        async_sse_stream_fanout(
+            source_queue=app_module.deauth_detector_queue,
+            channel_key='deauth',
+        ),
+        mimetype='text/event-stream',
+    )
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
     response.headers['Connection'] = 'keep-alive'

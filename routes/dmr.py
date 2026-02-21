@@ -18,7 +18,7 @@ from quart import Blueprint, jsonify, request, Response
 
 import app as app_module
 from utils.logging import get_logger
-from utils.sse import format_sse
+from utils.sse import async_sse_stream, async_sse_stream_fanout, format_sse
 from utils.event_pipeline import process_event
 from utils.process import register_process, unregister_process
 from utils.validation import validate_frequency, validate_gain, validate_device_index, validate_ppm
@@ -711,27 +711,20 @@ async def stream_dmr_audio() -> Response:
 @dmr_bp.route('/stream')
 async def stream_dmr() -> Response:
     """SSE stream for DMR decoder events."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: dmr_queue.get(timeout=SSE_QUEUE_TIMEOUT)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('dmr', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= SSE_KEEPALIVE_INTERVAL:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
+    def _on_dmr_msg(msg):
+        try:
+            process_event('dmr', msg, msg.get('type'))
+        except Exception:
+            pass
 
-    response = Response(generate(), mimetype='text/event-stream')
+    response = Response(
+        async_sse_stream_fanout(
+            source_queue=dmr_queue,
+            channel_key='dmr',
+            on_message=_on_dmr_msg,
+        ),
+        mimetype='text/event-stream',
+    )
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
     return response

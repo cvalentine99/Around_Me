@@ -11,7 +11,7 @@ import queue
 from quart import Blueprint, jsonify, request, Response, send_file
 
 from utils.logging import get_logger
-from utils.sse import sse_stream
+from utils.sse import async_sse_stream, async_sse_stream_fanout, sse_stream
 from utils.validation import validate_device_index, validate_gain, validate_latitude, validate_longitude, validate_elevation
 from utils.weather_sat import (
     get_weather_sat_decoder,
@@ -432,7 +432,13 @@ async def stream_progress():
     Returns:
         SSE stream (text/event-stream)
     """
-    response = Response(sse_stream(_weather_sat_queue), mimetype='text/event-stream')
+    response = Response(
+        async_sse_stream_fanout(
+            source_queue=_weather_sat_queue,
+            channel_key='weather_sat',
+        ),
+        mimetype='text/event-stream',
+    )
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
     response.headers['Connection'] = 'keep-alive'

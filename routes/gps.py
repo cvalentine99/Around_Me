@@ -10,7 +10,7 @@ from typing import Generator
 from quart import Blueprint, jsonify, request, Response
 
 from utils.logging import get_logger
-from utils.sse import format_sse
+from utils.sse import async_sse_stream, async_sse_stream_fanout, format_sse
 from utils.gps import (
     get_gps_reader,
     start_gpsd,
@@ -165,25 +165,13 @@ async def get_position():
 @gps_bp.route('/stream')
 async def stream_gps():
     """SSE stream of GPS position updates."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = 30.0
-
-        while True:
-            try:
-                position = await loop.run_in_executor(
-                    None, lambda: _gps_queue.get(timeout=1)
-                )
-                last_keepalive = time.time()
-                yield format_sse({'type': 'position', **position})
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
+    response = Response(
+        async_sse_stream_fanout(
+            source_queue=_gps_queue,
+            channel_key='gps',
+        ),
+        mimetype='text/event-stream',
+    )
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
     response.headers['Connection'] = 'keep-alive'

@@ -199,6 +199,11 @@ deauth_detector = None
 deauth_detector_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
 deauth_detector_lock = threading.Lock()
 
+# VDL Mode 2 aviation data link
+vdl2_process = None
+vdl2_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+vdl2_lock = threading.Lock()
+
 # ============================================
 # GLOBAL STATE DICTIONARIES
 # ============================================
@@ -775,7 +780,7 @@ async def kill_all() -> Response:
     """Kill all decoder, WiFi, and Bluetooth processes."""
     global current_process, sensor_process, wifi_process, adsb_process, ais_process, acars_process
     global aprs_process, aprs_rtl_process, dsc_process, dsc_rtl_process, bt_process
-    global dmr_process, dmr_rtl_process
+    global dmr_process, dmr_rtl_process, vdl2_process
 
     # Import adsb and ais modules to reset their state
     from routes import adsb as adsb_module
@@ -789,7 +794,7 @@ async def kill_all() -> Response:
         'dump1090', 'acarsdec', 'direwolf', 'AIS-catcher',
         'hcitool', 'bluetoothctl', 'satdump', 'dsd',
         'rtl_tcp', 'rtl_power', 'rtlamr', 'ffmpeg',
-        'dump978', 'uat2json'
+        'dump978', 'uat2json', 'dumpvdl2'
     ]
 
     for proc in processes_to_kill:
@@ -863,6 +868,10 @@ async def kill_all() -> Response:
         killed.append('bluetooth')
     except Exception:
         pass
+
+    # Reset VDL2 state
+    with vdl2_lock:
+        vdl2_process = None
 
     # Clear SDR device registry
     with sdr_device_registry_lock:

@@ -29,7 +29,7 @@ from utils.database import (
 from utils.agent_client import (
     AgentClient, AgentHTTPError, AgentConnectionError, create_client_from_agent
 )
-from utils.sse import format_sse
+from utils.sse import async_sse_stream, async_sse_stream_fanout, format_sse
 from utils.trilateration import (
     DeviceLocationTracker, PathLossModel, Trilateration,
     AgentObservation, estimate_location_from_observations
@@ -686,25 +686,13 @@ async def stream_all_agents():
     This endpoint streams push data as it arrives from agents.
     Each message is tagged with agent_id and agent_name.
     """
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = 30.0
-
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: agent_data_queue.get(timeout=1.0)
-                )
-                last_keepalive = time.time()
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
+    response = Response(
+        async_sse_stream_fanout(
+            source_queue=agent_data_queue,
+            channel_key='controller_all',
+        ),
+        mimetype='text/event-stream',
+    )
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
     response.headers['Connection'] = 'keep-alive'
