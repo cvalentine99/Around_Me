@@ -23,7 +23,7 @@ import app as app_module
 from utils.logging import sensor_logger as logger
 from utils.validation import validate_device_index, validate_gain, validate_ppm
 from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import event_stream_response
 from utils.constants import (
     PROCESS_TERMINATE_TIMEOUT,
     SSE_KEEPALIVE_INTERVAL,
@@ -1730,31 +1730,7 @@ async def stop_aprs() -> Response:
 @aprs_bp.route('/stream')
 async def stream_aprs() -> Response:
     """SSE stream for APRS packets."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: app_module.aprs_queue.get(timeout=SSE_QUEUE_TIMEOUT)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('aprs', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= SSE_KEEPALIVE_INTERVAL:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    return response
+    return event_stream_response(app_module.aprs_queue)
 
 
 @aprs_bp.route('/frequencies')

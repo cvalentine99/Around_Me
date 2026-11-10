@@ -21,13 +21,14 @@ from quart import Blueprint, jsonify, request, Response
 import app as app_module
 from utils.logging import get_logger
 from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import EventQueue, event_stream_response
 from utils.constants import (
     SSE_QUEUE_TIMEOUT,
     SSE_KEEPALIVE_INTERVAL,
     PROCESS_TERMINATE_TIMEOUT,
 )
 from utils.sdr import SDRFactory, SDRType
+from utils.sdr.registry import normalize_sdr_type
 
 logger = get_logger('valentine.listening_post')
 
@@ -53,7 +54,25 @@ scanner_paused = False
 scanner_current_freq = 0.0
 scanner_active_device: Optional[int] = None
 listening_active_device: Optional[int] = None
+scanner_active_sdr_type = 'rtlsdr'
+listening_active_sdr_type = 'rtlsdr'
 scanner_power_process: Optional[subprocess.Popen] = None
+def _release_scanner_claim():
+    global scanner_active_device, scanner_active_sdr_type
+    if scanner_active_device is not None:
+        app_module.release_sdr_device(scanner_active_device, sdr_type=scanner_active_sdr_type, mode_name='scanner')
+        scanner_active_device = None
+        scanner_active_sdr_type = 'rtlsdr'
+
+
+def _release_listening_claim():
+    global listening_active_device, listening_active_sdr_type
+    if listening_active_device is not None:
+        app_module.release_sdr_device(listening_active_device, sdr_type=listening_active_sdr_type, mode_name='listening')
+        listening_active_device = None
+        listening_active_sdr_type = 'rtlsdr'
+
+
 scanner_config = {
     'start_freq': 88.0,
     'end_freq': 108.0,
@@ -76,7 +95,7 @@ activity_log_lock = threading.Lock()
 MAX_LOG_ENTRIES = 500
 
 # SSE queue for scanner events
-scanner_queue: queue.Queue = queue.Queue(maxsize=100)
+scanner_queue: queue.Queue = EventQueue(maxsize=100, mode='listening_scanner')
 
 
 # ============================================
@@ -949,7 +968,7 @@ async def check_tools() -> Response:
 @listening_post_bp.route('/scanner/start', methods=['POST'])
 async def start_scanner() -> Response:
     """Start the frequency scanner."""
-    global scanner_thread, scanner_running, scanner_config, scanner_active_device, listening_active_device
+    global scanner_thread, scanner_running, scanner_config, scanner_active_device, listening_active_device, scanner_active_sdr_type
 
     with scanner_lock:
         if scanner_running:
@@ -979,7 +998,7 @@ async def start_scanner() -> Response:
         scanner_config['device'] = int(data.get('device', 0))
         scanner_config['gain'] = int(data.get('gain', 40))
         scanner_config['bias_t'] = bool(data.get('bias_t', False))
-        scanner_config['sdr_type'] = str(data.get('sdr_type', 'rtlsdr')).lower()
+        scanner_config['sdr_type'] = normalize_sdr_type(data.get('sdr_type', 'rtlsdr'))
         scanner_config['scan_method'] = str(data.get('scan_method', '')).lower().strip()
         if data.get('snr_threshold') is not None:
             scanner_config['snr_threshold'] = float(data.get('snr_threshold'))
@@ -1016,10 +1035,10 @@ async def start_scanner() -> Response:
             }), 503
         # Release listening device if active
         if listening_active_device is not None:
-            app_module.release_sdr_device(listening_active_device)
-            listening_active_device = None
+            await asyncio.to_thread(_stop_audio_stream)
+            _release_listening_claim()
         # Claim device for scanner
-        error = app_module.claim_sdr_device(scanner_config['device'], 'scanner')
+        error = app_module.claim_sdr_device(scanner_config['device'], 'scanner', sdr_type=sdr_type)
         if error:
             return jsonify({
                 'status': 'error',
@@ -1027,6 +1046,7 @@ async def start_scanner() -> Response:
                 'message': error
             }), 409
         scanner_active_device = scanner_config['device']
+        scanner_active_sdr_type = sdr_type
         scanner_running = True
         scanner_thread = threading.Thread(target=scanner_loop_power, daemon=True)
         scanner_thread.start()
@@ -1044,9 +1064,9 @@ async def start_scanner() -> Response:
                     'message': f'rx_fm not found. Install SoapySDR utilities for {sdr_type}.'
                 }), 503
         if listening_active_device is not None:
-            app_module.release_sdr_device(listening_active_device)
-            listening_active_device = None
-        error = app_module.claim_sdr_device(scanner_config['device'], 'scanner')
+            await asyncio.to_thread(_stop_audio_stream)
+            _release_listening_claim()
+        error = app_module.claim_sdr_device(scanner_config['device'], 'scanner', sdr_type=sdr_type)
         if error:
             return jsonify({
                 'status': 'error',
@@ -1054,6 +1074,7 @@ async def start_scanner() -> Response:
                 'message': error
             }), 409
         scanner_active_device = scanner_config['device']
+        scanner_active_sdr_type = sdr_type
 
         scanner_running = True
         scanner_thread = threading.Thread(target=scanner_loop, daemon=True)
@@ -1082,9 +1103,7 @@ async def stop_scanner() -> Response:
             except Exception:
                 pass
         scanner_power_process = None
-    if scanner_active_device is not None:
-        app_module.release_sdr_device(scanner_active_device)
-        scanner_active_device = None
+    _release_scanner_claim()
 
     return jsonify({'status': 'stopped'})
 
@@ -1189,31 +1208,7 @@ async def scanner_status() -> Response:
 @listening_post_bp.route('/scanner/stream')
 async def stream_scanner_events() -> Response:
     """SSE stream for scanner events."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: scanner_queue.get(timeout=SSE_QUEUE_TIMEOUT)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('listening_scanner', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= SSE_KEEPALIVE_INTERVAL:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    return response
+    return event_stream_response(scanner_queue)
 
 
 @listening_post_bp.route('/scanner/log')
@@ -1258,14 +1253,12 @@ async def get_presets() -> Response:
 @listening_post_bp.route('/audio/start', methods=['POST'])
 async def start_audio() -> Response:
     """Start audio at specific frequency (manual mode)."""
-    global scanner_running, scanner_active_device, listening_active_device, scanner_power_process, scanner_thread
+    global scanner_running, scanner_active_device, listening_active_device, scanner_power_process, scanner_thread, listening_active_sdr_type
 
     # Stop scanner if running
     if scanner_running:
         scanner_running = False
-        if scanner_active_device is not None:
-            app_module.release_sdr_device(scanner_active_device)
-            scanner_active_device = None
+        _release_scanner_claim()
         if scanner_thread and scanner_thread.is_alive():
             try:
                 scanner_thread.join(timeout=2.0)
@@ -1297,7 +1290,7 @@ async def start_audio() -> Response:
         squelch = int(data.get('squelch', 0))
         gain = int(data.get('gain', 40))
         device = int(data.get('device', 0))
-        sdr_type = str(data.get('sdr_type', 'rtlsdr')).lower()
+        sdr_type = normalize_sdr_type(data.get('sdr_type', 'rtlsdr'))
     except (ValueError, TypeError) as e:
         return jsonify({
             'status': 'error',
@@ -1324,7 +1317,7 @@ async def start_audio() -> Response:
     scanner_config['sdr_type'] = sdr_type
 
     # Stop waterfall if it's using the same SDR (SSE path)
-    if waterfall_running and waterfall_active_device == device:
+    if waterfall_running and waterfall_active_device == device and sdr_type == 'rtlsdr':
         await asyncio.to_thread(_stop_waterfall_internal)
         await asyncio.sleep(0.2)
 
@@ -1332,22 +1325,18 @@ async def start_audio() -> Response:
     # may still be tearing down its IQ capture process (thread join +
     # safe_terminate can take several seconds), so we retry with back-off
     # to give the USB device time to be fully released.
-    if listening_active_device is None or listening_active_device != device:
+    if (listening_active_device is None or listening_active_device != device
+            or listening_active_sdr_type != sdr_type):
         if listening_active_device is not None:
-            app_module.release_sdr_device(listening_active_device)
-            listening_active_device = None
+            await asyncio.to_thread(_stop_audio_stream)
+            _release_listening_claim()
 
         error = None
         max_claim_attempts = 6
         for attempt in range(max_claim_attempts):
-            # Force-release a stale waterfall registry entry on each
-            # attempt — the WebSocket handler may not have finished
-            # cleanup yet.
-            device_status = app_module.get_sdr_device_status()
-            if device_status.get(device) == 'waterfall':
-                app_module.release_sdr_device(device)
-
-            error = app_module.claim_sdr_device(device, 'listening')
+            # Wait for the previous owner's actual cleanup. Releasing its
+            # claim here could let its delayed finally release this stream.
+            error = app_module.claim_sdr_device(device, 'listening', sdr_type=sdr_type)
             if not error:
                 break
             if attempt < max_claim_attempts - 1:
@@ -1364,6 +1353,7 @@ async def start_audio() -> Response:
                 'message': error
             }), 409
         listening_active_device = device
+        listening_active_sdr_type = sdr_type
 
     await asyncio.to_thread(_start_audio_stream, frequency, modulation)
     if audio_running:
@@ -1373,6 +1363,7 @@ async def start_audio() -> Response:
             'modulation': modulation
         })
     else:
+        _release_listening_claim()
         return jsonify({
             'status': 'error',
             'message': 'Failed to start audio. Check SDR device.'
@@ -1384,9 +1375,7 @@ async def stop_audio() -> Response:
     """Stop audio."""
     global listening_active_device
     _stop_audio_stream()
-    if listening_active_device is not None:
-        app_module.release_sdr_device(listening_active_device)
-        listening_active_device = None
+    _release_listening_claim()
     return jsonify({'status': 'stopped'})
 
 
@@ -1597,7 +1586,7 @@ waterfall_process: Optional[subprocess.Popen] = None
 waterfall_thread: Optional[threading.Thread] = None
 waterfall_running = False
 waterfall_lock = threading.Lock()
-waterfall_queue: queue.Queue = queue.Queue(maxsize=200)
+waterfall_queue: queue.Queue = EventQueue(maxsize=200, mode='waterfall')
 waterfall_active_device: Optional[int] = None
 waterfall_config = {
     'start_freq': 88.0,
@@ -1790,7 +1779,7 @@ def _stop_waterfall_internal() -> None:
         waterfall_process = None
 
     if waterfall_active_device is not None:
-        app_module.release_sdr_device(waterfall_active_device)
+        app_module.release_sdr_device(waterfall_active_device, sdr_type='rtlsdr', mode_name='waterfall')
         waterfall_active_device = None
 
 
@@ -1838,7 +1827,7 @@ async def start_waterfall() -> Response:
         pass
 
     # Claim SDR device
-    error = app_module.claim_sdr_device(waterfall_config['device'], 'waterfall')
+    error = app_module.claim_sdr_device(waterfall_config['device'], 'waterfall', sdr_type='rtlsdr')
     if error:
         return jsonify({'status': 'error', 'error_type': 'DEVICE_BUSY', 'message': error}), 409
 
@@ -1861,30 +1850,7 @@ async def stop_waterfall() -> Response:
 @listening_post_bp.route('/waterfall/stream')
 async def stream_waterfall() -> Response:
     """SSE stream for waterfall data."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: waterfall_queue.get(timeout=SSE_QUEUE_TIMEOUT)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('waterfall', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= SSE_KEEPALIVE_INTERVAL:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    return response
+    return event_stream_response(waterfall_queue)
 def _downsample_bins(values: list[float], target: int) -> list[float]:
     """Downsample bins to a target length using simple averaging."""
     if target <= 0 or len(values) <= target:

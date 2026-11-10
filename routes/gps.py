@@ -11,6 +11,7 @@ from quart import Blueprint, jsonify, request, Response
 
 from utils.logging import get_logger
 from utils.sse import format_sse
+from utils.sse import EventQueue, event_stream_response
 from utils.gps import (
     get_gps_reader,
     start_gpsd,
@@ -24,18 +25,18 @@ logger = get_logger('valentine.gps')
 gps_bp = Blueprint('gps', __name__, url_prefix='/gps')
 
 # Queue for SSE position updates
-_gps_queue: queue.Queue = queue.Queue(maxsize=100)
+_gps_queue: queue.Queue = EventQueue(maxsize=100)
 
 
 def _position_callback(position: GPSPosition) -> None:
     """Callback to queue position updates for SSE stream."""
     try:
-        _gps_queue.put_nowait(position.to_dict())
+        _gps_queue.put_nowait({'type': 'position', **position.to_dict()})
     except queue.Full:
         # Discard oldest if queue is full
         try:
             _gps_queue.get_nowait()
-            _gps_queue.put_nowait(position.to_dict())
+            _gps_queue.put_nowait({'type': 'position', **position.to_dict()})
         except queue.Empty:
             pass
 
@@ -165,26 +166,4 @@ async def get_position():
 @gps_bp.route('/stream')
 async def stream_gps():
     """SSE stream of GPS position updates."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = 30.0
-
-        while True:
-            try:
-                position = await loop.run_in_executor(
-                    None, lambda: _gps_queue.get(timeout=1)
-                )
-                last_keepalive = time.time()
-                yield format_sse({'type': 'position', **position})
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return event_stream_response(_gps_queue)

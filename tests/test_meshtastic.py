@@ -404,11 +404,18 @@ class TestMeshtasticRoutes:
             assert all(m['channel'] == 0 for m in data['messages'])
 
     @pytest.mark.asyncio
-    async def test_stream_endpoint_exists(self, client):
+    async def test_stream_endpoint_exists(self, client, monkeypatch):
         """GET /meshtastic/stream should return SSE content type."""
-        response = await client.get('/meshtastic/stream')
-
-        assert response.content_type.startswith('text/event-stream')
+        from asyncio import wait_for
+        from routes import meshtastic
+        from utils.sse import EventQueue
+        events = EventQueue(maxsize=4)
+        monkeypatch.setattr(meshtastic, '_mesh_queue', events)
+        async with client.request('/meshtastic/stream', method='GET') as connection:
+            events.put({'type': 'meshtastic_test'})
+            assert b'meshtastic_test' in await wait_for(connection.receive(), 1)
+            assert connection.headers['Content-Type'].startswith('text/event-stream')
+            await connection.disconnect()
 
     @pytest.mark.asyncio
     async def test_node_not_connected(self, client):

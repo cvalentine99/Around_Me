@@ -5,14 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import queue
 import shutil
 import socket
 import subprocess
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator
+from typing import Any
 
 from quart import Blueprint, jsonify, request, Response, render_template
 from quart import make_response
@@ -43,9 +42,13 @@ from utils.validation import (
     validate_device_index, validate_gain,
     validate_rtl_tcp_host, validate_rtl_tcp_port
 )
-from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import event_stream_response
 from utils.sdr import SDRFactory, SDRType
+from utils.sdr.registry import normalize_sdr_type
+from utils.sdr.adsb import build_readsb_command, decoder_help, readsb_has_native_rtlsdr
+from utils.process import register_process, unregister_process
+from utils.async_lock import async_thread_lock
+from utils.async_process import async_popen
 from utils.constants import (
     ADSB_SBS_PORT,
     ADSB_TERMINATE_TIMEOUT,
@@ -53,8 +56,6 @@ from utils.constants import (
     SBS_SOCKET_TIMEOUT,
     SBS_RECONNECT_DELAY,
     SOCKET_BUFFER_SIZE,
-    SSE_KEEPALIVE_INTERVAL,
-    SSE_QUEUE_TIMEOUT,
     SOCKET_CONNECT_TIMEOUT,
     ADSB_UPDATE_INTERVAL,
     DUMP1090_START_WAIT,
@@ -72,6 +73,7 @@ adsb_last_message_time = None
 adsb_bytes_received = 0
 adsb_lines_received = 0
 adsb_active_device = None  # Track which device index is being used
+adsb_active_sdr_type = SDRType.RTL_SDR
 _sbs_error_logged = False  # Suppress repeated connection error logs
 
 # Track ICAOs already looked up in aircraft database (avoid repeated lookups)
@@ -546,6 +548,10 @@ async def adsb_status():
     return jsonify({
         'tracking_active': adsb_using_service,
         'active_device': adsb_active_device,
+        'active_sdr_type': normalize_sdr_type(adsb_active_sdr_type) if adsb_active_device is not None else None,
+        'sdr_type': normalize_sdr_type(adsb_active_sdr_type) if adsb_active_device is not None else None,
+        'receiver': ({'device': adsb_active_device, 'sdr_type': normalize_sdr_type(adsb_active_sdr_type)}
+                     if adsb_active_device is not None else None),
         'connected_to_sbs': adsb_connected,
         'messages_received': adsb_messages_received,
         'bytes_received': adsb_bytes_received,
@@ -573,26 +579,103 @@ async def adsb_session():
         'tracking_active': adsb_using_service,
         'connected_to_sbs': adsb_connected,
         'active_device': adsb_active_device,
+        'active_sdr_type': normalize_sdr_type(adsb_active_sdr_type) if adsb_active_device is not None else None,
+        'sdr_type': normalize_sdr_type(adsb_active_sdr_type) if adsb_active_device is not None else None,
+        'receiver': ({'device': adsb_active_device, 'sdr_type': normalize_sdr_type(adsb_active_sdr_type)}
+                     if adsb_active_device is not None else None),
         'session': session,
         'uptime_seconds': uptime_seconds,
     })
 
 
+def _build_local_adsb_command(sdr_type, device_index, gain, bias_t):
+    """Select a decoder and construct only arguments supported by its CLI."""
+    readsb_path = shutil.which('readsb')
+    fallback_path = find_dump1090() if sdr_type == SDRType.RTL_SDR else None
+    sdr_device = SDRFactory.create_default_device(sdr_type, index=device_index)
+
+    if readsb_path:
+        try:
+            help_text = decoder_help(readsb_path)
+            needs_soapy = sdr_type != SDRType.RTL_SDR or not readsb_has_native_rtlsdr(help_text)
+            if needs_soapy:
+                devices = SDRFactory.detect_devices()
+                matches = [d for d in devices if d.sdr_type == sdr_type and d.index == device_index]
+                if not matches:
+                    raise ValueError(f'Could not resolve {sdr_type.value} device {device_index} for SoapySDR.')
+                sdr_device = matches[0]
+                if sum(d.sdr_type == sdr_type and d.serial == sdr_device.serial for d in devices) != 1:
+                    raise ValueError('SoapySDR cannot uniquely select receivers with duplicate serial numbers.')
+            return build_readsb_command(
+                sdr_device, readsb_path, gain=gain, bias_t=bias_t,
+                tcp_port=ADSB_SBS_PORT, help_text=help_text,
+            )
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            if not fallback_path:
+                raise ValueError(f'Cannot use the installed readsb: {exc}') from exc
+            logger.warning('Using dump1090 for RTL-SDR: %s', exc)
+
+    if not fallback_path:
+        raise ValueError('No compatible ADS-B decoder found. Install readsb or dump1090 for RTL-SDR.')
+    cmd = SDRFactory.get_builder(sdr_type).build_adsb_command(
+        device=sdr_device, gain=gain, bias_t=bias_t,
+    )
+    cmd[0] = fallback_path
+    # Keep the configured SBS listener consistent with the parser for every
+    # supported dump1090 variant rather than depending on its default port.
+    cmd.extend(['--net-sbs-port', str(ADSB_SBS_PORT)])
+    return cmd
+
+
+def _stop_local_adsb_process():
+    """Stop only the decoder process group launched by this application."""
+    proc = app_module.adsb_process
+    if proc is None:
+        return
+    if proc.poll() is None:
+        try:
+            os.killpg(os.getpgid(proc.pid), 15)
+            proc.wait(timeout=ADSB_TERMINATE_TIMEOUT)
+        except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
+            try:
+                os.killpg(os.getpgid(proc.pid), 9)
+            except (ProcessLookupError, OSError):
+                proc.kill()
+            try:
+                proc.wait(timeout=PROCESS_TERMINATE_TIMEOUT)
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeError('ADS-B receiver did not exit; its device remains reserved.') from exc
+    if proc.poll() is None:
+        raise RuntimeError('ADS-B receiver is still running; its device remains reserved.')
+    unregister_process(proc)
+    if app_module.adsb_process is proc:
+        app_module.adsb_process = None
+
+
 @adsb_bp.route('/start', methods=['POST'])
 async def start_adsb():
-    """Start ADS-B tracking."""
-    global adsb_using_service, adsb_active_device
+    async with async_thread_lock(app_module.adsb_lock):
+        return await _start_adsb_locked()
 
-    with app_module.adsb_lock:
-        if adsb_using_service:
-            session = _get_active_session()
-            return jsonify({
-                'status': 'already_running',
-                'message': 'ADS-B tracking already active',
-                'session': session
-            }), 409
+
+async def _start_adsb_locked():
+    """Start ADS-B tracking."""
+    global adsb_using_service, adsb_active_device, adsb_active_sdr_type
 
     data = await request.get_json(silent=True) or {}
+    try:
+        sdr_type = SDRType(normalize_sdr_type(data.get('sdr_type', 'rtlsdr')))
+    except ValueError as exc:
+        return jsonify({'status': 'error', 'message': str(exc)}), 400
+
+    if adsb_using_service or (app_module.adsb_process and app_module.adsb_process.poll() is None):
+        session = _get_active_session()
+        return jsonify({
+            'status': 'already_running',
+            'message': 'ADS-B tracking already active',
+            'session': session
+        }), 409
+
     start_source = data.get('source')
     started_by = request.remote_addr
 
@@ -635,7 +718,7 @@ async def start_adsb():
         })
 
     # Check if dump1090 is already running externally (e.g., user started it manually)
-    existing_service = check_dump1090_service()
+    existing_service = await asyncio.to_thread(check_dump1090_service)
     if existing_service:
         logger.info(f"Found existing dump1090 service at {existing_service}")
         adsb_using_service = True
@@ -655,42 +738,38 @@ async def start_adsb():
             'session': session
         })
 
-    # Get SDR type from request
-    sdr_type_str = data.get('sdr_type', 'rtlsdr')
+    # A Soapy-only readsb and a native RTL build accept different arguments.
+    # Build before claiming the receiver so discovery/configuration errors do
+    # not leave ownership behind.
     try:
-        sdr_type = SDRType(sdr_type_str)
-    except ValueError:
-        sdr_type = SDRType.RTL_SDR
-
-    # Prefer readsb for all SDR types — it handles RTL-SDR natively and
-    # supports SoapySDR for HackRF/LimeSDR/Airspy.  dump1090 is kept as
-    # a fallback for RTL-SDR only.
-    decoder_path = shutil.which('readsb') or find_dump1090()
-    if not decoder_path:
-        if sdr_type == SDRType.RTL_SDR:
-            return jsonify({'status': 'error', 'message': 'Neither readsb nor dump1090 found. Install readsb (preferred) or dump1090-fa.'})
-        else:
-            return jsonify({'status': 'error', 'message': f'readsb not found for {sdr_type.value}. Install readsb with SoapySDR support.'})
-    dump1090_path = decoder_path  # Keep variable name for downstream compatibility
+        cmd = await asyncio.to_thread(
+            _build_local_adsb_command, sdr_type, int(device), float(gain), bool(data.get('bias_t', False)),
+        )
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        return jsonify({'status': 'error', 'message': str(exc)}), 503
 
     # Kill any stale app-started process (use process group to ensure full cleanup)
     if app_module.adsb_process:
         try:
-            pgid = os.getpgid(app_module.adsb_process.pid)
-            os.killpg(pgid, 15)  # SIGTERM
-            app_module.adsb_process.wait(timeout=PROCESS_TERMINATE_TIMEOUT)
-        except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
-            try:
-                pgid = os.getpgid(app_module.adsb_process.pid)
-                os.killpg(pgid, 9)  # SIGKILL
-            except (ProcessLookupError, OSError):
-                pass
-        app_module.adsb_process = None
+            await asyncio.to_thread(_stop_local_adsb_process)
+        except Exception as exc:
+            return jsonify({'status': 'error', 'message': f'Previous ADS-B receiver could not be stopped: {exc}'}), 500
         logger.info("Killed stale ADS-B process")
 
     # Check if device is available before starting local dump1090
     device_int = int(device)
-    error = app_module.claim_sdr_device(device_int, 'adsb')
+    claim = asyncio.create_task(asyncio.to_thread(
+        app_module.claim_sdr_device, device_int, 'adsb', sdr_type=sdr_type,
+    ))
+    try:
+        error = await asyncio.shield(claim)
+    except asyncio.CancelledError:
+        # A USB probe in a worker cannot be canceled. Wait for its result so a
+        # late successful claim cannot be orphaned by a disconnected request.
+        error = await claim
+        if not error:
+            app_module.release_sdr_device(device_int, sdr_type=sdr_type)
+        raise
     if error:
         return jsonify({
             'status': 'error',
@@ -698,36 +777,23 @@ async def start_adsb():
             'message': error
         }), 409
 
-    # Create device object and build command via abstraction layer
-    sdr_device = SDRFactory.create_default_device(sdr_type, index=device)
-    builder = SDRFactory.get_builder(sdr_type)
-
-    # Build ADS-B decoder command
-    bias_t = data.get('bias_t', False)
-    cmd = builder.build_adsb_command(
-        device=sdr_device,
-        gain=float(gain),
-        bias_t=bias_t
-    )
-
-    # For RTL-SDR, ensure we use the found dump1090 path
-    if sdr_type == SDRType.RTL_SDR:
-        cmd[0] = dump1090_path
-
+    adsb_active_device = device_int
+    adsb_active_sdr_type = sdr_type
     try:
-        logger.info(f"Starting dump1090 with device index {device}: {' '.join(cmd)}")
-        app_module.adsb_process = subprocess.Popen(
+        logger.info(f"Starting ADS-B decoder with {sdr_type.value} device {device}: {' '.join(cmd)}")
+        app_module.adsb_process = await async_popen(
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             start_new_session=True  # Create new process group for clean shutdown
         )
+        register_process(app_module.adsb_process)
 
-        time.sleep(DUMP1090_START_WAIT)
+        await asyncio.sleep(DUMP1090_START_WAIT)
 
         if app_module.adsb_process.poll() is not None:
             # Process exited - release device and get error message
-            app_module.release_sdr_device(device_int)
+            app_module.release_sdr_device(device_int, sdr_type=sdr_type)
             stderr_output = ''
             if app_module.adsb_process.stderr:
                 try:
@@ -763,17 +829,24 @@ async def start_adsb():
                 suggestion = 'Ensure readsb is installed with SoapySDR support and the device is connected.'
 
             full_msg = f'{error_msg} {suggestion}'
-            if stderr_output and len(stderr_output) < 300:
-                full_msg += f' (Details: {stderr_output})'
+            if stderr_output:
+                full_msg += f' (Details: {stderr_output[:1000]})'
+            unregister_process(app_module.adsb_process)
+            app_module.adsb_process = None
+            adsb_active_device = None
+            adsb_active_sdr_type = SDRType.RTL_SDR
 
             return jsonify({
                 'status': 'error',
                 'error_type': error_type,
-                'message': full_msg
-            })
+                'message': full_msg,
+                'decoder': os.path.basename(cmd[0]),
+                'stderr': stderr_output[:2000],
+            }), 500
 
         adsb_using_service = True
         adsb_active_device = device  # Track which device is being used
+        adsb_active_sdr_type = sdr_type
         thread = threading.Thread(target=parse_sbs_stream, args=(f'localhost:{ADSB_SBS_PORT}',), daemon=True)
         thread.start()
 
@@ -789,45 +862,54 @@ async def start_adsb():
             'status': 'started',
             'message': 'ADS-B tracking started',
             'device': device,
+            'sdr_type': sdr_type.value,
+            'receiver': {'device': device_int, 'sdr_type': sdr_type.value},
             'session': session
         })
+    except asyncio.CancelledError:
+        adsb_using_service = False
+        await asyncio.to_thread(_stop_local_adsb_process)
+        app_module.release_sdr_device(device_int, sdr_type=sdr_type)
+        adsb_active_device = None
+        adsb_active_sdr_type = SDRType.RTL_SDR
+        raise
     except Exception as e:
         # Release device on failure
-        app_module.release_sdr_device(device_int)
-        return jsonify({'status': 'error', 'message': str(e)})
+        await asyncio.to_thread(_stop_local_adsb_process)
+        app_module.release_sdr_device(device_int, sdr_type=sdr_type)
+        adsb_active_device = None
+        adsb_active_sdr_type = SDRType.RTL_SDR
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @adsb_bp.route('/stop', methods=['POST'])
 async def stop_adsb():
+    async with async_thread_lock(app_module.adsb_lock):
+        return await _stop_adsb_locked()
+
+
+async def _stop_adsb_locked():
     """Stop ADS-B tracking."""
-    global adsb_using_service, adsb_active_device
+    global adsb_using_service, adsb_active_device, adsb_active_sdr_type
     data = await request.get_json(silent=True) or {}
     stop_source = data.get('source')
     stopped_by = request.remote_addr
 
-    with app_module.adsb_lock:
-        if app_module.adsb_process:
-            try:
-                # Kill the entire process group to ensure all child processes are terminated
-                pgid = os.getpgid(app_module.adsb_process.pid)
-                os.killpg(pgid, 15)  # SIGTERM
-                app_module.adsb_process.wait(timeout=ADSB_TERMINATE_TIMEOUT)
-            except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
-                try:
-                    # Force kill if terminate didn't work
-                    pgid = os.getpgid(app_module.adsb_process.pid)
-                    os.killpg(pgid, 9)  # SIGKILL
-                except (ProcessLookupError, OSError):
-                    pass
-            app_module.adsb_process = None
-            logger.info("ADS-B process stopped")
+    # Mark stopped before awaiting process shutdown so the SBS reader exits.
+    adsb_using_service = False
+    try:
+        await asyncio.to_thread(_stop_local_adsb_process)
+    except Exception as exc:
+        logger.error('ADS-B shutdown failed: %s', exc)
+        return jsonify({'status': 'error', 'message': str(exc)}), 500
 
-        # Release device from registry
-        if adsb_active_device is not None:
-            app_module.release_sdr_device(adsb_active_device)
+    # Release device from registry only after its process has exited.
+    if adsb_active_device is not None:
+        app_module.release_sdr_device(adsb_active_device, sdr_type=adsb_active_sdr_type)
 
-        adsb_using_service = False
-        adsb_active_device = None
+    adsb_using_service = False
+    adsb_active_device = None
+    adsb_active_sdr_type = SDRType.RTL_SDR
 
     app_module.adsb_aircraft.clear()
     _looked_up_icaos.clear()
@@ -838,31 +920,7 @@ async def stop_adsb():
 @adsb_bp.route('/stream')
 async def stream_adsb():
     """SSE stream for ADS-B aircraft."""
-    async def generate():
-        last_keepalive = time.time()
-        loop = asyncio.get_running_loop()
-
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: app_module.adsb_queue.get(timeout=SSE_QUEUE_TIMEOUT)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('adsb', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= SSE_KEEPALIVE_INTERVAL:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    return response
+    return event_stream_response(app_module.adsb_queue)
 
 
 @adsb_bp.route('/dashboard')

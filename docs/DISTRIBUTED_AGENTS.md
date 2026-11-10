@@ -146,6 +146,10 @@ API key authentication secures the push mechanism:
 4. Controller compares provided key with stored key
 5. Mismatched keys return 401 Unauthorized
 
+Configure a matching key on both sides for automatic agent pushes. A registered
+agent name alone does not authenticate a request. Agents without a configured key
+can accept ingested data only through an authenticated user session or user API token.
+
 ### Database Schema
 
 Two tables support the agent system:

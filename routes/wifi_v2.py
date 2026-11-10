@@ -26,7 +26,7 @@ from utils.wifi import (
 )
 from utils.sse import format_sse
 from utils.validation import validate_wifi_channel
-from utils.event_pipeline import process_event
+from utils.sse import iterable_stream_response
 
 logger = logging.getLogger(__name__)
 
@@ -406,20 +406,7 @@ async def event_stream():
         - scan_started, scan_stopped, scan_error
         - keepalive: Periodic keepalive
     """
-    async def generate():
-        scanner = get_wifi_scanner()
-
-        for event in scanner.get_event_stream():
-            try:
-                process_event('wifi', event, event.get('type'))
-            except Exception:
-                pass
-            yield format_sse(event)
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    return response
+    return iterable_stream_response(get_wifi_scanner().get_event_stream())
 
 
 # =============================================================================

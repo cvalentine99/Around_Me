@@ -5022,6 +5022,9 @@
             try {
                 var response = await fetch('/killall', { method: 'POST' });
                 var data = await response.json();
+                if (!response.ok || data.status !== 'killed') {
+                    throw new Error((data.errors || []).join('; ') || data.message || 'Some receivers could not be stopped');
+                }
 
                 if (statusEl) {
                     statusEl.style.display = 'block';

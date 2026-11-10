@@ -144,11 +144,14 @@ Then open **/adsb/history** for the reporting dashboard.
 
 After starting, open **http://localhost:5050** in your browser.
 
-Default credentials: **admin** / **admin**
+The default username is **admin**. On the first startup, the server generates a
+random administrator password and prints it in its startup log. You can set
+`VALENTINE_ADMIN_USERNAME` and `VALENTINE_ADMIN_PASSWORD` to supply credentials.
 
 > On first login, you will be prompted to change your password (enforced by the security hardening layer).
 
-Credentials can be changed via the `ADMIN_USERNAME` and `ADMIN_PASSWORD` variables in `config.py`.
+Existing account credentials are stored in the database; changing these environment
+variables configures the account created for a new installation.
 
 ---
 

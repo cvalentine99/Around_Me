@@ -31,6 +31,12 @@ def unregister_process(process: subprocess.Popen) -> None:
             _spawned_processes.remove(process)
 
 
+def get_registered_processes() -> tuple[subprocess.Popen, ...]:
+    """Snapshot app-owned processes without capturing later receiver starts."""
+    with _process_lock:
+        return tuple(_spawned_processes)
+
+
 def cleanup_all_processes() -> None:
     """Clean up all registered processes on exit."""
     logger.info("Cleaning up all spawned processes...")
@@ -43,6 +49,7 @@ def cleanup_all_processes() -> None:
                 except subprocess.TimeoutExpired:
                     try:
                         process.kill()
+                        process.wait(timeout=2)
                     except (ProcessLookupError, OSError):
                         pass
                 except ProcessLookupError:
@@ -79,6 +86,7 @@ def safe_terminate(process: subprocess.Popen | None, timeout: float = 2.0) -> bo
     except subprocess.TimeoutExpired:
         try:
             process.kill()
+            process.wait(timeout=timeout)
         except (ProcessLookupError, OSError):
             pass
         unregister_process(process)

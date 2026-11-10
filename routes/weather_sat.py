@@ -12,6 +12,7 @@ from quart import Blueprint, jsonify, request, Response, send_file
 
 from utils.logging import get_logger
 from utils.sse import sse_stream
+from utils.sse import EventQueue, event_stream_response
 from utils.validation import validate_device_index, validate_gain, validate_latitude, validate_longitude, validate_elevation
 from utils.weather_sat import (
     get_weather_sat_decoder,
@@ -25,7 +26,21 @@ logger = get_logger('valentine.weather_sat')
 weather_sat_bp = Blueprint('weather_sat', __name__, url_prefix='/weather-sat')
 
 # Queue for SSE progress streaming
-_weather_sat_queue: queue.Queue = queue.Queue(maxsize=100)
+_weather_sat_queue: queue.Queue = EventQueue(maxsize=100, mode='weather_sat')
+
+
+def _release_capture_claim(decoder, claim) -> None:
+    """Release only the receiver generation captured by this session."""
+    if claim is None:
+        return
+    device_index, lease = claim
+    try:
+        import app as app_module
+        app_module.release_sdr_device(device_index, mode_name='weather_sat', lease=lease)
+    except ImportError:
+        pass
+    if getattr(decoder, '_valentine_sdr_claim', None) is claim:
+        decoder._valentine_sdr_claim = None
 
 
 def _progress_callback(progress: CaptureProgress) -> None:
@@ -129,15 +144,17 @@ async def start_capture():
     bias_t = bool(data.get('bias_t', False))
 
     # Claim SDR device
+    claim = None
     try:
         import app as app_module
-        error = app_module.claim_sdr_device(device_index, 'weather_sat')
+        error, lease = app_module.claim_sdr_device_with_lease(device_index, 'weather_sat')
         if error:
             return jsonify({
                 'status': 'error',
                 'error_type': 'DEVICE_BUSY',
                 'message': error,
             }), 409
+        claim = (device_index, lease)
     except ImportError:
         pass
 
@@ -150,22 +167,23 @@ async def start_capture():
 
     # Set callback and on-complete handler for SDR release
     decoder.set_callback(_progress_callback)
+    decoder._valentine_sdr_claim = claim
 
     def _release_device():
-        try:
-            import app as app_module
-            app_module.release_sdr_device(device_index)
-        except ImportError:
-            pass
+        _release_capture_claim(decoder, claim)
 
     decoder.set_on_complete(_release_device)
 
-    success = decoder.start(
-        satellite=satellite,
-        device_index=device_index,
-        gain=gain,
-        bias_t=bias_t,
-    )
+    try:
+        success = decoder.start(
+            satellite=satellite,
+            device_index=device_index,
+            gain=gain,
+            bias_t=bias_t,
+        )
+    except Exception:
+        _release_device()
+        raise
 
     if success:
         sat_info = WEATHER_SATELLITES[satellite]
@@ -314,16 +332,14 @@ async def stop_capture():
         JSON confirmation.
     """
     decoder = get_weather_sat_decoder()
-    device_index = decoder.device_index
+    claim = getattr(decoder, '_valentine_sdr_claim', None)
 
     decoder.stop()
 
-    # Release SDR device
-    try:
-        import app as app_module
-        app_module.release_sdr_device(device_index)
-    except ImportError:
-        pass
+    # A file decode has no receiver claim. Never release by mutable decoder
+    # device_index, which may refer to an earlier capture or another owner.
+    if isinstance(claim, tuple) and len(claim) == 2:
+        _release_capture_claim(decoder, claim)
 
     return jsonify({'status': 'stopped'})
 
@@ -432,11 +448,7 @@ async def stream_progress():
     Returns:
         SSE stream (text/event-stream)
     """
-    response = Response(sse_stream(_weather_sat_queue), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return event_stream_response(_weather_sat_queue)
 
 
 @weather_sat_bp.route('/passes')

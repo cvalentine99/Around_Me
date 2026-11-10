@@ -19,6 +19,7 @@ from quart import Blueprint, jsonify, request, Response
 
 from utils.logging import get_logger
 from utils.sse import format_sse
+from utils.sse import EventQueue, event_stream_response
 from utils.meshtastic import (
     get_meshtastic_client,
     start_meshtastic,
@@ -32,7 +33,7 @@ logger = get_logger('valentine.meshtastic')
 meshtastic_bp = Blueprint('meshtastic', __name__, url_prefix='/meshtastic')
 
 # Queue for SSE message streaming
-_mesh_queue: queue.Queue = queue.Queue(maxsize=500)
+_mesh_queue: queue.Queue = EventQueue(maxsize=500, mode='meshtastic')
 
 # Store recent messages for history
 _recent_messages: list[dict] = []
@@ -470,29 +471,7 @@ async def stream_messages():
     Returns:
         SSE stream (text/event-stream)
     """
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = 30.0
-
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: _mesh_queue.get(timeout=1)
-                )
-                last_keepalive = time.time()
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return event_stream_response(_mesh_queue)
 
 
 @meshtastic_bp.route('/node')

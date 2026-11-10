@@ -37,7 +37,7 @@ from utils.database import (
 )
 from utils.dsc.parser import parse_dsc_message
 from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import event_stream_response
 from utils.validation import validate_device_index, validate_gain
 from utils.sdr import SDRFactory, SDRType
 from utils.dependencies import get_tool_path
@@ -519,33 +519,7 @@ async def stop_decoding() -> Response:
 @dsc_bp.route('/stream')
 async def stream() -> Response:
     """SSE stream for real-time DSC messages."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = 30.0
-
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: app_module.dsc_queue.get(timeout=1)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('dsc', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return event_stream_response(app_module.dsc_queue)
 
 
 @dsc_bp.route('/messages')

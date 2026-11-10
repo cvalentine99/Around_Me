@@ -861,14 +861,8 @@ const WiFiMode = (function() {
 
         eventSource.onerror = (error) => {
             console.warn('[WiFiMode] Event stream error:', error);
-            if (isScanning) {
-                // Attempt to reconnect
-                setTimeout(() => {
-                    if (isScanning && scanMode === 'deep') {
-                        startEventStream();
-                    }
-                }, 3000);
-            }
+            // Keep this EventSource so its native retry preserves Last-Event-ID.
+            // Explicit stop and mode changes still close the connection.
         };
     }
 
@@ -892,6 +886,7 @@ const WiFiMode = (function() {
 
             case 'scan_started':
                 console.log('[WiFiMode] Scan started:', event);
+                setScanning(true, event.mode || 'deep');
                 break;
 
             case 'scan_stopped':

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 import sys
@@ -192,7 +193,7 @@ async def check_dvb_driver_status() -> Response:
     # Check which DVB modules are currently loaded
     loaded_modules = []
     try:
-        result = subprocess.run(['lsmod'], capture_output=True, text=True, timeout=5)
+        result = await asyncio.to_thread(subprocess.run, ['lsmod'], capture_output=True, text=True, timeout=5)
         lsmod_output = result.stdout
         for mod in DVB_MODULES:
             if mod in lsmod_output:
@@ -263,7 +264,8 @@ blacklist r820t
     # Unload the modules
     for mod in DVB_MODULES:
         try:
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 ['modprobe', '-r', mod],
                 capture_output=True,
                 text=True,

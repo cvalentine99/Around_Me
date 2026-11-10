@@ -12,6 +12,7 @@ import logging
 import os
 import platform
 import queue
+from utils.sse import EventQueue, event_subscription
 import re
 import shutil
 import subprocess
@@ -94,7 +95,7 @@ class UnifiedWiFiScanner:
         self._deauth_detector: Optional['DeauthDetector'] = None
 
         # Event queue for SSE streaming
-        self._event_queue: queue.Queue = queue.Queue(maxsize=1000)
+        self._event_queue: queue.Queue = EventQueue(maxsize=1000, mode='wifi')
 
         # Callbacks
         self._on_network_updated: Optional[Callable[[WiFiAccessPoint], None]] = None
@@ -699,6 +700,10 @@ class UnifiedWiFiScanner:
                 self._status.error = "No monitor mode interface available"
                 return False
 
+            # A new stream must not replay a previous scan's stop/error after
+            # the start response has already marked the browser as running.
+            self._event_queue.clear_history()
+
             # Start airodump-ng in background thread
             self._deep_scan_stop_event.clear()
             self._deep_scan_thread = threading.Thread(
@@ -1187,14 +1192,14 @@ class UnifiedWiFiScanner:
 
     def get_event_stream(self) -> Generator[dict, None, None]:
         """Generate events for SSE streaming."""
-        while True:
-            try:
-                event = self._event_queue.get(timeout=1.0)
-                yield event
-            except queue.Empty:
-                yield {'type': 'keepalive'}
-            except Exception:
-                break
+        with event_subscription(self._event_queue) as subscriber:
+            while True:
+                try:
+                    yield subscriber.get(timeout=1.0)
+                except queue.Empty:
+                    yield {'type': 'keepalive'}
+                except Exception:
+                    break
 
     # =========================================================================
     # Baseline Management

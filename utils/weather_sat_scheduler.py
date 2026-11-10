@@ -281,6 +281,9 @@ class WeatherSatScheduler:
         if not self._enabled or sp.skipped:
             return
 
+        with self._lock:
+            device_index, gain, bias_t = self._device, self._gain, self._bias_t
+
         decoder = get_weather_sat_decoder()
 
         if decoder.is_running:
@@ -295,9 +298,10 @@ class WeatherSatScheduler:
             return
 
         # Claim SDR device
+        claim = None
         try:
             import app as app_module
-            error = app_module.claim_sdr_device(self._device, 'weather_sat')
+            error, lease = app_module.claim_sdr_device_with_lease(device_index, 'weather_sat')
             if error:
                 logger.info(f"SDR device busy, skipping: {sp.satellite} - {error}")
                 sp.status = 'skipped'
@@ -308,6 +312,7 @@ class WeatherSatScheduler:
                     'reason': 'device_busy',
                 })
                 return
+            claim = (device_index, lease)
         except ImportError:
             pass
 
@@ -316,21 +321,26 @@ class WeatherSatScheduler:
         # Set up callbacks
         if self._progress_callback:
             decoder.set_callback(self._progress_callback)
+        decoder._valentine_sdr_claim = claim
 
         def _release_device():
+            if claim is None:
+                return
             try:
                 import app as app_module
-                app_module.release_sdr_device(self._device)
+                app_module.release_sdr_device(device_index, mode_name='weather_sat', lease=claim[1])
             except ImportError:
                 pass
+            if getattr(decoder, '_valentine_sdr_claim', None) is claim:
+                decoder._valentine_sdr_claim = None
 
         decoder.set_on_complete(lambda: self._on_capture_complete(sp, _release_device))
 
         success = decoder.start(
             satellite=sp.satellite,
-            device_index=self._device,
-            gain=self._gain,
-            bias_t=self._bias_t,
+            device_index=device_index,
+            gain=gain,
+            bias_t=bias_t,
         )
 
         if success:

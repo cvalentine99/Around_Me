@@ -446,12 +446,15 @@ class WeatherSatDecoder:
         register_process(self._process)
         os.close(slave_fd)  # parent doesn't need the slave side
 
+        # Capture this pipeline before another session can replace shared state.
+        process = self._process
+        on_complete = self._on_complete_callback
+
         # Check for early exit asynchronously (avoid blocking /start for 3s)
         def _check_early_exit():
             """Poll once after 3s; if SatDump died, emit an error event."""
             time.sleep(3)
-            process = self._process
-            if process is None or process.poll() is None:
+            if self._process is not process or process.poll() is None:
                 return  # still running or already cleaned up
             retcode = process.returncode
             output = b''
@@ -488,7 +491,8 @@ class WeatherSatDecoder:
 
         # Start reader thread to monitor output
         self._reader_thread = threading.Thread(
-            target=self._read_satdump_output, daemon=True
+            target=self._read_satdump_output,
+            args=(process, master_fd, on_complete), daemon=True
         )
         self._reader_thread.start()
 
@@ -552,7 +556,8 @@ class WeatherSatDecoder:
 
         # Start reader thread to monitor output
         self._reader_thread = threading.Thread(
-            target=self._read_satdump_output, daemon=True
+            target=self._read_satdump_output,
+            args=(self._process, master_fd, self._on_complete_callback), daemon=True
         )
         self._reader_thread.start()
 
@@ -615,24 +620,25 @@ class WeatherSatDecoder:
         # Fall back to string index
         return str(device_index)
 
-    def _read_pty_lines(self):
+    def _read_pty_lines(self, process=None, master_fd=None):
         """Read lines from the PTY master fd, splitting on \\n and \\r.
 
         SatDump uses \\r carriage returns for progress updates. A PTY gives
         us unbuffered output. We use select() to detect data availability
         and os.read() for raw bytes, then split on line boundaries.
         """
-        master_fd = self._pty_master_fd
+        process = process if process is not None else self._process
+        master_fd = master_fd if master_fd is not None else self._pty_master_fd
         if master_fd is None:
             return
 
         buf = b''
-        while self._running:
+        while self._running and self._process is process:
             try:
                 r, _, _ = select.select([master_fd], [], [], 1.0)
                 if not r:
                     # Timeout — check if process is still alive
-                    if self._process and self._process.poll() is not None:
+                    if process and process.poll() is not None:
                         break
                     continue
                 chunk = os.read(master_fd, 4096)
@@ -667,16 +673,16 @@ class WeatherSatDecoder:
             if text:
                 yield text
 
-    def _read_satdump_output(self) -> None:
+    def _read_satdump_output(self, process, master_fd, on_complete) -> None:
         """Read SatDump stdout/stderr for progress updates."""
-        if not self._process or self._pty_master_fd is None:
+        if process is None or master_fd is None:
             return
 
         last_emit_time = 0.0
 
         try:
-            for line in self._read_pty_lines():
-                if not self._running:
+            for line in self._read_pty_lines(process, master_fd):
+                if not self._running or self._process is not process:
                     break
 
                 line = line.strip()
@@ -771,36 +777,41 @@ class WeatherSatDecoder:
         except Exception as e:
             logger.error(f"Error reading SatDump output: {e}")
         finally:
-            # Close PTY master fd
-            if self._pty_master_fd is not None:
+            # Stop All may already have removed this process, and a newer
+            # capture may have reused the singleton or even its numeric fd.
+            # Only the current pipeline can reset shared decoder state.
+            progress = None
+            with self._lock:
+                current = self._process is process
+                if current or (self._process is None and self._pty_master_fd == master_fd):
+                    if self._pty_master_fd == master_fd:
+                        try:
+                            os.close(master_fd)
+                        except OSError:
+                            pass
+                        self._pty_master_fd = None
+                if current:
+                    was_running = self._running
+                    self._running = False
+                    if process.poll() is not None:
+                        self._process = None
+                    elapsed = int(time.time() - self._capture_start_time) if self._capture_start_time else 0
+                    if was_running:
+                        self._capture_phase = 'complete'
+                        progress = CaptureProgress(
+                            status='complete', satellite=self._current_satellite,
+                            frequency=self._current_frequency, mode=self._current_mode,
+                            message=f"Capture complete ({elapsed}s)", elapsed_seconds=elapsed,
+                            log_type='info', capture_phase='complete',
+                        )
+            if progress:
+                self._emit_progress(progress)
+
+            # Use the callback captured when this process started. Reading the
+            # mutable callback here could release a newer capture's lease.
+            if on_complete and process.poll() is not None:
                 try:
-                    os.close(self._pty_master_fd)
-                except OSError:
-                    pass
-                self._pty_master_fd = None
-
-            # Process ended — release resources
-            was_running = self._running
-            self._running = False
-            elapsed = int(time.time() - self._capture_start_time) if self._capture_start_time else 0
-
-            if was_running:
-                self._capture_phase = 'complete'
-                self._emit_progress(CaptureProgress(
-                    status='complete',
-                    satellite=self._current_satellite,
-                    frequency=self._current_frequency,
-                    mode=self._current_mode,
-                    message=f"Capture complete ({elapsed}s)",
-                    elapsed_seconds=elapsed,
-                    log_type='info',
-                    capture_phase='complete',
-                ))
-
-            # Notify route layer to release SDR device
-            if self._on_complete_callback:
-                try:
-                    self._on_complete_callback()
+                    on_complete()
                 except Exception as e:
                     logger.error(f"Error in on_complete callback: {e}")
 

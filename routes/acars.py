@@ -22,7 +22,7 @@ import app as app_module
 from utils.logging import sensor_logger as logger
 from utils.validation import validate_device_index, validate_gain, validate_ppm
 from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import event_stream_response
 from utils.constants import (
     PROCESS_TERMINATE_TIMEOUT,
     SSE_KEEPALIVE_INTERVAL,
@@ -30,6 +30,7 @@ from utils.constants import (
     PROCESS_START_WAIT,
 )
 from utils.process import register_process, unregister_process
+from utils.sdr.registry import normalize_sdr_type
 
 acars_bp = Blueprint('acars', __name__, url_prefix='/acars')
 
@@ -158,13 +159,14 @@ def stream_acars_output(process: subprocess.Popen, is_text_mode: bool = False) -
             except Exception:
                 pass
         unregister_process(process)
-        app_module.acars_queue.put({'type': 'status', 'status': 'stopped'})
         with app_module.acars_lock:
-            app_module.acars_process = None
-        # Release SDR device
-        if acars_active_device is not None:
-            app_module.release_sdr_device(acars_active_device)
-            acars_active_device = None
+            # A previous decoder can finish after Stop All and a new start.
+            if app_module.acars_process is process:
+                app_module.acars_queue.put({'type': 'status', 'status': 'stopped'})
+                app_module.acars_process = None
+                if acars_active_device is not None:
+                    app_module.release_sdr_device(acars_active_device, mode_name='acars')
+                    acars_active_device = None
 
 
 @acars_bp.route('/tools')
@@ -174,7 +176,8 @@ async def check_acars_tools() -> Response:
 
     return jsonify({
         'acarsdec': has_acarsdec,
-        'ready': has_acarsdec
+        'ready': has_acarsdec,
+        'supported_sdr_types': ['rtlsdr'],
     })
 
 
@@ -187,6 +190,11 @@ async def acars_status() -> Response:
 
     return jsonify({
         'running': running,
+        'active_device': acars_active_device,
+        'active_sdr_type': 'rtlsdr' if acars_active_device is not None else None,
+        'sdr_type': 'rtlsdr' if acars_active_device is not None else None,
+        'receiver': ({'device': acars_active_device, 'sdr_type': 'rtlsdr'}
+                     if acars_active_device is not None else None),
         'message_count': acars_message_count,
         'last_message_time': acars_last_message_time,
         'queue_size': app_module.acars_queue.qsize()
@@ -197,6 +205,15 @@ async def acars_status() -> Response:
 async def start_acars() -> Response:
     """Start ACARS decoder."""
     global acars_message_count, acars_last_message_time, acars_active_device
+
+    data = await request.get_json(silent=True) or {}
+    try:
+        sdr_type = normalize_sdr_type(data.get('sdr_type', 'rtlsdr'))
+    except ValueError as exc:
+        return jsonify({'status': 'error', 'message': str(exc)}), 400
+    if sdr_type != 'rtlsdr':
+        return jsonify({'status': 'error', 'message': 'ACARS requires an RTL-SDR receiver.',
+                        'supported_sdr_types': ['rtlsdr']}), 400
 
     with app_module.acars_lock:
         if app_module.acars_process and app_module.acars_process.poll() is None:
@@ -212,8 +229,6 @@ async def start_acars() -> Response:
             'status': 'error',
             'message': 'acarsdec not found. Install with: sudo apt install acarsdec'
         }), 400
-
-    data = await request.get_json(silent=True) or {}
 
     # Validate inputs
     try:
@@ -317,7 +332,7 @@ async def start_acars() -> Response:
         if process.poll() is not None:
             # Process died - release device
             if acars_active_device is not None:
-                app_module.release_sdr_device(acars_active_device)
+                app_module.release_sdr_device(acars_active_device, mode_name='acars')
                 acars_active_device = None
             stderr = ''
             if process.stderr:
@@ -343,13 +358,15 @@ async def start_acars() -> Response:
             'status': 'started',
             'frequencies': frequencies,
             'device': device,
+            'sdr_type': 'rtlsdr',
+            'receiver': {'device': device_int, 'sdr_type': 'rtlsdr'},
             'gain': gain
         })
 
     except Exception as e:
         # Release device on failure
         if acars_active_device is not None:
-            app_module.release_sdr_device(acars_active_device)
+            app_module.release_sdr_device(acars_active_device, mode_name='acars')
             acars_active_device = None
         logger.error(f"Failed to start ACARS decoder: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -377,10 +394,10 @@ async def stop_acars() -> Response:
 
         app_module.acars_process = None
 
-    # Release device from registry
-    if acars_active_device is not None:
-        app_module.release_sdr_device(acars_active_device)
-        acars_active_device = None
+        # Keep release and process reset inside the same synchronization scope.
+        if acars_active_device is not None:
+            app_module.release_sdr_device(acars_active_device, mode_name='acars')
+            acars_active_device = None
 
     return jsonify({'status': 'stopped'})
 
@@ -388,31 +405,7 @@ async def stop_acars() -> Response:
 @acars_bp.route('/stream')
 async def stream_acars() -> Response:
     """SSE stream for ACARS messages."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: app_module.acars_queue.get(timeout=SSE_QUEUE_TIMEOUT)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('acars', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= SSE_KEEPALIVE_INTERVAL:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    return response
+    return event_stream_response(app_module.acars_queue)
 
 
 @acars_bp.route('/frequencies')

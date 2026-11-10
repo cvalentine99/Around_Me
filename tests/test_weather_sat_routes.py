@@ -16,6 +16,19 @@ from utils.weather_sat import WeatherSatImage, WEATHER_SATELLITES
 from datetime import datetime, timezone
 
 
+@pytest.fixture(autouse=True)
+def weather_registry(monkeypatch):
+    """Keep route tests independent of USB probes and other modes' claims."""
+    import app as app_module
+    from utils.sdr.registry import SDRDeviceRegistry
+
+    registry = SDRDeviceRegistry(probe=lambda device: None)
+    monkeypatch.setattr(app_module, '_sdr_registry', registry)
+    monkeypatch.setattr(app_module, 'sdr_device_registry', registry.allocations)
+    monkeypatch.setattr(app_module, 'sdr_device_registry_lock', registry.lock)
+    return registry
+
+
 class TestWeatherSatRoutes:
     """Tests for weather satellite routes."""
 
@@ -70,6 +83,7 @@ class TestWeatherSatRoutes:
         """POST /weather-sat/start successfully starts capture."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
              patch('routes.weather_sat.get_weather_sat_decoder') as mock_get, \
+             patch('app.claim_sdr_device_with_lease', return_value=(None, 1)), \
              patch('routes.weather_sat.queue.Queue') as mock_queue:
 
             mock_decoder = MagicMock()
@@ -202,7 +216,7 @@ class TestWeatherSatRoutes:
         """POST /weather-sat/start when SDR device is busy."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
              patch('routes.weather_sat.get_weather_sat_decoder') as mock_get, \
-             patch('app.claim_sdr_device', return_value='Device busy with pager') as mock_claim:
+             patch('app.claim_sdr_device_with_lease', return_value=('Device busy with pager', None)) as mock_claim:
 
             mock_decoder = MagicMock()
             mock_decoder.is_running = False
@@ -224,7 +238,7 @@ class TestWeatherSatRoutes:
         """POST /weather-sat/start when decoder.start() fails."""
         with patch('routes.weather_sat.is_weather_sat_available', return_value=True), \
              patch('routes.weather_sat.get_weather_sat_decoder') as mock_get, \
-             patch('app.claim_sdr_device', return_value=None):
+             patch('app.claim_sdr_device_with_lease', return_value=(None, 1)):
 
             mock_decoder = MagicMock()
             mock_decoder.is_running = False
@@ -567,12 +581,20 @@ class TestWeatherSatRoutes:
             assert data['status'] == 'ok'
             assert data['deleted'] == 5
 
-    async def test_stream_progress(self, auth_client):
+    async def test_stream_progress(self, auth_client, monkeypatch):
         """GET /weather-sat/stream returns SSE stream."""
-        response = await auth_client.get('/weather-sat/stream')
-        assert response.status_code == 200
-        assert response.mimetype == 'text/event-stream'
-        assert response.headers['Cache-Control'] == 'no-cache'
+        from asyncio import wait_for
+        from routes import weather_sat
+        from utils.sse import EventQueue
+        events = EventQueue(maxsize=4)
+        monkeypatch.setattr(weather_sat, '_weather_sat_queue', events)
+        async with auth_client.request('/weather-sat/stream', method='GET') as connection:
+            events.put({'type': 'weather_sat_test'})
+            assert b'weather_sat_test' in await wait_for(connection.receive(), 1)
+            assert connection.status_code == 200
+            assert connection.headers['Content-Type'].startswith('text/event-stream')
+            assert connection.headers['Cache-Control'] == 'no-cache'
+            await connection.disconnect()
 
     async def test_get_passes_missing_params(self, auth_client):
         """GET /weather-sat/passes without required params."""

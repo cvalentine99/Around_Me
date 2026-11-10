@@ -6,7 +6,7 @@ import json
 import logging
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,7 +31,7 @@ class RecordingSession:
     metadata: dict | None = None
 
     _file_handle: Any | None = None
-    _lock: threading.Lock = threading.Lock()
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def open(self) -> None:
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -136,19 +136,23 @@ class RecordingManager:
     def record_event(self, mode: str, event: dict, event_type: str | None = None) -> None:
         if event_type in ('keepalive', 'ping'):
             return
-        session = self._active_by_mode.get(mode)
-        if not session:
-            return
         record = {
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'mode': mode,
             'event_type': event_type,
             'event': event,
         }
-        try:
-            session.write_event(record)
-        except Exception as e:
-            logger.debug(f"Recording write failed: {e}")
+        # Producers and the HTTP stop route run on different threads. Keep the
+        # session active through the write so stopping cannot close a file just
+        # before a producer writes or accidentally reopen a completed session.
+        with self._lock:
+            session = self._active_by_mode.get(mode)
+            if not session:
+                return
+            try:
+                session.write_event(record)
+            except Exception as e:
+                logger.debug(f"Recording write failed: {e}")
 
     def list_recordings(self, limit: int = 50) -> list[dict]:
         with get_db() as conn:

@@ -16,6 +16,18 @@ from utils.logging import get_logger
 
 logger = get_logger('valentine.audio_ws')
 
+
+def _rtl_fm_demod_mode(modulation: str) -> str:
+    """Translate app modulation names to rtl_fm -M flag values.
+
+    rtl_fm accepts: am, fm, wbfm, raw, usb, lsb
+    Our app uses 'wfm' for wideband FM — rtl_fm calls it 'wbfm'.
+    """
+    if modulation == 'wfm':
+        return 'wbfm'
+    return modulation
+
+
 # Global state
 audio_process = None
 rtl_process = None
@@ -106,7 +118,7 @@ def start_audio_stream(config):
 
     rtl_cmd = [
         rtl_fm,
-        '-M', mod,
+        '-M', _rtl_fm_demod_mode(mod),
         '-f', str(freq_hz),
         '-s', str(sample_rate),
         '-r', str(resample_rate),
@@ -164,6 +176,18 @@ def start_audio_stream(config):
         return None
 
 
+def _locked_start(config):
+    """Start audio stream while holding the process lock."""
+    with process_lock:
+        return start_audio_stream(config)
+
+
+def _locked_kill():
+    """Kill audio processes while holding the process lock."""
+    with process_lock:
+        kill_audio_processes()
+
+
 def init_audio_websocket(app):
     """Initialize WebSocket audio streaming using Quart's native websocket support."""
     from quart import websocket
@@ -193,8 +217,7 @@ def init_audio_websocket(app):
                         if cmd == 'start':
                             config = data.get('config', {})
                             logger.info(f"Starting audio: {config}")
-                            with process_lock:
-                                proc = start_audio_stream(config)
+                            proc = await asyncio.to_thread(_locked_start, config)
                             if proc:
                                 streaming = True
                                 await websocket.send(json.dumps({'status': 'started'}))
@@ -204,8 +227,7 @@ def init_audio_websocket(app):
                         elif cmd == 'stop':
                             logger.info("Stopping audio")
                             streaming = False
-                            with process_lock:
-                                kill_audio_processes()
+                            await asyncio.to_thread(_locked_kill)
                             proc = None
                             await websocket.send(json.dumps({'status': 'stopped'}))
 
@@ -213,8 +235,7 @@ def init_audio_websocket(app):
                             # Change frequency/modulation - restart stream
                             config = data.get('config', {})
                             logger.info(f"Retuning: {config}")
-                            with process_lock:
-                                proc = start_audio_stream(config)
+                            proc = await asyncio.to_thread(_locked_start, config)
                             if proc:
                                 streaming = True
                                 await websocket.send(json.dumps({'status': 'tuned'}))
@@ -254,6 +275,5 @@ def init_audio_websocket(app):
         except Exception as e:
             logger.info(f"WebSocket closed: {e}")
         finally:
-            with process_lock:
-                kill_audio_processes()
+            await asyncio.to_thread(_locked_kill)
             logger.info("WebSocket audio client disconnected")

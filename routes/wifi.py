@@ -22,7 +22,11 @@ from utils.logging import wifi_logger as logger
 from utils.process import is_valid_mac, is_valid_channel
 from utils.validation import validate_wifi_channel, validate_mac_address, validate_network_interface
 from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import event_stream_response
+from utils.sse import iterable_stream_response
+from utils.async_lock import async_thread_lock
+from utils.async_process import async_popen, finish_in_thread
+from utils.process import safe_terminate
 from data.oui import get_manufacturer
 from utils.constants import (
     WIFI_TERMINATE_TIMEOUT,
@@ -430,7 +434,8 @@ def stream_airodump_output(process, csv_path):
         process.wait()
         app_module.wifi_queue.put({'type': 'status', 'text': 'stopped'})
         with app_module.wifi_lock:
-            app_module.wifi_process = None
+            if app_module.wifi_process is process:
+                app_module.wifi_process = None
 
 
 @wifi_bp.route('/interfaces')
@@ -491,20 +496,20 @@ async def toggle_monitor_mode():
 
                     return interfaces
 
-                interfaces_before = get_wireless_interfaces()
+                interfaces_before = await asyncio.to_thread(get_wireless_interfaces)
 
                 kill_processes = data.get('kill_processes', False)
                 airmon_path = get_tool_path('airmon-ng')
                 if kill_processes:
-                    subprocess.run([airmon_path, 'check', 'kill'], capture_output=True, timeout=10)
+                    await asyncio.to_thread(subprocess.run, [airmon_path, 'check', 'kill'], capture_output=True, timeout=10)
 
-                result = subprocess.run([airmon_path, 'start', interface],
+                result = await asyncio.to_thread(subprocess.run, [airmon_path, 'start', interface],
                                         capture_output=True, text=True, timeout=15)
 
                 output = result.stdout + result.stderr
 
-                time.sleep(1)
-                interfaces_after = get_wireless_interfaces()
+                await asyncio.sleep(1)
+                interfaces_after = await asyncio.to_thread(get_wireless_interfaces)
 
                 new_interfaces = interfaces_after - interfaces_before
                 monitor_iface = None
@@ -541,7 +546,7 @@ async def toggle_monitor_mode():
 
                 if not monitor_iface:
                     try:
-                        result = subprocess.run(['iwconfig', interface], capture_output=True, text=True, timeout=5)
+                        result = await asyncio.to_thread(subprocess.run, ['iwconfig', interface], capture_output=True, text=True, timeout=5)
                         if 'Mode:Monitor' in result.stdout:
                             monitor_iface = interface
                     except (subprocess.SubprocessError, OSError):
@@ -593,9 +598,9 @@ async def toggle_monitor_mode():
 
         elif check_tool('iw'):
             try:
-                subprocess.run(['ip', 'link', 'set', interface, 'down'], capture_output=True)
-                subprocess.run(['iw', interface, 'set', 'monitor', 'control'], capture_output=True)
-                subprocess.run(['ip', 'link', 'set', interface, 'up'], capture_output=True)
+                await asyncio.to_thread(subprocess.run, ['ip', 'link', 'set', interface, 'down'], capture_output=True)
+                await asyncio.to_thread(subprocess.run, ['iw', interface, 'set', 'monitor', 'control'], capture_output=True)
+                await asyncio.to_thread(subprocess.run, ['ip', 'link', 'set', interface, 'up'], capture_output=True)
                 app_module.wifi_monitor_interface = interface
                 return jsonify({'status': 'success', 'monitor_interface': interface})
             except Exception as e:
@@ -607,7 +612,7 @@ async def toggle_monitor_mode():
         if check_tool('airmon-ng'):
             try:
                 airmon_path = get_tool_path('airmon-ng')
-                subprocess.run([airmon_path, 'stop', app_module.wifi_monitor_interface or interface],
+                await asyncio.to_thread(subprocess.run, [airmon_path, 'stop', app_module.wifi_monitor_interface or interface],
                                capture_output=True, text=True, timeout=15)
                 app_module.wifi_monitor_interface = None
                 return jsonify({'status': 'success', 'message': 'Monitor mode disabled'})
@@ -615,9 +620,9 @@ async def toggle_monitor_mode():
                 return jsonify({'status': 'error', 'message': str(e)})
         elif check_tool('iw'):
             try:
-                subprocess.run(['ip', 'link', 'set', interface, 'down'], capture_output=True)
-                subprocess.run(['iw', interface, 'set', 'type', 'managed'], capture_output=True)
-                subprocess.run(['ip', 'link', 'set', interface, 'up'], capture_output=True)
+                await asyncio.to_thread(subprocess.run, ['ip', 'link', 'set', interface, 'down'], capture_output=True)
+                await asyncio.to_thread(subprocess.run, ['iw', interface, 'set', 'type', 'managed'], capture_output=True)
+                await asyncio.to_thread(subprocess.run, ['ip', 'link', 'set', interface, 'up'], capture_output=True)
                 app_module.wifi_monitor_interface = None
                 return jsonify({'status': 'success', 'message': 'Monitor mode disabled'})
             except Exception as e:
@@ -629,7 +634,7 @@ async def toggle_monitor_mode():
 @wifi_bp.route('/scan/start', methods=['POST'])
 async def start_wifi_scan():
     """Start WiFi scanning with airodump-ng."""
-    with app_module.wifi_lock:
+    async with async_thread_lock(app_module.wifi_lock):
         if app_module.wifi_process:
             return jsonify({'status': 'error', 'message': 'Scan already running'})
 
@@ -701,13 +706,13 @@ async def start_wifi_scan():
         logger.info(f"Running: {' '.join(cmd)}")
 
         try:
-            app_module.wifi_process = subprocess.Popen(
+            app_module.wifi_process = await async_popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
 
-            time.sleep(0.5)
+            await asyncio.sleep(0.5)
 
             if app_module.wifi_process.poll() is not None:
                 stderr_output = app_module.wifi_process.stderr.read().decode('utf-8', errors='replace').strip()
@@ -734,6 +739,11 @@ async def start_wifi_scan():
 
             return jsonify({'status': 'started', 'interface': interface})
 
+        except asyncio.CancelledError:
+            if app_module.wifi_process:
+                await asyncio.to_thread(safe_terminate, app_module.wifi_process)
+                app_module.wifi_process = None
+            raise
         except FileNotFoundError:
             return jsonify({'status': 'error', 'message': 'airodump-ng not found.'})
         except Exception as e:
@@ -743,16 +753,22 @@ async def start_wifi_scan():
 @wifi_bp.route('/scan/stop', methods=['POST'])
 async def stop_wifi_scan():
     """Stop WiFi scanning."""
-    with app_module.wifi_lock:
-        if app_module.wifi_process:
-            app_module.wifi_process.terminate()
-            try:
-                app_module.wifi_process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                app_module.wifi_process.kill()
-            app_module.wifi_process = None
-            return jsonify({'status': 'stopped'})
-        return jsonify({'status': 'not_running'})
+    async with async_thread_lock(app_module.wifi_lock):
+        return jsonify(await finish_in_thread(_stop_wifi_scan))
+
+
+def _stop_wifi_scan():
+    """Keep process exit and handle reset together if the request disconnects."""
+    if app_module.wifi_process:
+        app_module.wifi_process.terminate()
+        try:
+            app_module.wifi_process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            app_module.wifi_process.kill()
+            app_module.wifi_process.wait(timeout=3)
+        app_module.wifi_process = None
+        return {'status': 'stopped'}
+    return {'status': 'not_running'}
 
 
 @wifi_bp.route('/deauth', methods=['POST'])
@@ -807,7 +823,7 @@ async def send_deauth():
 
         app_module.wifi_queue.put({'type': 'info', 'text': f'Sending {count} deauth packets to {target_bssid}'})
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=30)
 
         if result.returncode == 0:
             return jsonify({'status': 'success', 'message': f'Sent {count} deauth packets'})
@@ -846,7 +862,7 @@ async def capture_handshake():
     if not is_valid_channel(channel):
         return jsonify({'status': 'error', 'message': 'Invalid channel'})
 
-    with app_module.wifi_lock:
+    async with async_thread_lock(app_module.wifi_lock):
         if app_module.wifi_process:
             return jsonify({'status': 'error', 'message': 'Scan already running.'})
 
@@ -863,7 +879,7 @@ async def capture_handshake():
         ]
 
         try:
-            app_module.wifi_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            app_module.wifi_process = await async_popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             app_module.wifi_queue.put({'type': 'info', 'text': f'Capturing handshakes for {target_bssid}'})
             return jsonify({'status': 'started', 'capture_file': capture_path + '-01.cap'})
         except Exception as e:
@@ -881,7 +897,7 @@ async def check_handshake_status():
         return jsonify({'status': 'error', 'message': 'Invalid capture file path'})
 
     if not os.path.exists(capture_file):
-        with app_module.wifi_lock:
+        async with async_thread_lock(app_module.wifi_lock):
             if app_module.wifi_process and app_module.wifi_process.poll() is None:
                 return jsonify({'status': 'running', 'file_exists': False, 'handshake_found': False})
             else:
@@ -897,7 +913,8 @@ async def check_handshake_status():
         if target_bssid and is_valid_mac(target_bssid):
             aircrack_path = get_tool_path('aircrack-ng')
             if aircrack_path:
-                result = subprocess.run(
+                result = await asyncio.to_thread(
+                    subprocess.run,
                     [aircrack_path, '-a', '2', '-b', target_bssid, capture_file],
                     capture_output=True, text=True, timeout=10
                 )
@@ -962,7 +979,7 @@ async def capture_pmkid():
     if not is_valid_mac(target_bssid):
         return jsonify({'status': 'error', 'message': 'Invalid BSSID format'})
 
-    with pmkid_lock:
+    async with async_thread_lock(pmkid_lock):
         if pmkid_process and pmkid_process.poll() is None:
             return jsonify({'status': 'error', 'message': 'PMKID capture already running'})
 
@@ -984,7 +1001,7 @@ async def capture_pmkid():
             cmd.extend(['-c', str(channel)])
 
         try:
-            pmkid_process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            pmkid_process = await async_popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             return jsonify({'status': 'started', 'file': capture_path})
         except FileNotFoundError:
             return jsonify({'status': 'error', 'message': 'hcxdumptool not found.'})
@@ -1009,7 +1026,8 @@ async def check_pmkid_status():
 
     try:
         hash_file = capture_file.replace('.pcapng', '.22000')
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ['hcxpcapngtool', '-o', hash_file, capture_file],
             capture_output=True, text=True, timeout=10
         )
@@ -1031,18 +1049,22 @@ async def check_pmkid_status():
 @wifi_bp.route('/pmkid/stop', methods=['POST'])
 async def stop_pmkid():
     """Stop PMKID capture."""
+    async with async_thread_lock(pmkid_lock):
+        await finish_in_thread(_stop_pmkid)
+    return jsonify({'status': 'stopped'})
+
+
+def _stop_pmkid():
     global pmkid_process
 
-    with pmkid_lock:
-        if pmkid_process:
-            pmkid_process.terminate()
-            try:
-                pmkid_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                pmkid_process.kill()
-            pmkid_process = None
-
-    return jsonify({'status': 'stopped'})
+    if pmkid_process:
+        pmkid_process.terminate()
+        try:
+            pmkid_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pmkid_process.kill()
+            pmkid_process.wait(timeout=5)
+        pmkid_process = None
 
 
 @wifi_bp.route('/handshake/crack', methods=['POST'])
@@ -1082,7 +1104,8 @@ async def crack_handshake():
         logger.info(f"Starting aircrack-ng: {' '.join(cmd)}")
 
         # Run aircrack-ng with a timeout (this could take a while)
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             cmd,
             capture_output=True,
             text=True,
@@ -1136,33 +1159,7 @@ async def get_wifi_networks():
 @wifi_bp.route('/stream')
 async def stream_wifi():
     """SSE stream for WiFi events."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = 30.0
-
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: app_module.wifi_queue.get(timeout=1)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('wifi', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return event_stream_response(app_module.wifi_queue)
 
 
 # =============================================================================
@@ -1374,16 +1371,7 @@ async def v2_get_channels():
 @wifi_bp.route('/v2/stream')
 async def v2_stream():
     """SSE stream for real-time WiFi events."""
-    async def generate():
-        scanner = get_wifi_scanner()
-        for event in scanner.get_event_stream():
-            yield format_sse(event)
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return iterable_stream_response(get_wifi_scanner().get_event_stream())
 
 
 @wifi_bp.route('/v2/export')
@@ -1561,30 +1549,7 @@ async def v2_deauth_stream():
         - deauth_error: An error occurred
         - keepalive: Periodic keepalive
     """
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = SSE_KEEPALIVE_INTERVAL
-
-        while True:
-            try:
-                # Try to get from the dedicated deauth queue
-                msg = await loop.run_in_executor(
-                    None, lambda: app_module.deauth_detector_queue.get(timeout=SSE_QUEUE_TIMEOUT)
-                )
-                last_keepalive = time.time()
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return event_stream_response(app_module.deauth_detector_queue)
 
 
 @wifi_bp.route('/v2/deauth/alerts')

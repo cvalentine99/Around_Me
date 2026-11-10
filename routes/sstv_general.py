@@ -16,7 +16,7 @@ from quart import Blueprint, Response, jsonify, request, send_file
 
 from utils.logging import get_logger
 from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import EventQueue, event_stream_response
 from utils.sstv import (
     get_general_sstv_decoder,
 )
@@ -26,7 +26,7 @@ logger = get_logger('valentine.sstv_general')
 sstv_general_bp = Blueprint('sstv_general', __name__, url_prefix='/sstv-general')
 
 # Queue for SSE progress streaming
-_sstv_general_queue: queue.Queue = queue.Queue(maxsize=100)
+_sstv_general_queue: queue.Queue = EventQueue(maxsize=100, mode='sstv_general')
 
 # Predefined SSTV frequencies
 SSTV_FREQUENCIES = [
@@ -289,33 +289,7 @@ async def delete_all_images():
 @sstv_general_bp.route('/stream')
 async def stream_progress():
     """SSE stream of SSTV decode progress."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = 30.0
-
-        while True:
-            try:
-                progress = await loop.run_in_executor(
-                    None, lambda: _sstv_general_queue.get(timeout=1)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('sstv_general', progress, progress.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(progress)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return event_stream_response(_sstv_general_queue)
 
 
 @sstv_general_bp.route('/decode-file', methods=['POST'])

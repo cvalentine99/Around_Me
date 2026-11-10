@@ -10,7 +10,7 @@ from typing import Generator
 from quart import Blueprint, Response, jsonify, request
 
 from utils.alerts import get_alert_manager
-from utils.sse import format_sse
+from utils.sse import iterable_stream_response
 
 alerts_bp = Blueprint('alerts', __name__, url_prefix='/alerts')
 
@@ -66,12 +66,4 @@ async def list_events():
 async def stream_alerts() -> Response:
     manager = get_alert_manager()
 
-    async def generate():
-        for event in manager.stream_events(timeout=1.0):
-            yield format_sse(event)
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return iterable_stream_response(manager.stream_events(timeout=1.0))

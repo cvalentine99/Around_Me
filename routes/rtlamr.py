@@ -19,8 +19,10 @@ from utils.validation import (
     validate_frequency, validate_device_index, validate_gain, validate_ppm
 )
 from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import event_stream_response
 from utils.process import safe_terminate, register_process, unregister_process
+from utils.async_lock import async_thread_lock
+from utils.async_process import async_popen, finish_in_thread
 
 rtlamr_bp = Blueprint('rtlamr', __name__)
 
@@ -74,33 +76,25 @@ def stream_rtlamr_output(process: subprocess.Popen[bytes]) -> None:
             except Exception:
                 pass
         unregister_process(process)
-        # Kill companion rtl_tcp process
-        with rtl_tcp_lock:
-            if rtl_tcp_process:
-                try:
-                    rtl_tcp_process.terminate()
-                    rtl_tcp_process.wait(timeout=2)
-                except Exception:
-                    try:
-                        rtl_tcp_process.kill()
-                    except Exception:
-                        pass
-                unregister_process(rtl_tcp_process)
-                rtl_tcp_process = None
-        app_module.rtlamr_queue.put({'type': 'status', 'text': 'stopped'})
         with app_module.rtlamr_lock:
-            app_module.rtlamr_process = None
-        # Release SDR device
-        if rtlamr_active_device is not None:
-            app_module.release_sdr_device(rtlamr_active_device)
-            rtlamr_active_device = None
+            # A previous output reader must not tear down a newer scan.
+            if app_module.rtlamr_process is process:
+                with rtl_tcp_lock:
+                    if rtl_tcp_process:
+                        safe_terminate(rtl_tcp_process)
+                        rtl_tcp_process = None
+                app_module.rtlamr_process = None
+                if rtlamr_active_device is not None:
+                    app_module.release_sdr_device(rtlamr_active_device)
+                    rtlamr_active_device = None
+                app_module.rtlamr_queue.put({'type': 'status', 'text': 'stopped'})
 
 
 @rtlamr_bp.route('/start_rtlamr', methods=['POST'])
 async def start_rtlamr() -> Response:
     global rtl_tcp_process, rtlamr_active_device
 
-    with app_module.rtlamr_lock:
+    async with async_thread_lock(app_module.rtlamr_lock):
         if app_module.rtlamr_process:
             return jsonify({'status': 'error', 'message': 'RTLAMR already running'}), 409
 
@@ -139,7 +133,7 @@ async def start_rtlamr() -> Response:
         output_format = data.get('format', 'json')
         
         # Start rtl_tcp first
-        with rtl_tcp_lock:
+        async with async_thread_lock(rtl_tcp_lock):
             if not rtl_tcp_process:
                 logger.info("Starting rtl_tcp server...")
                 try:
@@ -157,7 +151,7 @@ async def start_rtlamr() -> Response:
                     if ppm and ppm != '0':
                         rtl_tcp_cmd.extend(['-p', str(ppm)])
                     
-                    rtl_tcp_process = subprocess.Popen(
+                    rtl_tcp_process = await async_popen(
                         rtl_tcp_cmd,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE
@@ -165,10 +159,18 @@ async def start_rtlamr() -> Response:
                     register_process(rtl_tcp_process)
 
                     # Wait a moment for rtl_tcp to start
-                    time.sleep(3)
+                    await asyncio.sleep(3)
                     
                     logger.info(f"rtl_tcp started: {' '.join(rtl_tcp_cmd)}")
                     app_module.rtlamr_queue.put({'type': 'info', 'text': f'rtl_tcp: {" ".join(rtl_tcp_cmd)}'})
+                except asyncio.CancelledError:
+                    if rtl_tcp_process:
+                        await asyncio.to_thread(safe_terminate, rtl_tcp_process)
+                        rtl_tcp_process = None
+                    if rtlamr_active_device is not None:
+                        app_module.release_sdr_device(rtlamr_active_device)
+                        rtlamr_active_device = None
+                    raise
                 except Exception as e:
                     logger.error(f"Failed to start rtl_tcp: {e}")
                     # Release SDR device on rtl_tcp failure
@@ -203,7 +205,7 @@ async def start_rtlamr() -> Response:
         logger.info(f"Running: {full_cmd}")
 
         try:
-            app_module.rtlamr_process = subprocess.Popen(
+            app_module.rtlamr_process = await async_popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
@@ -231,12 +233,24 @@ async def start_rtlamr() -> Response:
 
             return jsonify({'status': 'started', 'command': full_cmd})
 
+        except asyncio.CancelledError:
+            if app_module.rtlamr_process:
+                await asyncio.to_thread(safe_terminate, app_module.rtlamr_process)
+                app_module.rtlamr_process = None
+            async with async_thread_lock(rtl_tcp_lock):
+                if rtl_tcp_process:
+                    await asyncio.to_thread(safe_terminate, rtl_tcp_process)
+                    rtl_tcp_process = None
+            if rtlamr_active_device is not None:
+                app_module.release_sdr_device(rtlamr_active_device)
+                rtlamr_active_device = None
+            raise
         except FileNotFoundError:
             # If rtlamr fails, clean up rtl_tcp and release device
-            with rtl_tcp_lock:
+            async with async_thread_lock(rtl_tcp_lock):
                 if rtl_tcp_process:
                     rtl_tcp_process.terminate()
-                    rtl_tcp_process.wait(timeout=2)
+                    await asyncio.to_thread(rtl_tcp_process.wait, timeout=2)
                     rtl_tcp_process = None
             if rtlamr_active_device is not None:
                 app_module.release_sdr_device(rtlamr_active_device)
@@ -244,10 +258,10 @@ async def start_rtlamr() -> Response:
             return jsonify({'status': 'error', 'message': 'rtlamr not found. Install from https://github.com/bemasher/rtlamr'})
         except Exception as e:
             # If rtlamr fails, clean up rtl_tcp and release device
-            with rtl_tcp_lock:
+            async with async_thread_lock(rtl_tcp_lock):
                 if rtl_tcp_process:
                     rtl_tcp_process.terminate()
-                    rtl_tcp_process.wait(timeout=2)
+                    await asyncio.to_thread(rtl_tcp_process.wait, timeout=2)
                     rtl_tcp_process = None
             if rtlamr_active_device is not None:
                 app_module.release_sdr_device(rtlamr_active_device)
@@ -257,18 +271,25 @@ async def start_rtlamr() -> Response:
 
 @rtlamr_bp.route('/stop_rtlamr', methods=['POST'])
 async def stop_rtlamr() -> Response:
+    async with async_thread_lock(app_module.rtlamr_lock):
+        await finish_in_thread(_stop_rtlamr)
+    return jsonify({'status': 'stopped'})
+
+
+def _stop_rtlamr():
+    """Stop both pipeline members and release ownership before returning."""
     global rtl_tcp_process, rtlamr_active_device
 
-    with app_module.rtlamr_lock:
-        if app_module.rtlamr_process:
-            app_module.rtlamr_process.terminate()
-            try:
-                app_module.rtlamr_process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                app_module.rtlamr_process.kill()
-            app_module.rtlamr_process = None
+    if app_module.rtlamr_process:
+        app_module.rtlamr_process.terminate()
+        try:
+            app_module.rtlamr_process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            app_module.rtlamr_process.kill()
+            app_module.rtlamr_process.wait(timeout=2)
+        app_module.rtlamr_process = None
 
-    # Also stop rtl_tcp
+    # The caller keeps the scan lock until both processes are stopped.
     with rtl_tcp_lock:
         if rtl_tcp_process:
             rtl_tcp_process.terminate()
@@ -276,43 +297,14 @@ async def stop_rtlamr() -> Response:
                 rtl_tcp_process.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 rtl_tcp_process.kill()
+                rtl_tcp_process.wait(timeout=2)
             rtl_tcp_process = None
             logger.info("rtl_tcp stopped")
 
-    # Release device from registry
     if rtlamr_active_device is not None:
-        app_module.release_sdr_device(rtlamr_active_device)
+        app_module.release_sdr_device(rtlamr_active_device, mode_name='rtlamr')
         rtlamr_active_device = None
-
-    return jsonify({'status': 'stopped'})
-
 
 @rtlamr_bp.route('/stream_rtlamr')
 async def stream_rtlamr() -> Response:
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = 30.0
-
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: app_module.rtlamr_queue.get(timeout=1)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('rtlamr', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return event_stream_response(app_module.rtlamr_queue)

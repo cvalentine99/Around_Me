@@ -37,6 +37,7 @@ async def test_waterfall_start_invalid_range(auth_client):
 async def test_waterfall_start_success(auth_client):
     """Start should succeed with mocked rtl_power and device."""
     with patch('routes.listening_post.find_rtl_power', return_value='/usr/bin/rtl_power'), \
+         patch('routes.listening_post._waterfall_loop'), \
          patch('routes.listening_post.app_module') as mock_app:
         mock_app.claim_sdr_device.return_value = None  # No error, claim succeeds
         resp = await auth_client.post('/listening/waterfall/start', json={
@@ -62,10 +63,18 @@ async def test_waterfall_stop(auth_client):
     assert data['status'] == 'stopped'
 
 
-async def test_waterfall_stream_mimetype(auth_client):
+async def test_waterfall_stream_mimetype(auth_client, monkeypatch):
     """Stream should return event-stream content type."""
-    resp = await auth_client.get('/listening/waterfall/stream')
-    assert resp.content_type.startswith('text/event-stream')
+    from asyncio import wait_for
+    from routes import listening_post
+    from utils.sse import EventQueue
+    events = EventQueue(maxsize=4)
+    monkeypatch.setattr(listening_post, 'waterfall_queue', events)
+    async with auth_client.request('/listening/waterfall/stream', method='GET') as connection:
+        events.put({'type': 'waterfall_test'})
+        assert b'waterfall_test' in await wait_for(connection.receive(), 1)
+        assert connection.headers['Content-Type'].startswith('text/event-stream')
+        await connection.disconnect()
 
 
 async def test_waterfall_start_device_busy(auth_client):

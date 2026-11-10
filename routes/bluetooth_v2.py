@@ -30,7 +30,8 @@ from utils.bluetooth import (
 )
 from utils.database import get_db
 from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import iterable_stream_response
+from utils.bluetooth.scanner import bluetooth_event_payload
 
 logger = logging.getLogger('valentine.bluetooth_v2')
 
@@ -873,47 +874,8 @@ async def stream_events():
     """
     scanner = get_bluetooth_scanner()
 
-    def map_event_type(event: dict) -> tuple[str, dict]:
-        """Map internal event types to SSE event names."""
-        event_type = event.get('type', 'unknown')
-
-        if event_type == 'device':
-            # Device update - send the device data
-            return 'device_update', event.get('device', event)
-        elif event_type == 'status':
-            status = event.get('status', '')
-            if status == 'started':
-                return 'scan_started', event
-            elif status == 'stopped':
-                return 'scan_stopped', event
-            return 'status', event
-        elif event_type == 'error':
-            return 'error', event
-        elif event_type == 'baseline':
-            return 'baseline', event
-        elif event_type == 'ping':
-            return 'ping', {}
-        else:
-            return event_type, event
-
-    def event_generator() -> Generator[str, None, None]:
-        """Generate SSE events from scanner."""
-        for event in scanner.stream_events(timeout=1.0):
-            event_name, event_data = map_event_type(event)
-            try:
-                process_event('bluetooth', event_data, event_name)
-            except Exception:
-                pass
-            yield format_sse(event_data, event=event_name)
-
-    return Response(
-        event_generator(),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no',
-        }
+    return iterable_stream_response(
+        scanner.stream_events(timeout=1.0), event_mapper=bluetooth_event_payload,
     )
 
 

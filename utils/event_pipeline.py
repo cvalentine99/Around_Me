@@ -1,4 +1,8 @@
-"""Shared event pipeline for alerts and recordings."""
+"""Process published events once, before delivery to browser subscribers.
+
+EventQueue calls this from the producer path, so closing a viewer cannot stop
+recording or alert evaluation and adding viewers cannot duplicate those effects.
+"""
 
 from __future__ import annotations
 

@@ -26,15 +26,26 @@ from utils.validation import (
     validate_rtl_tcp_host, validate_rtl_tcp_port
 )
 from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import event_stream_response
 from utils.process import safe_terminate, register_process, unregister_process
 from utils.sdr import SDRFactory, SDRType, SDRValidationError
 from utils.dependencies import get_tool_path
+from utils.async_lock import async_thread_lock
+from utils.sdr.registry import normalize_sdr_type
 
 pager_bp = Blueprint('pager', __name__)
 
 # Track which device is being used
 pager_active_device: int | None = None
+pager_active_sdr_type = SDRType.RTL_SDR
+
+
+def _release_pager_claim():
+    global pager_active_device, pager_active_sdr_type
+    if pager_active_device is not None:
+        app_module.release_sdr_device(pager_active_device, sdr_type=pager_active_sdr_type, mode_name='pager')
+        pager_active_device = None
+        pager_active_sdr_type = SDRType.RTL_SDR
 
 
 def parse_multimon_output(line: str) -> dict[str, str] | None:
@@ -206,19 +217,16 @@ def stream_decoder(master_fd: int, process: subprocess.Popen[bytes]) -> None:
     except Exception as e:
         app_module.output_queue.put({'type': 'error', 'text': str(e)})
     finally:
-        global pager_active_device
         try:
             os.close(master_fd)
         except OSError:
             pass
         # Signal relay thread to stop
-        with app_module.process_lock:
-            stop_relay = getattr(app_module.current_process, '_stop_relay', None)
+        stop_relay = getattr(process, '_stop_relay', None)
         if stop_relay:
             stop_relay.set()
         # Cleanup companion rtl_fm process and decoder
-        with app_module.process_lock:
-            rtl_proc = getattr(app_module.current_process, '_rtl_process', None)
+        rtl_proc = getattr(process, '_rtl_process', None)
         for proc in [rtl_proc, process]:
             if proc:
                 try:
@@ -232,18 +240,17 @@ def stream_decoder(master_fd: int, process: subprocess.Popen[bytes]) -> None:
                 unregister_process(proc)
         app_module.output_queue.put({'type': 'status', 'text': 'stopped'})
         with app_module.process_lock:
-            app_module.current_process = None
-        # Release SDR device
-        if pager_active_device is not None:
-            app_module.release_sdr_device(pager_active_device)
-            pager_active_device = None
+            # A stopped reader can finish after a newer decoder started.
+            if app_module.current_process is process:
+                app_module.current_process = None
+                _release_pager_claim()
 
 
 @pager_bp.route('/start', methods=['POST'])
 async def start_decoding() -> Response:
-    global pager_active_device
+    global pager_active_device, pager_active_sdr_type
 
-    with app_module.process_lock:
+    async with async_thread_lock(app_module.process_lock):
         if app_module.current_process:
             return jsonify({'status': 'error', 'message': 'Already running'}), 409
 
@@ -255,6 +262,7 @@ async def start_decoding() -> Response:
             gain = validate_gain(data.get('gain', '0'))
             ppm = validate_ppm(data.get('ppm', '0'))
             device = validate_device_index(data.get('device', '0'))
+            sdr_type = SDRType(normalize_sdr_type(data.get('sdr_type', 'rtlsdr')))
         except ValueError as e:
             return jsonify({'status': 'error', 'message': str(e)}), 400
 
@@ -270,25 +278,10 @@ async def start_decoding() -> Response:
         rtl_tcp_host = data.get('rtl_tcp_host')
         rtl_tcp_port = data.get('rtl_tcp_port', 1234)
 
-        # Claim local device if not using remote rtl_tcp
-        if not rtl_tcp_host:
-            device_int = int(device)
-            error = app_module.claim_sdr_device(device_int, 'pager')
-            if error:
-                return jsonify({
-                    'status': 'error',
-                    'error_type': 'DEVICE_BUSY',
-                    'message': error
-                }), 409
-            pager_active_device = device_int
-
         # Validate protocols
         valid_protocols = ['POCSAG512', 'POCSAG1200', 'POCSAG2400', 'FLEX']
         protocols = data.get('protocols', valid_protocols)
         if not isinstance(protocols, list):
-            if pager_active_device is not None:
-                app_module.release_sdr_device(pager_active_device)
-                pager_active_device = None
             return jsonify({'status': 'error', 'message': 'Protocols must be a list'}), 400
         protocols = [p for p in protocols if p in valid_protocols]
         if not protocols:
@@ -314,12 +307,6 @@ async def start_decoding() -> Response:
                 decoders.extend(['-a', 'FLEX'])
 
         # Get SDR type and build command via abstraction layer
-        sdr_type_str = data.get('sdr_type', 'rtlsdr')
-        try:
-            sdr_type = SDRType(sdr_type_str)
-        except ValueError:
-            sdr_type = SDRType.RTL_SDR
-
         if rtl_tcp_host:
             # Validate and create network device
             try:
@@ -356,6 +343,14 @@ async def start_decoding() -> Response:
 
         full_cmd = ' '.join(rtl_cmd) + ' | ' + ' '.join(multimon_cmd)
         logger.info(f"Running: {full_cmd}")
+
+        if not rtl_tcp_host:
+            device_int = int(device)
+            error = app_module.claim_sdr_device(device_int, 'pager', sdr_type=sdr_type)
+            if error:
+                return jsonify({'status': 'error', 'error_type': 'DEVICE_BUSY', 'message': error}), 409
+            pager_active_device = device_int
+            pager_active_sdr_type = sdr_type
 
         try:
             # Create pipe: rtl_fm | multimon-ng
@@ -428,9 +423,7 @@ async def start_decoding() -> Response:
                 except Exception:
                     pass
             # Release device on failure
-            if pager_active_device is not None:
-                app_module.release_sdr_device(pager_active_device)
-                pager_active_device = None
+            _release_pager_claim()
             return jsonify({'status': 'error', 'message': f'Tool not found: {e.filename}'})
         except Exception as e:
             # Kill orphaned rtl_fm process if it was started
@@ -443,17 +436,13 @@ async def start_decoding() -> Response:
                 except Exception:
                     pass
             # Release device on failure
-            if pager_active_device is not None:
-                app_module.release_sdr_device(pager_active_device)
-                pager_active_device = None
+            _release_pager_claim()
             return jsonify({'status': 'error', 'message': str(e)})
 
 
 @pager_bp.route('/stop', methods=['POST'])
 async def stop_decoding() -> Response:
-    global pager_active_device
-
-    with app_module.process_lock:
+    async with async_thread_lock(app_module.process_lock):
         if app_module.current_process:
             # Signal audio relay thread to stop
             if hasattr(app_module.current_process, '_stop_relay'):
@@ -487,19 +476,18 @@ async def stop_decoding() -> Response:
             app_module.current_process = None
 
             # Release device from registry
-            if pager_active_device is not None:
-                app_module.release_sdr_device(pager_active_device)
-                pager_active_device = None
+            _release_pager_claim()
 
             return jsonify({'status': 'stopped'})
 
+        _release_pager_claim()
         return jsonify({'status': 'not_running'})
 
 
 @pager_bp.route('/status')
 async def get_status() -> Response:
     """Check if decoder is currently running."""
-    with app_module.process_lock:
+    async with async_thread_lock(app_module.process_lock):
         if app_module.current_process and app_module.current_process.poll() is None:
             return jsonify({'running': True, 'logging': app_module.logging_enabled, 'log_file': app_module.log_file_path})
         return jsonify({'running': False, 'logging': app_module.logging_enabled, 'log_file': app_module.log_file_path})
@@ -541,32 +529,4 @@ async def toggle_logging() -> Response:
 
 @pager_bp.route('/stream')
 async def stream() -> Response:
-    import json
-
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = 30.0  # Send keepalive every 30 seconds instead of 1 second
-
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: app_module.output_queue.get(timeout=1)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('pager', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return event_stream_response(app_module.output_queue)

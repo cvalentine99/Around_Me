@@ -44,7 +44,10 @@ def _resolve_sdr_type(sdr_type_str: str) -> SDRType:
         'airspy': SDRType.AIRSPY,
         'sdrplay': SDRType.SDRPLAY,
     }
-    return mapping.get(sdr_type_str.lower(), SDRType.RTL_SDR)
+    try:
+        return mapping[sdr_type_str.lower()]
+    except (KeyError, AttributeError) as exc:
+        raise ValueError('Unsupported SDR type') from exc
 
 
 def _build_dummy_device(device_index: int, sdr_type: SDRType) -> SDRDevice:
@@ -80,11 +83,27 @@ def init_waterfall_websocket(app):
         reader_thread = None
         stop_event = threading.Event()
         claimed_device = None
+        claimed_sdr_type = SDRType.RTL_SDR
+        claimed_lease = None
         # Queue for outgoing messages — only the main loop touches websocket.send()
         send_queue = queue.Queue(maxsize=120)
 
         try:
             while True:
+                # Stop All may terminate the process while this connection
+                # stays open. Retire its lease before accepting more commands.
+                if iq_process is not None and iq_process.poll() is not None:
+                    stop_event.set()
+                    unregister_process(iq_process)
+                    iq_process = None
+                    if claimed_device is not None:
+                        app_module.release_sdr_device(
+                            claimed_device, sdr_type=claimed_sdr_type,
+                            mode_name='waterfall', lease=claimed_lease,
+                        )
+                        claimed_device = None
+                        claimed_lease = None
+                    await websocket.send(json.dumps({'status': 'error', 'message': 'I/Q capture stopped'}))
                 # Drain send queue first (non-blocking)
                 while True:
                     try:
@@ -134,8 +153,9 @@ def init_waterfall_websocket(app):
                         unregister_process(iq_process)
                         iq_process = None
                     if claimed_device is not None:
-                        app_module.release_sdr_device(claimed_device)
+                        app_module.release_sdr_device(claimed_device, sdr_type=claimed_sdr_type, mode_name='waterfall', lease=claimed_lease)
                         claimed_device = None
+                        claimed_lease = None
                     stop_event.clear()
                     # Flush stale frames from previous capture
                     while not send_queue.empty():
@@ -167,7 +187,11 @@ def init_waterfall_websocket(app):
                     fft_size = max(256, min(8192, fft_size))
 
                     # Resolve SDR type and bandwidth
-                    sdr_type = _resolve_sdr_type(sdr_type_str)
+                    try:
+                        sdr_type = _resolve_sdr_type(sdr_type_str)
+                    except ValueError as exc:
+                        await websocket.send(json.dumps({'status': 'error', 'message': str(exc)}))
+                        continue
                     max_bw = MAX_BANDWIDTH.get(sdr_type, 2400000)
                     span_hz = int(span_mhz * 1e6)
                     sample_rate = min(span_hz, max_bw)
@@ -178,7 +202,7 @@ def init_waterfall_websocket(app):
                     end_freq = center_freq + effective_span_mhz / 2
 
                     # Claim the device
-                    claim_err = app_module.claim_sdr_device(device_index, 'waterfall')
+                    claim_err, lease = app_module.claim_sdr_device_with_lease(device_index, 'waterfall', sdr_type=sdr_type)
                     if claim_err:
                         await websocket.send(json.dumps({
                             'status': 'error',
@@ -187,6 +211,8 @@ def init_waterfall_websocket(app):
                         }))
                         continue
                     claimed_device = device_index
+                    claimed_sdr_type = sdr_type
+                    claimed_lease = lease
 
                     # Build I/Q capture command
                     try:
@@ -201,8 +227,9 @@ def init_waterfall_websocket(app):
                             bias_t=bias_t,
                         )
                     except NotImplementedError as e:
-                        app_module.release_sdr_device(device_index)
+                        app_module.release_sdr_device(device_index, sdr_type=claimed_sdr_type, mode_name='waterfall', lease=claimed_lease)
                         claimed_device = None
+                        claimed_lease = None
                         await websocket.send(json.dumps({
                             'status': 'error',
                             'message': str(e),
@@ -248,8 +275,9 @@ def init_waterfall_websocket(app):
                             safe_terminate(iq_process)
                             unregister_process(iq_process)
                             iq_process = None
-                        app_module.release_sdr_device(device_index)
+                        app_module.release_sdr_device(device_index, sdr_type=claimed_sdr_type, mode_name='waterfall', lease=claimed_lease)
                         claimed_device = None
+                        claimed_lease = None
                         await websocket.send(json.dumps({
                             'status': 'error',
                             'message': f'Failed to start I/Q capture: {e}',
@@ -343,8 +371,9 @@ def init_waterfall_websocket(app):
                         unregister_process(iq_process)
                         iq_process = None
                     if claimed_device is not None:
-                        app_module.release_sdr_device(claimed_device)
+                        app_module.release_sdr_device(claimed_device, sdr_type=claimed_sdr_type, mode_name='waterfall', lease=claimed_lease)
                         claimed_device = None
+                        claimed_lease = None
                     stop_event.clear()
                     await websocket.send(json.dumps({'status': 'stopped'}))
 
@@ -359,5 +388,5 @@ def init_waterfall_websocket(app):
                 safe_terminate(iq_process)
                 unregister_process(iq_process)
             if claimed_device is not None:
-                app_module.release_sdr_device(claimed_device)
+                app_module.release_sdr_device(claimed_device, sdr_type=claimed_sdr_type, mode_name='waterfall', lease=claimed_lease)
             logger.info("WebSocket waterfall client disconnected")

@@ -20,7 +20,7 @@ from config import SHARED_OBSERVER_LOCATION_ENABLED
 from utils.logging import get_logger
 from utils.validation import validate_device_index, validate_gain
 from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import event_stream_response
 from utils.sdr import SDRFactory, SDRType
 from utils.constants import (
     AIS_TCP_PORT,
@@ -45,6 +45,7 @@ ais_connected = False
 ais_messages_received = 0
 ais_last_message_time = None
 ais_active_device = None
+ais_active_sdr_type = SDRType.RTL_SDR
 _ais_error_logged = True
 
 # Common installation paths for AIS-catcher
@@ -327,7 +328,7 @@ async def ais_status():
 @ais_bp.route('/start', methods=['POST'])
 async def start_ais():
     """Start AIS tracking."""
-    global ais_running, ais_active_device
+    global ais_running, ais_active_device, ais_active_sdr_type
 
     with app_module.ais_lock:
         if ais_running:
@@ -355,7 +356,7 @@ async def start_ais():
     try:
         sdr_type = SDRType(sdr_type_str)
     except ValueError:
-        sdr_type = SDRType.RTL_SDR
+        return jsonify({'status': 'error', 'message': 'Unsupported SDR type'}), 400
 
     # Kill any existing process
     if app_module.ais_process:
@@ -371,16 +372,6 @@ async def start_ais():
                 pass
         app_module.ais_process = None
         logger.info("Killed existing AIS process")
-
-    # Check if device is available
-    device_int = int(device)
-    error = app_module.claim_sdr_device(device_int, 'ais')
-    if error:
-        return jsonify({
-            'status': 'error',
-            'error_type': 'DEVICE_BUSY',
-            'message': error
-        }), 409
 
     # Build command using SDR abstraction
     sdr_device = SDRFactory.create_default_device(sdr_type, index=device)
@@ -399,6 +390,11 @@ async def start_ais():
     # Use the found AIS-catcher path
     cmd[0] = ais_catcher_path
 
+    device_int = int(device)
+    error = app_module.claim_sdr_device(device_int, 'ais', sdr_type=sdr_type)
+    if error:
+        return jsonify({'status': 'error', 'error_type': 'DEVICE_BUSY', 'message': error}), 409
+
     try:
         logger.info(f"Starting AIS-catcher with device {device}: {' '.join(cmd)}")
         app_module.ais_process = subprocess.Popen(
@@ -413,7 +409,7 @@ async def start_ais():
 
         if app_module.ais_process.poll() is not None:
             # Release device on failure
-            app_module.release_sdr_device(device_int)
+            app_module.release_sdr_device(device_int, sdr_type=sdr_type, mode_name='ais')
             stderr_output = ''
             if app_module.ais_process.stderr:
                 try:
@@ -427,6 +423,7 @@ async def start_ais():
 
         ais_running = True
         ais_active_device = device
+        ais_active_sdr_type = sdr_type
 
         # Start TCP parser thread
         thread = threading.Thread(target=parse_ais_stream, args=(tcp_port,), daemon=True)
@@ -440,7 +437,7 @@ async def start_ais():
         })
     except Exception as e:
         # Release device on failure
-        app_module.release_sdr_device(device_int)
+        app_module.release_sdr_device(device_int, sdr_type=sdr_type, mode_name='ais')
         logger.error(f"Failed to start AIS-catcher: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
@@ -448,7 +445,7 @@ async def start_ais():
 @ais_bp.route('/stop', methods=['POST'])
 async def stop_ais():
     """Stop AIS tracking."""
-    global ais_running, ais_active_device
+    global ais_running, ais_active_device, ais_active_sdr_type
 
     with app_module.ais_lock:
         if app_module.ais_process:
@@ -467,10 +464,11 @@ async def stop_ais():
 
         # Release device from registry
         if ais_active_device is not None:
-            app_module.release_sdr_device(ais_active_device)
+            app_module.release_sdr_device(ais_active_device, sdr_type=ais_active_sdr_type, mode_name='ais')
 
         ais_running = False
         ais_active_device = None
+        ais_active_sdr_type = SDRType.RTL_SDR
 
     app_module.ais_vessels.clear()
     return jsonify({'status': 'stopped'})
@@ -479,31 +477,7 @@ async def stop_ais():
 @ais_bp.route('/stream')
 async def stream_ais():
     """SSE stream for AIS vessels."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: app_module.ais_queue.get(timeout=SSE_QUEUE_TIMEOUT)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('ais', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= SSE_KEEPALIVE_INTERVAL:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    return response
+    return event_stream_response(app_module.ais_queue)
 
 
 @ais_bp.route('/dashboard')

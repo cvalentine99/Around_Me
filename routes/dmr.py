@@ -19,7 +19,7 @@ from quart import Blueprint, jsonify, request, Response
 import app as app_module
 from utils.logging import get_logger
 from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import EventQueue, event_stream_response
 from utils.process import register_process, unregister_process
 from utils.validation import validate_frequency, validate_gain, validate_device_index, validate_ppm
 from utils.constants import (
@@ -42,7 +42,7 @@ dmr_thread: Optional[threading.Thread] = None
 dmr_running = False
 dmr_has_audio = False  # True when ffmpeg available and dsd outputs audio
 dmr_lock = threading.Lock()
-dmr_queue: queue.Queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+dmr_queue: queue.Queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='dmr')
 dmr_active_device: Optional[int] = None
 
 # Audio mux: the sole reader of dsd-fme stdout.  Writes to an ffmpeg
@@ -464,7 +464,8 @@ async def start_dmr() -> Response:
         dsd_cmd.extend(_DSD_PROTOCOL_FLAGS.get(protocol, []))
 
     try:
-        dmr_rtl_process = subprocess.Popen(
+        dmr_rtl_process = await asyncio.to_thread(
+            subprocess.Popen,
             rtl_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -474,7 +475,8 @@ async def start_dmr() -> Response:
         # DSD stdout → PIPE when ffmpeg available (audio pipeline),
         # otherwise DEVNULL (data-only mode)
         dsd_stdout = subprocess.PIPE if ffmpeg_path else subprocess.DEVNULL
-        dmr_dsd_process = subprocess.Popen(
+        dmr_dsd_process = await asyncio.to_thread(
+            subprocess.Popen,
             dsd_cmd,
             stdin=dmr_rtl_process.stdout,
             stdout=dsd_stdout,
@@ -496,7 +498,7 @@ async def start_dmr() -> Response:
                 daemon=True,
             ).start()
 
-        time.sleep(0.3)
+        await asyncio.sleep(0.3)
 
         rtl_rc = dmr_rtl_process.poll()
         dsd_rc = dmr_dsd_process.poll()
@@ -711,27 +713,4 @@ async def stream_dmr_audio() -> Response:
 @dmr_bp.route('/stream')
 async def stream_dmr() -> Response:
     """SSE stream for DMR decoder events."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: dmr_queue.get(timeout=SSE_QUEUE_TIMEOUT)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('dmr', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= SSE_KEEPALIVE_INTERVAL:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    return response
+    return event_stream_response(dmr_queue)

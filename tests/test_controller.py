@@ -14,6 +14,7 @@ import os
 import pytest
 import sys
 from unittest.mock import Mock, patch, MagicMock
+from utils.agent_client import AgentClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -30,6 +31,7 @@ def setup_db(tmp_path):
 
     test_db_path = tmp_path / 'test.db'
     original_db_path = db_module.DB_PATH
+    original_db_dir = db_module.DB_DIR
     db_module.DB_PATH = test_db_path
     db_module.DB_DIR = tmp_path
 
@@ -38,6 +40,7 @@ def setup_db(tmp_path):
     yield
 
     db_module.DB_PATH = original_db_path
+    db_module.DB_DIR = original_db_dir
 
 
 @pytest.fixture
@@ -95,7 +98,7 @@ class TestAgentCRUD:
         """POST /controller/agents should register new agent."""
         with patch('routes.controller.AgentClient') as MockClient:
             # Mock successful capability fetch
-            mock_instance = Mock()
+            mock_instance = Mock(spec=AgentClient)
             mock_instance.get_capabilities.return_value = {
                 'modes': {'adsb': True, 'wifi': True},
                 'devices': [{'name': 'RTL-SDR'}]
@@ -205,7 +208,7 @@ class TestProxyOperations:
     async def test_proxy_start_mode(self, client, sample_agent):
         """POST /controller/agents/<id>/<mode>/start should proxy to agent."""
         with patch('routes.controller.create_client_from_agent') as mock_create:
-            mock_client = Mock()
+            mock_client = Mock(spec=AgentClient)
             mock_client.start_mode.return_value = {'status': 'started', 'mode': 'adsb'}
             mock_create.return_value = mock_client
 
@@ -219,12 +222,12 @@ class TestProxyOperations:
             assert data['status'] == 'success'
             assert data['mode'] == 'adsb'
 
-            mock_client.start_mode.assert_called_once_with('adsb', {'device_index': 0})
+            mock_client.start_mode.assert_awaited_once_with('adsb', {'device_index': 0})
 
     async def test_proxy_stop_mode(self, client, sample_agent):
         """POST /controller/agents/<id>/<mode>/stop should proxy to agent."""
         with patch('routes.controller.create_client_from_agent') as mock_create:
-            mock_client = Mock()
+            mock_client = Mock(spec=AgentClient)
             mock_client.stop_mode.return_value = {'status': 'stopped'}
             mock_create.return_value = mock_client
 
@@ -239,7 +242,7 @@ class TestProxyOperations:
     async def test_proxy_get_mode_data(self, client, sample_agent):
         """GET /controller/agents/<id>/<mode>/data should return data."""
         with patch('routes.controller.create_client_from_agent') as mock_create:
-            mock_client = Mock()
+            mock_client = Mock(spec=AgentClient)
             mock_client.get_mode_data.return_value = {
                 'mode': 'adsb',
                 'data': [{'icao': 'ABC123'}]
@@ -264,7 +267,7 @@ class TestProxyOperations:
         from utils.agent_client import AgentConnectionError
 
         with patch('routes.controller.create_client_from_agent') as mock_create:
-            mock_client = Mock()
+            mock_client = Mock(spec=AgentClient)
             mock_client.start_mode.side_effect = AgentConnectionError("Connection refused")
             mock_create.return_value = mock_client
 
@@ -497,7 +500,7 @@ class TestAgentRefresh:
     async def test_refresh_agent_success(self, client, sample_agent):
         """POST /controller/agents/<id>/refresh should update metadata."""
         with patch('routes.controller.create_client_from_agent') as mock_create:
-            mock_client = Mock()
+            mock_client = Mock(spec=AgentClient)
             mock_client.refresh_metadata.return_value = {
                 'healthy': True,
                 'capabilities': {
@@ -519,7 +522,7 @@ class TestAgentRefresh:
     async def test_refresh_agent_unreachable(self, client, sample_agent):
         """POST /controller/agents/<id>/refresh should return 503 if unreachable."""
         with patch('routes.controller.create_client_from_agent') as mock_create:
-            mock_client = Mock()
+            mock_client = Mock(spec=AgentClient)
             mock_client.refresh_metadata.return_value = {'healthy': False}
             mock_create.return_value = mock_client
 
@@ -539,5 +542,12 @@ class TestSSEStream:
         """GET /controller/stream/all should exist and return SSE."""
         # Just verify the endpoint is accessible
         # Full SSE testing requires more complex setup
-        response = await client.get('/controller/stream/all')
-        assert response.content_type.startswith('text/event-stream')
+        from routes.controller import agent_data_queue
+        while not agent_data_queue.empty():
+            agent_data_queue.get_nowait()
+        async with client.request('/controller/stream/all', method='GET') as connection:
+            agent_data_queue.put({'type': 'review_test'})
+            chunk = await connection.receive()
+            assert b'review_test' in chunk
+            assert connection.headers['Content-Type'].startswith('text/event-stream')
+            await connection.disconnect()

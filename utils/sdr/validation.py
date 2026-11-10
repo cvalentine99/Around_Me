@@ -243,11 +243,15 @@ def get_capabilities_for_type(sdr_type: SDRType) -> SDRCapabilities:
     from .rtlsdr import RTLSDRCommandBuilder
     from .limesdr import LimeSDRCommandBuilder
     from .hackrf import HackRFCommandBuilder
+    from .airspy import AirspyCommandBuilder
+    from .sdrplay import SDRPlayCommandBuilder
 
     builders = {
         SDRType.RTL_SDR: RTLSDRCommandBuilder,
         SDRType.LIME_SDR: LimeSDRCommandBuilder,
         SDRType.HACKRF: HackRFCommandBuilder,
+        SDRType.AIRSPY: AirspyCommandBuilder,
+        SDRType.SDRPLAY: SDRPlayCommandBuilder,
     }
 
     builder_class = builders.get(sdr_type)

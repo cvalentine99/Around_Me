@@ -17,7 +17,7 @@ from quart import Blueprint, jsonify, request, Response, send_file
 import app as app_module
 from utils.logging import get_logger
 from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import EventQueue, event_stream_response
 from utils.sstv import (
     get_sstv_decoder,
     is_sstv_available,
@@ -29,7 +29,7 @@ logger = get_logger('valentine.sstv')
 sstv_bp = Blueprint('sstv', __name__, url_prefix='/sstv')
 
 # Queue for SSE progress streaming
-_sstv_queue: queue.Queue = queue.Queue(maxsize=100)
+_sstv_queue: queue.Queue = EventQueue(maxsize=100, mode='sstv')
 
 # Track which device is being used
 sstv_active_device: int | None = None
@@ -403,33 +403,7 @@ async def stream_progress():
     Returns:
         SSE stream (text/event-stream)
     """
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = 30.0
-
-        while True:
-            try:
-                progress = await loop.run_in_executor(
-                    None, lambda: _sstv_queue.get(timeout=1)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('sstv', progress, progress.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(progress)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return event_stream_response(_sstv_queue)
 
 
 @sstv_bp.route('/iss-schedule')

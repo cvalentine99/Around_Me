@@ -18,6 +18,7 @@ if not site.ENABLE_USER_SITE:
         sys.path.insert(0, user_site)
 
 import os
+import asyncio
 import queue
 import threading
 import platform
@@ -25,7 +26,8 @@ import subprocess
 
 from typing import Any
 
-from quart import Quart, render_template, jsonify, send_file, Response, request, redirect, url_for, flash, session
+from quart import Quart, render_template, jsonify, send_file, Response, request, redirect, url_for, flash, session, websocket
+from quart.wrappers.response import IterableBody
 from werkzeug.security import check_password_hash
 from config import (
     VERSION, CHANGELOG, SHARED_OBSERVER_LOCATION_ENABLED,
@@ -33,8 +35,10 @@ from config import (
     ADMIN_PASSWORD, ADMIN_PASSWORD_EXPLICIT, ADMIN_USERNAME,
 )
 from utils.dependencies import check_tool, check_all_dependencies, TOOL_DEPENDENCIES
-from utils.process import cleanup_stale_processes
+from utils.process import cleanup_stale_processes, cleanup_all_processes
 from utils.sdr import SDRFactory
+from utils.sdr.registry import SDRDeviceRegistry, sdr_device_key
+from utils.sse import EventQueue
 from utils.cleanup import DataStore, cleanup_manager
 from utils.constants import (
     MAX_AIRCRAFT_AGE_SECONDS,
@@ -69,7 +73,7 @@ os.environ['WERKZEUG_DEBUG_PIN'] = 'off'
 @app.errorhandler(429)
 async def ratelimit_handler(e):
     logger.warning(f"Rate limit exceeded for IP: {request.remote_addr}")
-    flash("Too many login attempts. Please wait one minute before trying again.", "error")
+    await flash("Too many login attempts. Please wait one minute before trying again.", "error")
     return await render_template('login.html', version=VERSION), 429
 
 # ============================================
@@ -101,6 +105,13 @@ async def add_security_headers(response):
         "worker-src 'self' blob:; "
         "frame-src 'self'"
     )
+    # Quart's ordinary response deadline is a total lifetime, not an idle
+    # timeout. Event and live audio streams intentionally remain open.
+    if response.mimetype == 'text/event-stream' or (
+        (response.mimetype or '').startswith('audio/')
+        and isinstance(response.response, IterableBody)
+    ):
+        response.timeout = None
     return response
 
 
@@ -129,74 +140,74 @@ async def inject_offline_settings():
 
 # Pager decoder
 current_process = None
-output_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+output_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='pager')
 process_lock = threading.Lock()
 
 # RTL_433 sensor
 sensor_process = None
-sensor_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+sensor_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='sensor')
 sensor_lock = threading.Lock()
 
 # WiFi
 wifi_process = None
-wifi_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+wifi_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='wifi')
 wifi_lock = threading.Lock()
 
 # Bluetooth
 bt_process = None
-bt_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+bt_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='bluetooth')
 bt_lock = threading.Lock()
 
 # ADS-B aircraft
 adsb_process = None
-adsb_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+adsb_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='adsb')
 adsb_lock = threading.Lock()
 
 # Satellite/Iridium
 satellite_process = None
-satellite_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+satellite_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='satellite')
 satellite_lock = threading.Lock()
 
 # ACARS aircraft messaging
 acars_process = None
-acars_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+acars_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='acars')
 acars_lock = threading.Lock()
 
 # APRS amateur radio tracking
 aprs_process = None
 aprs_rtl_process = None
-aprs_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+aprs_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='aprs')
 aprs_lock = threading.Lock()
 
 # RTLAMR utility meter reading
 rtlamr_process = None
-rtlamr_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+rtlamr_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='rtlamr')
 rtlamr_lock = threading.Lock()
 
 # AIS vessel tracking
 ais_process = None
-ais_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+ais_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='ais')
 ais_lock = threading.Lock()
 
 # DSC (Digital Selective Calling)
 dsc_process = None
 dsc_rtl_process = None
-dsc_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+dsc_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='dsc')
 dsc_lock = threading.Lock()
 
 # DMR / Digital Voice
 dmr_process = None
 dmr_rtl_process = None
-dmr_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+dmr_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='dmr')
 dmr_lock = threading.Lock()
 
 # TSCM (Technical Surveillance Countermeasures)
-tscm_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+tscm_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='tscm')
 tscm_lock = threading.Lock()
 
 # Deauth Attack Detection
 deauth_detector = None
-deauth_detector_queue = queue.Queue(maxsize=QUEUE_MAX_SIZE)
+deauth_detector_queue = EventQueue(maxsize=QUEUE_MAX_SIZE)
 deauth_detector_lock = threading.Lock()
 
 # ============================================
@@ -248,61 +259,55 @@ cleanup_manager.register(deauth_alerts)
 # SDR DEVICE REGISTRY
 # ============================================
 # Tracks which mode is using which SDR device to prevent conflicts
-# Key: device_index (int), Value: mode_name (str)
-sdr_device_registry: dict[int, str] = {}
-sdr_device_registry_lock = threading.Lock()
+# RTL-SDR keys retain legacy integer indices; other hardware families use
+# namespaced keys such as 'hackrf:0'. Values are the owning mode names.
+_sdr_registry = SDRDeviceRegistry()
+sdr_device_registry = _sdr_registry.allocations
+sdr_device_registry_lock = _sdr_registry.lock
 
 
-def claim_sdr_device(device_index: int, mode_name: str) -> str | None:
+def claim_sdr_device(device_index: int, mode_name: str, sdr_type='rtlsdr') -> str | None:
     """Claim an SDR device for a mode.
 
-    Checks the in-app registry first, then probes the USB device to
+    Checks the in-app registry first, then probes an RTL-SDR USB device to
     catch stale handles held by external processes (e.g. a leftover
     rtl_fm from a previous crash).
 
     Args:
         device_index: The SDR device index to claim
         mode_name: Name of the mode claiming the device (e.g., 'sensor', 'rtlamr')
+        sdr_type: Hardware family; indices are independent across families
 
     Returns:
         Error message if device is in use, None if successfully claimed
     """
-    with sdr_device_registry_lock:
-        if device_index in sdr_device_registry:
-            in_use_by = sdr_device_registry[device_index]
-            return f'SDR device {device_index} is in use by {in_use_by}. Stop {in_use_by} first or use a different device.'
-
-        # Probe the USB device to catch external processes holding the handle
-        try:
-            from utils.sdr.detection import probe_rtlsdr_device
-            usb_error = probe_rtlsdr_device(device_index)
-            if usb_error:
-                return usb_error
-        except Exception:
-            pass  # If probe fails, let the caller proceed normally
-
-        sdr_device_registry[device_index] = mode_name
-        return None
+    return _sdr_registry.claim(device_index, mode_name, sdr_type)
 
 
-def release_sdr_device(device_index: int) -> None:
+def claim_sdr_device_with_lease(device_index: int, mode_name: str, sdr_type='rtlsdr'):
+    """Claim a receiver and return a generation for connection-owned cleanup."""
+    return _sdr_registry.claim_with_lease(device_index, mode_name, sdr_type)
+
+
+def release_sdr_device(device_index: int, sdr_type='rtlsdr', *, mode_name=None, lease=None) -> None:
     """Release an SDR device from the registry.
 
     Args:
         device_index: The SDR device index to release
+        sdr_type: Hardware family used when claiming the receiver
+        mode_name: Optional expected owner for delayed cleanup
+        lease: Optional acquisition generation for delayed cleanup
     """
-    with sdr_device_registry_lock:
-        sdr_device_registry.pop(device_index, None)
+    _sdr_registry.release(device_index, sdr_type, mode_name=mode_name, lease=lease)
 
 
-def get_sdr_device_status() -> dict[int, str]:
+def get_sdr_device_status() -> dict[int | str, str]:
     """Get current SDR device allocations.
 
     Returns:
         Dictionary mapping device indices to mode names
     """
-    with sdr_device_registry_lock:
-        return dict(sdr_device_registry)
+    return _sdr_registry.status()
 
 
 # ============================================
@@ -315,12 +320,20 @@ async def require_login():
     allowed_routes = ['login', 'static', 'favicon', 'health', 'health_check',
                       'change_password']
 
-    # --- Token-authenticated API routes ---
-    # Controller, WebSocket, and audio streaming endpoints require a bearer
-    # token derived from the session secret.  The token is emitted to the
-    # frontend on login and attached as ?token= or Authorization header.
+    # Agent push ingestion authenticates its own X-API-Key against the
+    # registered agent. It does not have a browser session or user token.
+    if request.endpoint == 'controller.ingest_push_data':
+        return None
+
+    if session.get('logged_in'):
+        if (session.get('password_must_change')
+                and request.endpoint not in allowed_routes + ['logout']):
+            return redirect(url_for('change_password'))
+        return None
+
+    # Browser requests use the session; standalone API clients can supply
+    # the same explicit bearer/query token supported by earlier versions.
     if (request.path.startswith('/controller/')
-            or request.path.startswith('/ws/')
             or request.path.startswith('/listening/audio/')):
         token = (request.args.get('token')
                  or request.headers.get('Authorization', '').removeprefix('Bearer ').strip())
@@ -329,17 +342,25 @@ async def require_login():
         return None  # Token valid, proceed
 
     # If user is not logged in and the current route is not allowed...
-    if 'logged_in' not in session and request.endpoint not in allowed_routes:
+    if request.endpoint not in allowed_routes:
         return redirect(url_for('login'))
 
-    # Force password change if flagged
-    if (session.get('logged_in') and session.get('password_must_change')
-            and request.endpoint not in allowed_routes + ['logout']):
-        return redirect(url_for('change_password'))
+
+@app.before_websocket
+async def require_websocket_login():
+    """Authenticate WebSocket handshakes before any radio handler runs."""
+    if session.get('logged_in'):
+        if session.get('password_must_change'):
+            return jsonify({'status': 'error', 'message': 'Password change required'}), 403
+        return None
+    token = (websocket.args.get('token')
+             or websocket.headers.get('Authorization', '').removeprefix('Bearer ').strip())
+    if not token or not _verify_api_token(token):
+        return jsonify({'status': 'error', 'message': 'Authentication required'}), 401
     
 @app.route('/logout')
 async def logout():
-    session.pop('logged_in', None)
+    session.clear()
     return redirect(url_for('login'))
 
 # ============================================
@@ -359,7 +380,9 @@ def _generate_api_token(username: str) -> str:
 def _verify_api_token(token: str) -> bool:
     """Verify an API token against all known users."""
     with get_db() as conn:
-        users = conn.execute('SELECT username FROM users').fetchall()
+        users = conn.execute(
+            'SELECT username FROM users WHERE password_must_change = 0'
+        ).fetchall()
     for user in users:
         expected = _generate_api_token(user['username'])
         if _hmac.compare_digest(token, expected):
@@ -386,6 +409,7 @@ async def login():
         # Verify user exists and password is correct
         if user and check_password_hash(user['password_hash'], password):
             # Store data in session
+            session.clear()
             session['logged_in'] = True
             session['username'] = username
             session['role'] = user['role']
@@ -401,7 +425,7 @@ async def login():
             return redirect(url_for('index'))
         else:
             logger.warning(f"Failed login attempt for username: {username}")
-            flash("ACCESS DENIED: INVALID CREDENTIALS", "error")
+            await flash("ACCESS DENIED: INVALID CREDENTIALS", "error")
 
     return await render_template('login.html', version=VERSION)
 
@@ -419,11 +443,11 @@ async def change_password():
         confirm_password = form.get('confirm_password', '')
 
         if len(new_password) < 12:
-            flash('PASSWORD MUST BE AT LEAST 12 CHARACTERS', 'error')
+            await flash('PASSWORD MUST BE AT LEAST 12 CHARACTERS', 'error')
             return await render_template('change_password.html', version=VERSION)
 
         if new_password != confirm_password:
-            flash('PASSWORDS DO NOT MATCH', 'error')
+            await flash('PASSWORDS DO NOT MATCH', 'error')
             return await render_template('change_password.html', version=VERSION)
 
         with get_db() as conn:
@@ -434,7 +458,7 @@ async def change_password():
 
         session.pop('password_must_change', None)
         logger.info(f"User '{session['username']}' changed password successfully.")
-        flash('PASSWORD UPDATED SUCCESSFULLY', 'success')
+        await flash('PASSWORD UPDATED SUCCESSFULLY', 'success')
         return redirect(url_for('index'))
 
     return await render_template('change_password.html', version=VERSION)
@@ -482,8 +506,9 @@ async def get_devices_status() -> Response:
     result = []
     for device in devices:
         d = device.to_dict()
-        d['in_use'] = device.index in registry
-        d['used_by'] = registry.get(device.index)
+        key = sdr_device_key(device.index, device.sdr_type)
+        d['in_use'] = key in registry
+        d['used_by'] = registry.get(key)
         result.append(d)
 
     return jsonify(result)
@@ -772,103 +797,165 @@ async def health_check() -> Response:
 
 @app.route('/killall', methods=['POST'])
 async def kill_all() -> Response:
-    """Kill all decoder, WiFi, and Bluetooth processes."""
-    global current_process, sensor_process, wifi_process, adsb_process, ais_process, acars_process
-    global aprs_process, aprs_rtl_process, dsc_process, dsc_rtl_process, bt_process
-    global dmr_process, dmr_rtl_process
+    """Stop the processes owned by this app, including the selected ADS-B decoder."""
+    result = await asyncio.to_thread(_stop_owned_receivers)
+    return jsonify(result), (500 if result.get('errors') else 200)
 
-    # Import adsb and ais modules to reset their state
-    from routes import adsb as adsb_module
-    from routes import ais as ais_module
+
+def _stop_owned_receivers() -> dict:
+    """Stop a snapshot of owned receivers without losing failed or newer handles."""
+    from routes import adsb, ais, dmr, listening_post, rtlamr, uat, audio_websocket
+    from routes import pager, sensor, acars, aprs, dsc
+    from utils.process import get_registered_processes, safe_terminate, register_process
     from utils.bluetooth import reset_bluetooth_scanner
+    from utils.wifi.scanner import reset_wifi_scanner
 
-    killed = []
-    processes_to_kill = [
-        'rtl_fm', 'multimon-ng', 'rtl_433',
-        'airodump-ng', 'aireplay-ng', 'airmon-ng',
-        'dump1090', 'acarsdec', 'direwolf', 'AIS-catcher',
-        'hcitool', 'bluetoothctl', 'satdump', 'dsd',
-        'rtl_tcp', 'rtl_power', 'rtlamr', 'ffmpeg',
-        'dump978', 'uat2json'
+    # Snapshot before any slow stop operation. A receiver started while this
+    # worker runs belongs to the next session and must retain its ownership.
+    allocations = _sdr_registry.snapshot()
+    registered = get_registered_processes()
+    application = sys.modules[__name__]
+    active_slots = (
+        (pager, 'pager_active_device', 'pager'), (sensor, 'sensor_active_device', 'sensor'),
+        (acars, 'acars_active_device', 'acars'), (aprs, 'aprs_active_device', 'aprs'),
+        (dsc, 'dsc_active_device', 'dsc'),
+        (adsb, 'adsb_active_device', 'adsb'), (ais, 'ais_active_device', 'ais'),
+        (dmr, 'dmr_active_device', 'dmr'), (rtlamr, 'rtlamr_active_device', 'rtlamr'),
+        (uat, 'uat_active_device', 'uat'),
+        (listening_post, 'scanner_active_device', 'scanner'),
+        (listening_post, 'listening_active_device', 'listening'),
+        (listening_post, 'waterfall_active_device', 'waterfall'),
+    )
+    active_snapshot = [
+        (module, name, mode, getattr(module, name, None))
+        for module, name, mode in active_slots
     ]
+    slots = [(application, name, mode) for name, mode in (
+        ('current_process', 'pager'), ('sensor_process', 'sensor'),
+        ('wifi_process', 'wifi'), ('bt_process', 'bluetooth'),
+        ('adsb_process', 'adsb'), ('ais_process', 'ais'),
+        ('acars_process', 'acars'), ('aprs_process', 'aprs'),
+        ('aprs_rtl_process', 'aprs'), ('dsc_process', 'dsc'),
+        ('dsc_rtl_process', 'dsc'), ('dmr_process', 'dmr'),
+        ('dmr_rtl_process', 'dmr'), ('rtlamr_process', 'rtlamr'),
+        ('satellite_process', 'satellite'),
+    )]
+    slots.extend([
+        (dmr, 'dmr_dsd_process', 'dmr'), (dmr, 'dmr_rtl_process', 'dmr'),
+        (rtlamr, 'rtl_tcp_process', 'rtlamr'),
+        (listening_post, 'scanner_power_process', 'scanner'),
+        (listening_post, 'waterfall_process', 'waterfall'),
+        (listening_post, 'audio_process', 'listening'),
+        (listening_post, 'audio_rtl_process', 'listening'),
+        (audio_websocket, 'audio_process', 'audio'),
+        (audio_websocket, 'rtl_process', 'audio'),
+        (uat, '_uat_dump978_process', 'uat'), (uat, '_uat_json_process', 'uat'),
+    ])
+    # Inspect existing singleton decoders without constructing idle instances,
+    # which can probe tools or create output directories during Stop All.
+    decoders = []
+    for module_name, attribute, mode, process_name in (
+        ('utils.sstv.sstv_decoder', '_decoder', 'sstv', '_rtl_process'),
+        ('utils.sstv.sstv_decoder', '_general_decoder', 'sstv_general', '_rtl_process'),
+        ('utils.weather_sat', '_decoder', 'weather_sat', '_process'),
+    ):
+        module = sys.modules.get(module_name)
+        decoder = getattr(module, attribute, None) if module else None
+        if decoder is not None:
+            slots.append((decoder, process_name, mode))
+            decoders.append(decoder)
+    owned = [(module, name, mode, getattr(module, name, None)) for module, name, mode in slots]
 
-    for proc in processes_to_kill:
+    # Tell reader/scanner loops to stop before terminating their producers.
+    adsb.adsb_using_service = False
+    ais.ais_running = False
+    dmr.dmr_running = False
+    dmr.dmr_has_audio = False
+    listening_post.scanner_running = False
+    listening_post.waterfall_running = False
+    listening_post.audio_running = False
+    uat.uat_running = False
+    for decoder in decoders:
+        decoder._running = False
+
+    stopped, errors, failed_modes = [], [], set()
+    for name, stop in (
+        ('bluetooth', reset_bluetooth_scanner),
+        ('wifi', reset_wifi_scanner),
+    ):
         try:
-            result = subprocess.run(['pkill', '-f', proc], capture_output=True)
-            if result.returncode == 0:
-                killed.append(proc)
-        except (subprocess.SubprocessError, OSError):
-            pass
+            stop()
+        except Exception as exc:
+            errors.append(f'{name}: {exc}')
+            failed_modes.add(name)
 
-    with process_lock:
-        current_process = None
+    outcomes = {}
 
-    with sensor_lock:
-        sensor_process = None
-
-    with wifi_lock:
-        wifi_process = None
-
-    # Reset ADS-B state
-    with adsb_lock:
-        adsb_process = None
-        adsb_module.adsb_using_service = False
-
-    # Reset UAT state
-    from routes import uat as uat_module
-    uat_module.uat_running = False
-    uat_module._cleanup_uat_processes()
-    uat_module.uat_active_device = None
-
-    # Reset AIS state
-    with ais_lock:
-        ais_process = None
-        ais_module.ais_running = False
-
-    # Reset ACARS state
-    with acars_lock:
-        acars_process = None
-
-    # Reset APRS state
-    with aprs_lock:
-        aprs_process = None
-        aprs_rtl_process = None
-
-    # Reset DSC state
-    with dsc_lock:
-        dsc_process = None
-        dsc_rtl_process = None
-
-    # Reset DMR state
-    with dmr_lock:
-        dmr_process = None
-        dmr_rtl_process = None
-
-    # Reset Bluetooth state (legacy)
-    with bt_lock:
-        if bt_process:
+    def terminate(process, name):
+        identity = id(process)
+        if identity not in outcomes:
             try:
-                bt_process.terminate()
-                bt_process.wait(timeout=2)
-            except Exception:
-                try:
-                    bt_process.kill()
-                except Exception:
-                    pass
-        bt_process = None
+                safe_terminate(process)
+                outcomes[identity] = process.poll() is not None
+            except Exception as exc:
+                errors.append(f'{name}: {exc}')
+                outcomes[identity] = False
+            if not outcomes[identity]:
+                errors.append(f'{name}: process did not stop')
+                # Keep an app-wide cleanup reference even for legacy processes
+                # whose owner may independently reset its global handle.
+                if not any(item is process for item in get_registered_processes()):
+                    register_process(process)
+        return outcomes[identity]
 
-    # Reset Bluetooth v2 scanner
-    try:
-        reset_bluetooth_scanner()
-        killed.append('bluetooth')
-    except Exception:
-        pass
+    for module, name, mode, process in owned:
+        if process is None:
+            continue
+        if not terminate(process, name):
+            failed_modes.add(mode)
+        else:
+            if getattr(module, name, None) is process:
+                setattr(module, name, None)
+            stopped.append(name)
 
-    # Clear SDR device registry
-    with sdr_device_registry_lock:
-        sdr_device_registry.clear()
+    # Connection-owned capture processes have no module slot. Stop only the
+    # initial registration snapshot, never newly registered receivers.
+    unidentified_failure = False
+    for process in registered:
+        if not terminate(process, 'registered receiver'):
+            if not any(old is process for _, _, _, old in owned):
+                unidentified_failure = True
 
-    return jsonify({'status': 'killed', 'processes': killed})
+    new_modes = set()
+    for module, name, mode, previous in owned:
+        current = getattr(module, name, None)
+        if current is not None and current is not previous:
+            new_modes.add(mode)
+    # A new WebSocket capture has no global slot to identify its device. Keep
+    # its existing claim rather than freeing hardware that is already in use.
+    if any(not any(current is old for old in registered)
+           for current in get_registered_processes()
+           if not any(current is old for _, _, _, old in owned)):
+        new_modes.add('waterfall')
+
+    blocked_modes = failed_modes | new_modes
+    protocol_labels = {str(name).upper() for name in dmr.VALID_PROTOCOLS} | {'DMR'}
+
+    def canonical_mode(owner):
+        return 'dmr' if owner.upper() in protocol_labels else owner
+
+    for module, name, mode, previous in active_snapshot:
+        if (not unidentified_failure and mode not in blocked_modes
+                and getattr(module, name, None) == previous):
+            setattr(module, name, None)
+    if not unidentified_failure:
+        for key, (owner, lease) in allocations.items():
+            if canonical_mode(owner) not in blocked_modes:
+                _sdr_registry.release_key(key, owner, lease)
+    result = {'status': 'error' if errors else 'killed', 'processes': stopped}
+    if errors:
+        result['errors'] = errors
+    return result
 
 
 # ============================================
@@ -955,7 +1042,7 @@ async def start_enabled_modules() -> Response:
                     resp_obj = raw_result
                     status_code = resp_obj.status_code
 
-                body = resp_obj.get_data(as_text=True)
+                body = await resp_obj.get_data(as_text=True)
                 result = json_module.loads(body)
                 result['http_status'] = status_code
                 results[module_name] = result

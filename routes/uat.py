@@ -25,6 +25,7 @@ from utils.logging import get_logger
 from utils.validation import validate_device_index, validate_gain
 from utils.process import register_process, unregister_process
 from utils.constants import UAT_START_WAIT, UAT_TERMINATE_TIMEOUT
+from utils.sdr.registry import normalize_sdr_type
 
 logger = get_logger('valentine.uat')
 
@@ -150,7 +151,7 @@ def _stream_uat_output(process: subprocess.Popen) -> None:
         app_module.adsb_queue.put({'type': 'status', 'text': 'uat_started'})
 
         for raw_line in iter(process.stdout.readline, b''):
-            if not uat_running:
+            if not uat_running or _uat_json_process is not process:
                 break
 
             line = raw_line.decode('utf-8', errors='replace').strip()
@@ -176,7 +177,8 @@ def _stream_uat_output(process: subprocess.Popen) -> None:
         logger.error("UAT output parser error: %s", e)
         app_module.adsb_queue.put({'type': 'error', 'text': f'UAT error: {e}'})
     finally:
-        app_module.adsb_queue.put({'type': 'status', 'text': 'uat_stopped'})
+        if _uat_json_process is process:
+            app_module.adsb_queue.put({'type': 'status', 'text': 'uat_stopped'})
 
 
 # ─── Routes ────────────────────────────────────────────────────────
@@ -188,6 +190,7 @@ async def check_uat_tools():
         'enabled': UAT_ENABLED,
         'dump978': find_dump978() is not None,
         'uat2json': find_uat2json() is not None,
+        'supported_sdr_types': ['rtlsdr'],
     })
 
 
@@ -198,6 +201,10 @@ async def uat_status():
         'enabled': UAT_ENABLED,
         'running': uat_running,
         'active_device': uat_active_device,
+        'active_sdr_type': 'rtlsdr' if uat_active_device is not None else None,
+        'sdr_type': 'rtlsdr' if uat_active_device is not None else None,
+        'receiver': ({'device': uat_active_device, 'sdr_type': 'rtlsdr'}
+                     if uat_active_device is not None else None),
         'messages_received': _uat_messages_received,
         'dump978_running': (
             _uat_dump978_process is not None
@@ -221,6 +228,15 @@ async def start_uat():
     global uat_running, uat_active_device
     global _uat_dump978_process, _uat_json_process, _uat_messages_received
 
+    data = await request.get_json(silent=True) or {}
+    try:
+        sdr_type = normalize_sdr_type(data.get('sdr_type', 'rtlsdr'))
+    except ValueError as exc:
+        return jsonify({'status': 'error', 'message': str(exc)}), 400
+    if sdr_type != 'rtlsdr':
+        return jsonify({'status': 'error', 'message': 'UAT requires an RTL-SDR receiver.',
+                        'supported_sdr_types': ['rtlsdr']}), 400
+
     if not UAT_ENABLED:
         return jsonify({
             'status': 'error',
@@ -234,7 +250,6 @@ async def start_uat():
         }), 409
 
     # ── Validate inputs ──
-    data = await request.get_json(silent=True) or {}
     try:
         device = validate_device_index(data.get('device', UAT_DEFAULT_DEVICE))
         gain = float(validate_gain(data.get('gain', UAT_DEFAULT_GAIN)))
@@ -312,7 +327,7 @@ async def start_uat():
                 except Exception:
                     pass
             _cleanup_uat_processes()
-            app_module.release_sdr_device(device)
+            app_module.release_sdr_device(device, mode_name='uat')
             return jsonify({
                 'status': 'error',
                 'message': f'dump978 exited immediately. {stderr_text}'
@@ -334,11 +349,13 @@ async def start_uat():
             'status': 'started',
             'message': 'UAT (978 MHz) decoding started.',
             'device': device,
+            'sdr_type': 'rtlsdr',
+            'receiver': {'device': device, 'sdr_type': 'rtlsdr'},
         })
 
     except Exception as e:
         _cleanup_uat_processes()
-        app_module.release_sdr_device(device)
+        app_module.release_sdr_device(device, mode_name='uat')
         logger.error("Failed to start UAT: %s", e)
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
@@ -352,7 +369,7 @@ async def stop_uat():
     _cleanup_uat_processes()
 
     if uat_active_device is not None:
-        app_module.release_sdr_device(uat_active_device)
+        app_module.release_sdr_device(uat_active_device, mode_name='uat')
         uat_active_device = None
 
     return jsonify({'status': 'stopped', 'message': 'UAT decoder stopped.'})

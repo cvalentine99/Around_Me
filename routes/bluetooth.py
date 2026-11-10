@@ -22,7 +22,10 @@ import app as app_module
 from utils.dependencies import check_tool
 from utils.logging import bluetooth_logger as logger
 from utils.sse import format_sse
-from utils.event_pipeline import process_event
+from utils.sse import event_stream_response
+from utils.async_lock import async_thread_lock
+from utils.async_process import async_popen, finish_in_thread
+from utils.process import safe_terminate
 from utils.validation import validate_bluetooth_interface
 from data.oui import OUI_DATABASE, load_oui_database, get_manufacturer
 from data.patterns import AIRTAG_PREFIXES, TILE_PREFIXES, SAMSUNG_TRACKER
@@ -322,7 +325,8 @@ def stream_bt_scan(process, scan_mode):
         process.wait()
         app_module.bt_queue.put({'type': 'status', 'text': 'stopped'})
         with app_module.bt_lock:
-            app_module.bt_process = None
+            if app_module.bt_process is process:
+                app_module.bt_process = None
 
 
 @bluetooth_bp.route('/reload-oui', methods=['POST'])
@@ -357,7 +361,7 @@ async def get_bt_interfaces():
 @bluetooth_bp.route('/scan/start', methods=['POST'])
 async def start_bt_scan():
     """Start Bluetooth scanning."""
-    with app_module.bt_lock:
+    async with async_thread_lock(app_module.bt_lock):
         if app_module.bt_process:
             if app_module.bt_process.poll() is None:
                 return jsonify({'status': 'error', 'message': 'Scan already running'})
@@ -390,7 +394,7 @@ async def start_bt_scan():
                 else:
                     cmd = ['hcitool', '-i', interface, 'scan']
 
-                app_module.bt_process = subprocess.Popen(
+                app_module.bt_process = await async_popen(
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE
@@ -398,7 +402,7 @@ async def start_bt_scan():
 
             elif scan_mode == 'bluetoothctl':
                 master_fd, slave_fd = pty.openpty()
-                app_module.bt_process = subprocess.Popen(
+                app_module.bt_process = await async_popen(
                     ['bluetoothctl'],
                     stdin=slave_fd,
                     stdout=slave_fd,
@@ -408,15 +412,15 @@ async def start_bt_scan():
                 os.close(slave_fd)
                 app_module.bt_process._master_fd = master_fd
 
-                time.sleep(0.5)
+                await asyncio.sleep(0.5)
                 os.write(master_fd, b'power on\n')
-                time.sleep(0.3)
+                await asyncio.sleep(0.3)
                 os.write(master_fd, b'scan on\n')
 
             else:
                 return jsonify({'status': 'error', 'message': f'Unknown scan mode: {scan_mode}'})
 
-            time.sleep(0.5)
+            await asyncio.sleep(0.5)
 
             if app_module.bt_process.poll() is not None:
                 stderr_output = app_module.bt_process.stderr.read().decode('utf-8', errors='replace').strip()
@@ -430,6 +434,11 @@ async def start_bt_scan():
             app_module.bt_queue.put({'type': 'info', 'text': f'Started {scan_mode} scan on {interface}'})
             return jsonify({'status': 'started', 'mode': scan_mode, 'interface': interface})
 
+        except asyncio.CancelledError:
+            if app_module.bt_process:
+                await asyncio.to_thread(safe_terminate, app_module.bt_process)
+                app_module.bt_process = None
+            raise
         except FileNotFoundError as e:
             return jsonify({'status': 'error', 'message': f'Tool not found: {e.filename}'})
         except Exception as e:
@@ -439,16 +448,22 @@ async def start_bt_scan():
 @bluetooth_bp.route('/scan/stop', methods=['POST'])
 async def stop_bt_scan():
     """Stop Bluetooth scanning."""
-    with app_module.bt_lock:
-        if app_module.bt_process:
-            app_module.bt_process.terminate()
-            try:
-                app_module.bt_process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                app_module.bt_process.kill()
-            app_module.bt_process = None
-            return jsonify({'status': 'stopped'})
-        return jsonify({'status': 'not_running'})
+    async with async_thread_lock(app_module.bt_lock):
+        return jsonify(await finish_in_thread(_stop_bt_scan))
+
+
+def _stop_bt_scan():
+    """Finish process termination and handle cleanup as one worker operation."""
+    if app_module.bt_process:
+        app_module.bt_process.terminate()
+        try:
+            app_module.bt_process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            app_module.bt_process.kill()
+            app_module.bt_process.wait(timeout=3)
+        app_module.bt_process = None
+        return {'status': 'stopped'}
+    return {'status': 'not_running'}
 
 
 @bluetooth_bp.route('/reset', methods=['POST'])
@@ -462,11 +477,11 @@ async def reset_bt_adapter():
     except ValueError as e:
         return jsonify({'status': 'error', 'message': str(e)}), 400
 
-    with app_module.bt_lock:
+    async with async_thread_lock(app_module.bt_lock):
         if app_module.bt_process:
             try:
                 app_module.bt_process.terminate()
-                app_module.bt_process.wait(timeout=2)
+                await asyncio.to_thread(app_module.bt_process.wait, timeout=2)
             except (subprocess.TimeoutExpired, OSError):
                 try:
                     app_module.bt_process.kill()
@@ -475,17 +490,17 @@ async def reset_bt_adapter():
             app_module.bt_process = None
 
     try:
-        subprocess.run(['pkill', '-f', 'hcitool'], capture_output=True, timeout=2)
-        subprocess.run(['pkill', '-f', 'bluetoothctl'], capture_output=True, timeout=2)
-        time.sleep(0.5)
+        await asyncio.to_thread(subprocess.run, ['pkill', '-f', 'hcitool'], capture_output=True, timeout=2)
+        await asyncio.to_thread(subprocess.run, ['pkill', '-f', 'bluetoothctl'], capture_output=True, timeout=2)
+        await asyncio.sleep(0.5)
 
-        subprocess.run(['rfkill', 'unblock', 'bluetooth'], capture_output=True, timeout=5)
-        subprocess.run(['hciconfig', interface, 'down'], capture_output=True, timeout=5)
-        time.sleep(1)
-        subprocess.run(['hciconfig', interface, 'up'], capture_output=True, timeout=5)
-        time.sleep(0.5)
+        await asyncio.to_thread(subprocess.run, ['rfkill', 'unblock', 'bluetooth'], capture_output=True, timeout=5)
+        await asyncio.to_thread(subprocess.run, ['hciconfig', interface, 'down'], capture_output=True, timeout=5)
+        await asyncio.sleep(1)
+        await asyncio.to_thread(subprocess.run, ['hciconfig', interface, 'up'], capture_output=True, timeout=5)
+        await asyncio.sleep(0.5)
 
-        result = subprocess.run(['hciconfig', interface], capture_output=True, text=True, timeout=5)
+        result = await asyncio.to_thread(subprocess.run, ['hciconfig', interface], capture_output=True, text=True, timeout=5)
         is_up = 'UP RUNNING' in result.stdout
 
         return jsonify({
@@ -508,7 +523,8 @@ async def enum_bt_services():
         return jsonify({'status': 'error', 'message': 'Target MAC required'})
 
     try:
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ['sdptool', 'browse', target_mac],
             capture_output=True, text=True, timeout=30
         )
@@ -557,30 +573,4 @@ async def get_bt_devices():
 @bluetooth_bp.route('/stream')
 async def stream_bt():
     """SSE stream for Bluetooth events."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = 30.0
-
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: app_module.bt_queue.get(timeout=1)
-                )
-                last_keepalive = time.time()
-                try:
-                    process_event('bluetooth', msg, msg.get('type'))
-                except Exception:
-                    pass
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return event_stream_response(app_module.bt_queue)

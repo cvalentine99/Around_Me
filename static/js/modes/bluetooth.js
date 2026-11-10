@@ -902,14 +902,8 @@ const BluetoothMode = (function() {
 
         eventSource.onerror = () => {
             console.warn('Bluetooth SSE connection error');
-            if (isScanning) {
-                // Attempt to reconnect
-                setTimeout(() => {
-                    if (isScanning) {
-                        startEventStream();
-                    }
-                }, 3000);
-            }
+            // Let native EventSource retry retain its Last-Event-ID cursor.
+            // stopEventStream() closes it when the user explicitly stops.
         };
     }
 

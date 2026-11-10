@@ -14,6 +14,7 @@ from typing import Any, Generator
 
 from config import ALERT_WEBHOOK_URL, ALERT_WEBHOOK_TIMEOUT, ALERT_WEBHOOK_SECRET
 from utils.database import get_db
+from utils.sse import EventQueue, event_subscription
 
 logger = logging.getLogger('valentine.alerts')
 
@@ -33,7 +34,7 @@ class AlertRule:
 
 class AlertManager:
     def __init__(self) -> None:
-        self._queue: queue.Queue = queue.Queue(maxsize=1000)
+        self._queue: queue.Queue = EventQueue(maxsize=1000)
         self._rules_cache: list[AlertRule] = []
         self._rules_loaded_at = 0.0
         self._cache_lock = threading.Lock()
@@ -416,12 +417,12 @@ class AlertManager:
     # ------------------------------------------------------------------
 
     def stream_events(self, timeout: float = 1.0) -> Generator[dict, None, None]:
-        while True:
-            try:
-                event = self._queue.get(timeout=timeout)
-                yield event
-            except queue.Empty:
-                yield {'type': 'keepalive'}
+        with event_subscription(self._queue) as subscriber:
+            while True:
+                try:
+                    yield subscriber.get(timeout=timeout)
+                except queue.Empty:
+                    yield {'type': 'keepalive'}
 
 
 _alert_manager: AlertManager | None = None

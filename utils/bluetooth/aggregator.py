@@ -514,11 +514,14 @@ class DeviceAggregator:
     def get_device_by_key(self, device_key: str) -> Optional[BTDeviceAggregate]:
         """Get a device by its stable device key."""
         with self._lock:
-            # Find device_id from device_key
-            for device_id, key in self._device_keys.items():
-                if key == device_key:
-                    return self._devices.get(device_id)
-            return None
+            return self._get_device_by_key_unlocked(device_key)
+
+    def _get_device_by_key_unlocked(self, device_key: str) -> Optional[BTDeviceAggregate]:
+        """Look up a device while the caller holds ``self._lock``."""
+        for device_id, key in self._device_keys.items():
+            if key == device_key:
+                return self._devices.get(device_id)
+        return None
 
     def get_timeseries(
         self,
@@ -579,7 +582,7 @@ class DeviceAggregator:
 
         with self._lock:
             for device_key, ts_data in timeseries.items():
-                device = self.get_device_by_key(device_key)
+                device = self._get_device_by_key_unlocked(device_key)
                 device_info = {
                     'device_key': device_key,
                     'timeseries': ts_data,

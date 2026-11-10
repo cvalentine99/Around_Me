@@ -19,6 +19,19 @@ from utils.weather_sat_scheduler import (
 )
 
 
+@pytest.fixture(autouse=True)
+def weather_registry(monkeypatch):
+    """Mock receiver probing while exercising real leased ownership."""
+    import app as app_module
+    from utils.sdr.registry import SDRDeviceRegistry
+
+    registry = SDRDeviceRegistry(probe=lambda device: None)
+    monkeypatch.setattr(app_module, '_sdr_registry', registry)
+    monkeypatch.setattr(app_module, 'sdr_device_registry', registry.allocations)
+    monkeypatch.setattr(app_module, 'sdr_device_registry_lock', registry.lock)
+    return registry
+
+
 class TestScheduledPass:
     """Tests for ScheduledPass class."""
 
@@ -549,7 +562,7 @@ class TestWeatherSatScheduler:
         event_data = event_cb.call_args[0][0]
         assert event_data['type'] == 'schedule_capture_start'
 
-    @patch('app.claim_sdr_device', return_value=None)
+    @patch('app.claim_sdr_device_with_lease', return_value=(None, 1))
     @patch('utils.weather_sat_scheduler.get_weather_sat_decoder')
     def test_execute_capture_start_failed(self, mock_get, mock_claim):
         """_execute_capture() should handle start failure."""

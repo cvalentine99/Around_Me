@@ -145,8 +145,7 @@
                         <div class="acars-controls" style="padding: 8px; border-bottom: 1px solid var(--border-color);">
                             <div style="display: flex; gap: 5px; margin-bottom: 5px;">
                                 <select id="acarsDeviceSelect" style="flex: 1; font-size: 10px;">
-                                    <option value="0">SDR 0</option>
-                                    <option value="1">SDR 1</option>
+                                    <option value="">Loading RTL-SDR receivers...</option>
                                 </select>
                                 <select id="acarsRegionSelect" onchange="updateAcarsFreqCheckboxes()" style="flex: 1; font-size: 10px;">
                                     <option value="na">N. America</option>
@@ -355,7 +354,7 @@
                         <input type="number" id="remoteSbsPort" value="30003" min="1" max="65535" style="width: 70px;">
                     </span>
                     <select id="adsbDeviceSelect" title="SDR device for ADS-B (1090 MHz)">
-                        <option value="0">SDR 0</option>
+                        <option value="">Loading SDR receivers...</option>
                     </select>
                     <label class="bias-t-label" title="Enable Bias-T power for external LNA/preamp"><input type="checkbox" id="adsbBiasT" onchange="saveAdsbBiasTSetting()"> Bias-T</label>
                     <button class="start-btn" id="startBtn" onclick="toggleTracking()">START</button>
@@ -367,7 +366,7 @@
                 <span class="control-group-label">UAT 978</span>
                 <div class="control-group-items">
                     <select id="uatDeviceSelect" title="SDR device for UAT (978 MHz)">
-                        <option value="1">SDR 1</option>
+                        <option value="">Loading RTL-SDR receivers...</option>
                     </select>
                     <input type="number" id="uatGain" value="40" min="0" max="50" step="1" style="width: 50px;" title="UAT gain">
                     <button class="start-btn" id="uatStartBtn" onclick="toggleUat()">START</button>
@@ -396,7 +395,7 @@
                         <option value="8.33">8.33 kHz</option>
                     </select>
                     <select id="airbandDeviceSelect" class="airband-controls" title="SDR for airband">
-                        <option value="0">SDR 0</option>
+                        <option value="">Loading SDR receivers...</option>
                     </select>
                     <div class="airband-sliders">
                         <span title="Squelch">SQ</span>
@@ -421,6 +420,7 @@
         </div>
     </main>
 
+    <script src="{{ url_for('static', filename='js/core/aircraft-receivers.js') }}"></script>
     <script>
         // ============================================
         // BIAS-T HELPER
@@ -2130,7 +2130,7 @@ ACARS: ${r.statistics.acarsMessages} messages`;
             loadAdsbBiasTSetting();
 
             initMap();
-            initDeviceSelectors();
+            initDeviceSelectors().then(syncTrackingStatus);
             updateClock();
             setInterval(updateClock, 1000);
             setInterval(cleanupOldAircraft, 10000);
@@ -2141,64 +2141,28 @@ ACARS: ${r.statistics.acarsMessages} messages`;
             // Auto-connect to gpsd if available
             autoConnectGps();
 
-            // Sync tracking state if ADS-B already running
-            syncTrackingStatus();
         });
 
         // Track which device is being used for ADS-B tracking
         let adsbActiveDevice = null;
 
         function initDeviceSelectors() {
-            // Populate both ADS-B and airband device selectors
-            fetch('/devices')
+            return fetch('/devices')
                 .then(r => r.json())
                 .then(devices => {
-                    const adsbSelect = document.getElementById('adsbDeviceSelect');
-                    const airbandSelect = document.getElementById('airbandDeviceSelect');
-
-                    // Clear loading state
-                    adsbSelect.innerHTML = '';
-                    airbandSelect.innerHTML = '';
-
-                    if (devices.length === 0) {
-                        adsbSelect.innerHTML = '<option value="0">No SDR found</option>';
-                        airbandSelect.innerHTML = '<option value="0">No SDR found</option>';
-                        airbandSelect.disabled = true;
-                    } else {
-                        devices.forEach((dev, i) => {
-                            const idx = dev.index !== undefined ? dev.index : i;
-                            const displayName = `SDR ${idx}: ${dev.name}`;
-
-                            // Add to ADS-B selector
-                            const adsbOpt = document.createElement('option');
-                            adsbOpt.value = idx;
-                            adsbOpt.textContent = displayName;
-                            adsbSelect.appendChild(adsbOpt);
-
-                            // Add to Airband selector
-                            const airbandOpt = document.createElement('option');
-                            airbandOpt.value = idx;
-                            airbandOpt.textContent = displayName;
-                            airbandSelect.appendChild(airbandOpt);
-                        });
-
-                        // Default: ADS-B uses first device, Airband uses second (if available)
-                        adsbSelect.value = devices[0].index !== undefined ? devices[0].index : 0;
-                        if (devices.length > 1) {
-                            airbandSelect.value = devices[1].index !== undefined ? devices[1].index : 1;
-                        }
-
-                        // Show warning if only one device
-                        if (devices.length === 1) {
-                            document.getElementById('airbandStatus').textContent = '1 SDR only';
-                            document.getElementById('airbandStatus').style.color = 'var(--accent-orange)';
-                        }
-                    }
+                    if (typeof adsbCurrentAgent !== 'undefined' && adsbCurrentAgent !== 'local') return;
+                    populateAdsbDeviceSelects(devices, 'local');
+                    return Promise.all([syncAcarsReceiverStatus('local'), syncUatReceiverStatus()]);
                 })
                 .catch(() => {
-                    document.getElementById('adsbDeviceSelect').innerHTML = '<option value="0">Error</option>';
-                    document.getElementById('airbandDeviceSelect').innerHTML = '<option value="0">Error</option>';
+                    console.warn('Could not refresh local receivers; keeping current selections');
                 });
+        }
+
+        function restoreAdsbReceiver(status) {
+            adsbActiveDevice = AircraftReceivers.fromStatus(status);
+            const select = document.getElementById('adsbDeviceSelect');
+            if (adsbActiveDevice && select) select.value = AircraftReceivers.key(adsbActiveDevice);
         }
 
         function checkDvbDriverConflict() {
@@ -2562,10 +2526,14 @@ sudo make install</code>
                 }
 
                 // Get selected ADS-B device
-                const adsbDevice = parseInt(document.getElementById('adsbDeviceSelect').value) || 0;
+                const adsbDevice = AircraftReceivers.read(document.getElementById('adsbDeviceSelect'));
+                if (!adsbDevice && !remoteConfig) {
+                    alert('Select an available SDR receiver');
+                    return;
+                }
 
                 const requestBody = {
-                    device: adsbDevice,
+                    ...(adsbDevice || {}),
                     bias_t: getBiasTEnabled()
                 };
                 if (remoteConfig) {
@@ -2594,7 +2562,8 @@ sudo make install</code>
                         return;
                     }
 
-                    if (data.status === 'success' || data.status === 'started' || data.status === 'already_running') {
+                    const result = useAgent && data.result ? data.result : data;
+                    if (result.status === 'success' || result.status === 'started' || result.status === 'already_running') {
                         startEventStream();
                         drawRangeRings();
                         startSessionTimer();
@@ -2618,7 +2587,7 @@ sudo make install</code>
                             }
                         }
                     } else {
-                        alert('Failed to start: ' + (data.message || JSON.stringify(data)));
+                        alert('Failed to start: ' + (result.message || data.message || JSON.stringify(result)));
                     }
                 } catch (err) {
                     alert('Error: ' + err.message);
@@ -2682,6 +2651,7 @@ sudo make install</code>
                 }
                 const data = await response.json();
 
+                if (adsbCurrentAgent !== 'local') return;
                 if (data.tracking_active) {
                     // Session is running - auto-connect to stream
                     console.log('[ADS-B] Local session already active - auto-connecting to stream');
@@ -2693,14 +2663,7 @@ sudo make install</code>
                         stats.sessionStart = startTime;
                     }
 
-                    const sessionDevice = session.device_index;
-                    if (sessionDevice !== null && sessionDevice !== undefined) {
-                        adsbActiveDevice = sessionDevice;
-                        const adsbSelect = document.getElementById('adsbDeviceSelect');
-                        if (adsbSelect) {
-                            adsbSelect.value = sessionDevice;
-                        }
-                    }
+                    restoreAdsbReceiver(data);
 
                     // Auto-connect to the running session
                     isTracking = true;
@@ -2718,6 +2681,9 @@ sudo make install</code>
                     document.getElementById('trackingDot').classList.add('active');
                     const statusEl = document.getElementById('trackingStatus');
                     statusEl.textContent = 'TRACKING';
+                    document.getElementById('adsbDeviceSelect').disabled = true;
+                    const agentSelect = document.getElementById('agentSelect');
+                    if (agentSelect) agentSelect.disabled = true;
                 } else {
                     // Session not active - only auto-start if enabled
                     if (window.VALENTINE_ADSB_AUTO_START) {
@@ -2738,6 +2704,7 @@ sudo make install</code>
         }
 
         async function tryAutoStartLocal() {
+            if (adsbCurrentAgent !== 'local') return;
             // Try to auto-start local ADS-B tracking if SDR is available
             try {
                 // Check if any SDR devices are available
@@ -2745,22 +2712,25 @@ sudo make install</code>
                 if (!devResponse.ok) return;
 
                 const devices = await devResponse.json();
+                if (adsbCurrentAgent !== 'local') return;
                 if (!devices || devices.length === 0) {
                     console.log('[ADS-B] No SDR devices found - cannot auto-start');
                     return;
                 }
 
-                // Try to start tracking on first available device
-                const device = devices[0].index !== undefined ? devices[0].index : 0;
-                console.log(`[ADS-B] Auto-starting local tracking on device ${device}...`);
+                populateAdsbDeviceSelects(devices, 'local');
+                const device = AircraftReceivers.read(document.getElementById('adsbDeviceSelect'));
+                if (!device) return;
+                console.log(`[ADS-B] Auto-starting local tracking on ${AircraftReceivers.key(device)}...`);
 
                 const startResponse = await fetch('/adsb/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ device: device, bias_t: getBiasTEnabled() })
+                    body: JSON.stringify({ ...device, bias_t: getBiasTEnabled() })
                 });
 
                 const result = await startResponse.json();
+                if (adsbCurrentAgent !== 'local') return;
 
                 if (result.status === 'success' || result.status === 'started' || result.status === 'already_running') {
                     console.log('[ADS-B] Auto-start successful');
@@ -2780,6 +2750,9 @@ sudo make install</code>
                     document.getElementById('trackingDot').classList.add('active');
                     const statusEl = document.getElementById('trackingStatus');
                     statusEl.textContent = 'TRACKING';
+                    document.getElementById('adsbDeviceSelect').disabled = true;
+                    const agentSelect = document.getElementById('agentSelect');
+                    if (agentSelect) agentSelect.disabled = true;
                 } else {
                     // SDR might be in use - don't show error, just don't auto-start
                     console.log('[ADS-B] Auto-start failed (SDR may be in use):', result.error || result.message);
@@ -3556,7 +3529,7 @@ sudo make install</code>
                 .then(r => r.json())
                 .then(data => {
                     const missingTools = [];
-                    if (!data.rtl_fm) missingTools.push('rtl_fm');
+                    if (!data.rtl_fm && !data.rx_fm) missingTools.push('rtl_fm or rx_fm');
                     if (!data.ffmpeg) missingTools.push('ffmpeg (audio encoder)');
 
                     if (missingTools.length > 0) {
@@ -3679,22 +3652,29 @@ sudo make install</code>
         }
 
         async function startAirband() {
+            if (adsbCurrentAgent !== 'local') return;
             const frequency = getAirbandFrequency();
-            const device = parseInt(document.getElementById('airbandDeviceSelect').value);
+            const device = AircraftReceivers.read(document.getElementById('airbandDeviceSelect'));
+            if (!device) {
+                alert('Select an available local SDR receiver');
+                return;
+            }
             const squelch = parseInt(document.getElementById('airbandSquelch').value);
 
             console.log('[AIRBAND] Starting with device:', device, 'freq:', frequency, 'squelch:', squelch);
 
             // Check if ADS-B tracking is using this device
-            if (isTracking && adsbActiveDevice !== null && device === adsbActiveDevice) {
+            if (isTracking && adsbTrackingSource === 'local' && AircraftReceivers.same(device, adsbActiveDevice)) {
                 const useAnyway = confirm(
-                    `Warning: ADS-B tracking is using SDR ${adsbActiveDevice}.\n\n` +
+                    `Warning: ADS-B tracking is using ${AircraftReceivers.key(adsbActiveDevice)}.\n\n` +
                     'Using the same device for airband will stop ADS-B tracking.\n\n' +
                     'Select a different SDR device for airband listening, or click OK to stop tracking and listen.'
                 );
                 if (!useAnyway) {
                     return;
                 }
+                await toggleTracking();
+                if (isTracking) return;
             }
 
             document.getElementById('airbandStatus').textContent = 'STARTING...';
@@ -3710,7 +3690,7 @@ sudo make install</code>
                         modulation: 'am',  // Airband uses AM
                         squelch: squelch,
                         gain: 40,
-                        device: device
+                        ...device
                     })
                 });
 
@@ -3891,7 +3871,11 @@ sudo make install</code>
         }
 
         function startAcars() {
-            const device = document.getElementById('acarsDeviceSelect').value;
+            const device = AircraftReceivers.read(document.getElementById('acarsDeviceSelect'), true);
+            if (!device) {
+                alert('Select an available RTL-SDR receiver for ACARS');
+                return;
+            }
             const frequencies = getAcarsRegionFreqs();
 
             // Check if using agent mode
@@ -3899,12 +3883,12 @@ sudo make install</code>
             acarsCurrentAgent = isAgentMode ? adsbCurrentAgent : null;
 
             // Warn if using same device as ADS-B (only for local mode)
-            if (!isAgentMode && isTracking && device === '0') {
+            if (!isAgentMode && isTracking && adsbTrackingSource === 'local' && AircraftReceivers.same(device, adsbActiveDevice)) {
                 const useAnyway = confirm(
-                    'Warning: ADS-B tracking may be using SDR device 0.\n\n' +
+                    `Warning: ADS-B tracking is using ${AircraftReceivers.key(device)}.\n\n` +
                     'ACARS uses VHF frequencies (129-131 MHz) while ADS-B uses 1090 MHz.\n' +
                     'You need TWO separate SDR devices to receive both simultaneously.\n\n' +
-                    'Click OK to start ACARS on device ' + device + ' anyway.'
+                    'Click OK to start ACARS on ' + AircraftReceivers.key(device) + ' anyway.'
                 );
                 if (!useAnyway) return;
             }
@@ -3914,10 +3898,10 @@ sudo make install</code>
                 ? `/controller/agents/${adsbCurrentAgent}/acars/start`
                 : '/acars/start';
 
-            fetch(endpoint, {
+            return fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ device, frequencies, gain: '40' })
+                body: JSON.stringify({ ...device, frequencies, gain: '40' })
             })
             .then(r => r.json())
             .then(data => {
@@ -3925,12 +3909,8 @@ sudo make install</code>
                 const scanResult = isAgentMode && data.result ? data.result : data;
 
                 if (scanResult.status === 'started' || scanResult.status === 'success') {
-                    isAcarsRunning = true;
                     acarsMessageCount = 0;
-                    document.getElementById('acarsToggleBtn').textContent = '■ STOP ACARS';
-                    document.getElementById('acarsToggleBtn').classList.add('active');
-                    document.getElementById('acarsPanelIndicator').classList.add('active');
-                    startAcarsStream(isAgentMode);
+                    setAcarsRunning(true, isAgentMode ? adsbCurrentAgent : null);
                 } else {
                     alert('ACARS Error: ' + (scanResult.message || scanResult.error || 'Failed to start'));
                 }
@@ -3952,6 +3932,8 @@ sudo make install</code>
                     document.getElementById('acarsToggleBtn').textContent = '▶ START ACARS';
                     document.getElementById('acarsToggleBtn').classList.remove('active');
                     document.getElementById('acarsPanelIndicator').classList.remove('active');
+                    const select = document.getElementById('acarsDeviceSelect');
+                    select.disabled = select.dataset.receiverUnavailable === 'true';
                     if (acarsEventSource) {
                         acarsEventSource.close();
                         acarsEventSource = null;
@@ -3969,6 +3951,8 @@ sudo make install</code>
             isAcarsRunning = running;
             const btn = document.getElementById('acarsToggleBtn');
             const indicator = document.getElementById('acarsPanelIndicator');
+            const select = document.getElementById('acarsDeviceSelect');
+            if (select) select.disabled = running || select.dataset.receiverUnavailable === 'true';
 
             if (running) {
                 acarsCurrentAgent = agentId;
@@ -3980,9 +3964,14 @@ sudo make install</code>
                     startAcarsStream(agentId !== null);
                 }
             } else {
+                acarsCurrentAgent = null;
                 btn.textContent = '▶ START ACARS';
                 btn.classList.remove('active');
                 if (indicator) indicator.classList.remove('active');
+                if (acarsEventSource) acarsEventSource.close();
+                acarsEventSource = null;
+                if (acarsPollTimer) clearInterval(acarsPollTimer);
+                acarsPollTimer = null;
             }
         }
         // Expose to global scope for syncModeUI
@@ -4110,29 +4099,21 @@ sudo make install</code>
             }
         }
 
-        // Populate ACARS device selector
-        document.addEventListener('DOMContentLoaded', () => {
-            fetch('/devices')
-                .then(r => r.json())
-                .then(devices => {
-                    const select = document.getElementById('acarsDeviceSelect');
-                    select.innerHTML = '';
-                    if (devices.length === 0) {
-                        select.innerHTML = '<option value="0">No SDR detected</option>';
-                    } else {
-                        devices.forEach((d, i) => {
-                            const opt = document.createElement('option');
-                            opt.value = d.index || i;
-                            opt.textContent = `SDR ${d.index || i}: ${d.name || d.type || 'SDR'}`;
-                            select.appendChild(opt);
-                        });
-                        // Default to device 1 if available (device 0 likely used for ADS-B)
-                        if (devices.length > 1) {
-                            select.value = '1';
-                        }
-                    }
-                });
-        });
+        async function syncAcarsReceiverStatus(source = 'local') {
+            try {
+                const endpoint = source === 'local' ? '/acars/status' : `/controller/agents/${source}/acars/status`;
+                const response = await fetch(endpoint);
+                if (!response.ok) return;
+                const data = await response.json();
+                if (String(adsbCurrentAgent) !== String(source)) return;
+                const status = data.result || data;
+                const receiver = AircraftReceivers.fromStatus(status);
+                if (receiver) document.getElementById('acarsDeviceSelect').value = AircraftReceivers.key(receiver);
+                setAcarsRunning(Boolean(status.running), source === 'local' ? null : source);
+            } catch (error) {
+                console.debug('Could not sync ACARS receiver:', error);
+            }
+        }
 
         // ============================================
         // SQUAWK CODE REFERENCE
@@ -4697,24 +4678,30 @@ sudo make install</code>
 
             if (agentId === 'local') {
                 // Refresh local devices
-                loadDevices();
+                initDeviceSelectors().then(syncLocalTrackingStatus);
                 // Check if local ADS-B is running
-                syncLocalTrackingStatus();
                 // Enable airband controls (local audio works)
                 setAirbandEnabled(true);
+                setUatEnabled(true);
                 console.log('ADS-B: Using local device');
             } else {
+                populateAdsbDeviceSelects([], agentId);
                 // Get agent devices
                 refreshAgentDevicesForAdsb(agentId);
                 // Check if agent has ADS-B running (syncAgentModeStates will call setADSBRunning)
                 syncAgentModeStates(agentId);
                 // Disable airband controls (no audio streaming from remote agents)
                 setAirbandEnabled(false);
+                setUatEnabled(false);
                 console.log(`ADS-B: Using agent ${agentId}`);
             }
             updateAgentStatus();
             updateSourceIndicator();
         }
+        // The shared manager installs the selector listener. Route that one
+        // listener through this page's status/receiver handling so a second
+        // generic status refresh cannot overwrite the dashboard state.
+        window.selectAgent = selectAdsbAgent;
 
         // Enable/disable airband controls based on local vs remote agent
         function setAirbandEnabled(enabled) {
@@ -4745,8 +4732,12 @@ sudo make install</code>
                 const response = await fetch('/adsb/session');
                 if (!response.ok) return;
                 const data = await response.json();
+                if (adsbCurrentAgent !== 'local') return;
                 if (data.tracking_active) {
+                    restoreAdsbReceiver(data);
                     setADSBRunning(true, 'local');
+                } else {
+                    setADSBRunning(false, 'local');
                 }
             } catch (err) {
                 console.debug('Failed to sync local ADS-B status:', err);
@@ -4816,6 +4807,7 @@ sudo make install</code>
                 }
             } else {
                 isTracking = false;
+                adsbActiveDevice = null;
                 adsbTrackingSource = null;
 
                 // Update button
@@ -4868,7 +4860,10 @@ sudo make install</code>
                 if (data.agent && data.agent.interfaces) {
                     // Agent stores SDR devices in interfaces.sdr_devices (same fix as agents.js)
                     const devices = data.agent.interfaces.sdr_devices || data.agent.interfaces.devices || [];
-                    populateAdsbDeviceSelects(devices);
+                    if (String(adsbCurrentAgent) !== String(agentId)) return;
+                    populateAdsbDeviceSelects(devices, agentId);
+                    await Promise.all([syncAcarsReceiverStatus(agentId), syncRemoteAdsbReceiverStatus(agentId)]);
+                    if (String(adsbCurrentAgent) !== String(agentId)) return;
 
                     // Update observer location if agent has GPS
                     if (data.agent.gps_coords) {
@@ -4888,36 +4883,36 @@ sudo make install</code>
             }
         }
 
-        function populateAdsbDeviceSelects(devices) {
+        async function syncRemoteAdsbReceiverStatus(source) {
+            try {
+                const response = await fetch(`/controller/agents/${source}/adsb/status`);
+                if (!response.ok) return;
+                const data = await response.json();
+                if (String(adsbCurrentAgent) !== String(source)) return;
+                const status = data.result || data;
+                if (status.running || status.tracking_active) restoreAdsbReceiver(status);
+                setADSBRunning(Boolean(status.running || status.tracking_active), source);
+            } catch (error) {
+                console.debug('Could not sync remote ADS-B receiver:', error);
+            }
+        }
+
+        function populateAdsbDeviceSelects(devices, source = adsbCurrentAgent) {
             const adsbSelect = document.getElementById('adsbDeviceSelect');
             const airbandSelect = document.getElementById('airbandDeviceSelect');
             const acarsSelect = document.getElementById('acarsDeviceSelect');
 
-            [adsbSelect, airbandSelect, acarsSelect].forEach(select => {
-                if (!select) return;
-                select.innerHTML = '';
-
-                if (devices.length === 0) {
-                    select.innerHTML = '<option value="0">No SDR found</option>';
-                } else {
-                    devices.forEach(device => {
-                        const opt = document.createElement('option');
-                        opt.value = device.index;
-                        opt.textContent = `SDR ${device.index}: ${device.name || device.type || 'SDR'}`;
-                        select.appendChild(opt);
-                    });
-                }
-            });
+            AircraftReceivers.populate(adsbSelect, devices, { source, preferred: 'rtlsdr:0' });
+            AircraftReceivers.populate(acarsSelect, devices, { source, rtlOnly: true, preferred: 'rtlsdr:1' });
+            if (source === 'local') {
+                AircraftReceivers.populate(airbandSelect, devices, { source, avoid: adsbSelect.value });
+                AircraftReceivers.populate(document.getElementById('uatDeviceSelect'), devices,
+                    { source, rtlOnly: true, preferred: 'rtlsdr:1' });
+            }
         }
 
         // Hook into page init
         document.addEventListener('DOMContentLoaded', function() {
-            const agentSelect = document.getElementById('agentSelect');
-            if (agentSelect) {
-                agentSelect.addEventListener('change', function(e) {
-                    selectAdsbAgent(e.target.value);
-                });
-            }
             // Initialize source indicator
             updateSourceIndicator();
         });
@@ -5028,7 +5023,7 @@ sudo make install</code>
             if (data.enabled && data.dump978 && data.uat2json) {
                 document.getElementById('uatControlGroup').style.display = '';
                 // Populate device selector with detected SDR devices
-                populateUatDevices();
+                if (adsbCurrentAgent === 'local') await populateUatDevices();
             }
         } catch (e) {
             // UAT not available, control group stays hidden
@@ -5040,17 +5035,39 @@ sudo make install</code>
             const resp = await fetch('/devices');
             const devices = await resp.json();
             const select = document.getElementById('uatDeviceSelect');
-            select.innerHTML = '';
-            devices.forEach(d => {
-                const opt = document.createElement('option');
-                opt.value = d.index;
-                opt.textContent = `SDR ${d.index}`;
-                select.appendChild(opt);
-            });
-            // Default to device 1 if available (device 0 is typically used for 1090)
-            if (devices.length > 1) select.value = '1';
+            if (adsbCurrentAgent !== 'local') return;
+            AircraftReceivers.populate(select, devices, { source: 'local', rtlOnly: true, preferred: 'rtlsdr:1' });
+            await syncUatReceiverStatus();
         } catch (e) {
             // Keep default option
+        }
+    }
+
+    function setUatEnabled(enabled) {
+        const select = document.getElementById('uatDeviceSelect');
+        const button = document.getElementById('uatStartBtn');
+        const noReceiver = select.dataset.receiverUnavailable === 'true';
+        select.disabled = !enabled || uatTracking || noReceiver;
+        document.getElementById('uatGain').disabled = !enabled || uatTracking;
+        button.disabled = !enabled || (!uatTracking && noReceiver);
+        button.textContent = enabled ? (uatTracking ? 'STOP' : 'START') : 'LOCAL ONLY';
+        button.classList.toggle('active', uatTracking);
+        button.title = enabled ? 'Receive UAT with a local RTL-SDR' : 'UAT requires a local RTL-SDR receiver';
+    }
+
+    async function syncUatReceiverStatus() {
+        if (adsbCurrentAgent !== 'local') return;
+        try {
+            const response = await fetch('/uat/status');
+            if (!response.ok || adsbCurrentAgent !== 'local') return;
+            const status = await response.json();
+            const receiver = AircraftReceivers.fromStatus(status);
+            if (receiver) document.getElementById('uatDeviceSelect').value = AircraftReceivers.key(receiver);
+            uatTracking = Boolean(status.running);
+            document.getElementById('uatStatusBadge').style.display = uatTracking ? '' : 'none';
+            setUatEnabled(true);
+        } catch (error) {
+            console.debug('Could not sync UAT receiver:', error);
         }
     }
 
@@ -5059,13 +5076,18 @@ sudo make install</code>
         const badge = document.getElementById('uatStatusBadge');
 
         if (!uatTracking) {
-            const device = parseInt(document.getElementById('uatDeviceSelect').value) || 1;
-            const gain = parseInt(document.getElementById('uatGain').value) || 40;
+            if (adsbCurrentAgent !== 'local') return;
+            const device = AircraftReceivers.read(document.getElementById('uatDeviceSelect'), true);
+            const gain = Number(document.getElementById('uatGain').value);
+            if (!device || !Number.isFinite(gain)) {
+                alert('Select an available RTL-SDR receiver and a valid gain for UAT');
+                return;
+            }
             try {
                 const resp = await fetch('/uat/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ device, gain })
+                    body: JSON.stringify({ ...device, gain })
                 });
                 const data = await resp.json();
                 if (data.status === 'started' || data.status === 'already_running') {

@@ -11,6 +11,7 @@ This blueprint provides:
 from __future__ import annotations
 
 import json
+import hmac
 import logging
 import queue
 import time
@@ -20,7 +21,7 @@ from typing import Generator
 
 import httpx
 
-from quart import Blueprint, jsonify, request, Response
+from quart import Blueprint, jsonify, request, Response, session
 
 from utils.database import (
     create_agent, get_agent, get_agent_by_name, list_agents,
@@ -29,7 +30,7 @@ from utils.database import (
 from utils.agent_client import (
     AgentClient, AgentHTTPError, AgentConnectionError, create_client_from_agent
 )
-from utils.sse import format_sse
+from utils.sse import EventQueue, event_stream_response, format_sse
 from utils.trilateration import (
     DeviceLocationTracker, PathLossModel, Trilateration,
     AgentObservation, estimate_location_from_observations
@@ -40,7 +41,7 @@ logger = logging.getLogger('valentine.controller')
 controller_bp = Blueprint('controller', __name__, url_prefix='/controller')
 
 # Multi-agent data queue for combined SSE stream
-agent_data_queue: queue.Queue = queue.Queue(maxsize=1000)
+agent_data_queue: queue.Queue = EventQueue(maxsize=1000)
 
 
 # =============================================================================
@@ -59,7 +60,7 @@ async def get_agents():
         for agent in agents:
             try:
                 client = create_client_from_agent(agent)
-                agent['healthy'] = client.health_check()
+                agent['healthy'] = await client.health_check()
             except Exception:
                 agent['healthy'] = False
 
@@ -120,7 +121,7 @@ async def register_agent():
     capabilities = None
     interfaces = None
     try:
-        caps = client.get_capabilities()
+        caps = await client.get_capabilities()
         capabilities = caps.get('modes', {})
         interfaces = {'devices': caps.get('devices', [])}
     except (AgentHTTPError, AgentConnectionError) as e:
@@ -168,7 +169,7 @@ async def get_agent_detail(agent_id: int):
     if refresh:
         try:
             client = create_client_from_agent(agent)
-            metadata = client.refresh_metadata()
+            metadata = await client.refresh_metadata()
             if metadata['healthy']:
                 caps = metadata['capabilities'] or {}
                 # Store full interfaces structure (wifi, bt, sdr)
@@ -234,7 +235,7 @@ async def refresh_agent_metadata(agent_id: int):
 
     try:
         client = create_client_from_agent(agent)
-        metadata = client.refresh_metadata()
+        metadata = await client.refresh_metadata()
 
         if metadata['healthy']:
             caps = metadata['capabilities'] or {}
@@ -281,7 +282,7 @@ async def get_agent_status(agent_id: int):
 
     try:
         client = create_client_from_agent(agent)
-        status = client.get_status()
+        status = await client.get_status()
         return jsonify({
             'status': 'success',
             'agent_id': agent_id,
@@ -321,7 +322,7 @@ async def check_all_agents_health():
 
             # Time the health check
             start_time = time.time()
-            is_healthy = client.health_check()
+            is_healthy = await client.health_check()
             response_time = (time.time() - start_time) * 1000
 
             result['healthy'] = is_healthy
@@ -333,7 +334,7 @@ async def check_all_agents_health():
 
                 # Also fetch running modes
                 try:
-                    status = client.get_status()
+                    status = await client.get_status()
                     result['running_modes'] = status.get('running_modes', [])
                     result['running_modes_detail'] = status.get('running_modes_detail', {})
                 except Exception:
@@ -372,7 +373,7 @@ async def proxy_start_mode(agent_id: int, mode: str):
 
     try:
         client = create_client_from_agent(agent)
-        result = client.start_mode(mode, params)
+        result = await client.start_mode(mode, params)
 
         # Update last_seen
         update_agent(agent_id, update_last_seen=True)
@@ -405,7 +406,7 @@ async def proxy_stop_mode(agent_id: int, mode: str):
 
     try:
         client = create_client_from_agent(agent)
-        result = client.stop_mode(mode)
+        result = await client.stop_mode(mode)
 
         update_agent(agent_id, update_last_seen=True)
 
@@ -437,7 +438,7 @@ async def proxy_mode_status(agent_id: int, mode: str):
 
     try:
         client = create_client_from_agent(agent)
-        result = client.get_mode_status(mode)
+        result = await client.get_mode_status(mode)
 
         return jsonify({
             'status': 'success',
@@ -462,7 +463,7 @@ async def proxy_mode_data(agent_id: int, mode: str):
 
     try:
         client = create_client_from_agent(agent)
-        result = client.get_mode_data(mode)
+        result = await client.get_mode_data(mode)
 
         # Tag data with agent info
         result['agent_id'] = agent_id
@@ -539,12 +540,12 @@ async def proxy_wifi_monitor(agent_id: int):
 
     try:
         client = create_client_from_agent(agent)
-        result = client.post('/wifi/monitor', data)
+        result = await client.post('/wifi/monitor', data)
 
         # Refresh agent capabilities after monitor mode toggle so UI stays in sync
         if result.get('status') == 'success':
             try:
-                metadata = client.refresh_metadata()
+                metadata = await client.refresh_metadata()
                 if metadata.get('healthy'):
                     caps = metadata.get('capabilities') or {}
                     agent_interfaces = caps.get('interfaces', {})
@@ -598,7 +599,8 @@ async def ingest_push_data():
     }
 
     Expected header:
-        X-API-Key: shared-secret (if agent has api_key configured)
+        X-API-Key: registered agent shared-secret. Agents without a key
+        require an authenticated user session or user API token.
     """
     data = await request.get_json(silent=True)
     if not data:
@@ -616,9 +618,21 @@ async def ingest_push_data():
     # Validate API key if configured
     if agent.get('api_key'):
         provided_key = request.headers.get('X-API-Key', '')
-        if provided_key != agent['api_key']:
+        if not hmac.compare_digest(provided_key, agent['api_key']):
             logger.warning(f"Invalid API key from agent {agent_name}")
             return jsonify({'status': 'error', 'message': 'Invalid API key'}), 401
+    elif not (session.get('logged_in') and not session.get('password_must_change')):
+        # A registered name is not a credential. Keyless agents may still be
+        # administered through a user session/token, but cannot accept anonymous
+        # push data merely because the outer middleware delegates this route.
+        from app import _verify_api_token
+        token = (request.args.get('token')
+                 or request.headers.get('Authorization', '').removeprefix('Bearer ').strip())
+        if not token or not _verify_api_token(token):
+            return jsonify({
+                'status': 'error',
+                'message': 'Configure an agent API key or authenticate as a user',
+            }), 401
 
     # Store payload
     try:
@@ -686,29 +700,7 @@ async def stream_all_agents():
     This endpoint streams push data as it arrives from agents.
     Each message is tagged with agent_id and agent_name.
     """
-    async def generate():
-        loop = asyncio.get_running_loop()
-        last_keepalive = time.time()
-        keepalive_interval = 30.0
-
-        while True:
-            try:
-                msg = await loop.run_in_executor(
-                    None, lambda: agent_data_queue.get(timeout=1.0)
-                )
-                last_keepalive = time.time()
-                yield format_sse(msg)
-            except queue.Empty:
-                now = time.time()
-                if now - last_keepalive >= keepalive_interval:
-                    yield format_sse({'type': 'keepalive'})
-                    last_keepalive = now
-
-    response = Response(generate(), mimetype='text/event-stream')
-    response.headers['Cache-Control'] = 'no-cache'
-    response.headers['X-Accel-Buffering'] = 'no'
-    response.headers['Connection'] = 'keep-alive'
-    return response
+    return event_stream_response(agent_data_queue)
 
 
 # =============================================================================

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import queue
+from utils.sse import EventQueue, event_subscription
 import threading
 import time
 from datetime import datetime
@@ -32,6 +33,19 @@ logger = logging.getLogger(__name__)
 # Global scanner instance
 _scanner_instance: Optional['BluetoothScanner'] = None
 _scanner_lock = threading.Lock()
+
+
+def bluetooth_event_payload(event: dict) -> tuple[str, dict]:
+    """Use the same Bluetooth event schema for storage, alerts, and SSE."""
+    event_type = event.get('type', 'unknown')
+    if event_type == 'device':
+        return 'device_update', event.get('device', event)
+    if event_type == 'status':
+        name = {'started': 'scan_started', 'stopped': 'scan_stopped'}.get(event.get('status'), 'status')
+        return name, event
+    if event_type in ('ping', 'keepalive'):
+        return 'ping', {}
+    return event_type, event
 
 
 class BluetoothScanner:
@@ -60,7 +74,9 @@ class BluetoothScanner:
         self._active_backend: Optional[str] = None
 
         # Event queue for SSE streaming
-        self._event_queue: queue.Queue = queue.Queue(maxsize=1000)
+        self._event_queue: queue.Queue = EventQueue(
+            maxsize=1000, mode='bluetooth', event_mapper=bluetooth_event_payload,
+        )
 
         # Duration-based scanning
         self._scan_timer: Optional[threading.Timer] = None
@@ -102,6 +118,10 @@ class BluetoothScanner:
             if not adapter and mode == 'dbus':
                 self._status.error = "No Bluetooth adapter found"
                 return False
+
+            # Observations and lifecycle events from an earlier scan are not
+            # part of this session's SSE replay. Retain aggregated devices.
+            self._event_queue.clear_history()
 
             # Select and start backend
             started = False
@@ -324,12 +344,12 @@ class BluetoothScanner:
         Yields:
             Event dictionaries.
         """
-        while True:
-            try:
-                event = self._event_queue.get(timeout=timeout)
-                yield event
-            except queue.Empty:
-                yield {'type': 'ping'}
+        with event_subscription(self._event_queue) as subscriber:
+            while True:
+                try:
+                    yield subscriber.get(timeout=timeout)
+                except queue.Empty:
+                    yield {'type': 'ping'}
 
     def set_baseline(self) -> int:
         """Set current devices as baseline."""

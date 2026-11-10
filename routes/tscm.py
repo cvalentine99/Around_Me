@@ -61,7 +61,7 @@ from utils.tscm.device_identity import (
     ingest_ble_dict,
     ingest_wifi_dict,
 )
-from utils.event_pipeline import process_event
+from utils.sse import EventQueue, event_stream_response
 
 # Import unified Bluetooth scanner helper for TSCM integration
 try:
@@ -630,34 +630,7 @@ async def sweep_status():
 @tscm_bp.route('/sweep/stream')
 async def sweep_stream():
     """SSE stream for real-time sweep updates."""
-    async def generate():
-        loop = asyncio.get_running_loop()
-        while True:
-            try:
-                if tscm_queue:
-                    msg = await loop.run_in_executor(
-                        None, lambda: tscm_queue.get(timeout=1)
-                    )
-                    try:
-                        process_event('tscm', msg, msg.get('type'))
-                    except Exception:
-                        pass
-                    yield f"data: {json.dumps(msg)}\n\n"
-                else:
-                    await asyncio.sleep(1)
-                    yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
-            except queue.Empty:
-                yield f"data: {json.dumps({'type': 'keepalive'})}\n\n"
-
-    return Response(
-        generate(),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no'
-        }
-    )
+    return event_stream_response(tscm_queue if tscm_queue is not None else EventQueue(), keepalive_interval=1.0)
 
 
 # =============================================================================
@@ -836,7 +809,8 @@ async def get_tscm_devices():
     # Detect WiFi interfaces
     if platform.system() == 'Darwin':  # macOS
         try:
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 ['networksetup', '-listallhardwareports'],
                 capture_output=True, text=True, timeout=5
             )
@@ -859,7 +833,8 @@ async def get_tscm_devices():
             pass
     else:  # Linux
         try:
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 ['iw', 'dev'],
                 capture_output=True, text=True, timeout=5
             )
@@ -880,7 +855,8 @@ async def get_tscm_devices():
         except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError):
             # Fall back to iwconfig
             try:
-                result = subprocess.run(
+                result = await asyncio.to_thread(
+                    subprocess.run,
                     ['iwconfig'],
                     capture_output=True, text=True, timeout=5
                 )
@@ -899,7 +875,8 @@ async def get_tscm_devices():
     # Detect Bluetooth adapters
     if platform.system() == 'Linux':
         try:
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 ['hciconfig'],
                 capture_output=True, text=True, timeout=5
             )
@@ -921,7 +898,8 @@ async def get_tscm_devices():
         except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.SubprocessError):
             # Try bluetoothctl as fallback
             try:
-                result = subprocess.run(
+                result = await asyncio.to_thread(
+                    subprocess.run,
                     ['bluetoothctl', 'list'],
                     capture_output=True, text=True, timeout=5
                 )
@@ -943,7 +921,8 @@ async def get_tscm_devices():
     elif platform.system() == 'Darwin':
         # macOS has built-in Bluetooth - get more info via system_profiler
         try:
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 ['system_profiler', 'SPBluetoothDataType'],
                 capture_output=True, text=True, timeout=10
             )
