@@ -210,6 +210,11 @@ deauth_detector = None
 deauth_detector_queue = EventQueue(maxsize=QUEUE_MAX_SIZE)
 deauth_detector_lock = threading.Lock()
 
+# VDL Mode 2 aviation data link
+vdl2_process = None
+vdl2_queue = EventQueue(maxsize=QUEUE_MAX_SIZE, mode='vdl2')
+vdl2_lock = threading.Lock()
+
 # ============================================
 # GLOBAL STATE DICTIONARIES
 # ============================================
@@ -805,7 +810,7 @@ async def kill_all() -> Response:
 def _stop_owned_receivers() -> dict:
     """Stop a snapshot of owned receivers without losing failed or newer handles."""
     from routes import adsb, ais, dmr, listening_post, rtlamr, uat, audio_websocket
-    from routes import pager, sensor, acars, aprs, dsc
+    from routes import pager, sensor, acars, aprs, dsc, vdl2
     from utils.process import get_registered_processes, safe_terminate, register_process
     from utils.bluetooth import reset_bluetooth_scanner
     from utils.wifi.scanner import reset_wifi_scanner
@@ -822,6 +827,7 @@ def _stop_owned_receivers() -> dict:
         (adsb, 'adsb_active_device', 'adsb'), (ais, 'ais_active_device', 'ais'),
         (dmr, 'dmr_active_device', 'dmr'), (rtlamr, 'rtlamr_active_device', 'rtlamr'),
         (uat, 'uat_active_device', 'uat'),
+        (vdl2, 'vdl2_active_device', 'vdl2'),
         (listening_post, 'scanner_active_device', 'scanner'),
         (listening_post, 'listening_active_device', 'listening'),
         (listening_post, 'waterfall_active_device', 'waterfall'),
@@ -838,7 +844,7 @@ def _stop_owned_receivers() -> dict:
         ('aprs_rtl_process', 'aprs'), ('dsc_process', 'dsc'),
         ('dsc_rtl_process', 'dsc'), ('dmr_process', 'dmr'),
         ('dmr_rtl_process', 'dmr'), ('rtlamr_process', 'rtlamr'),
-        ('satellite_process', 'satellite'),
+        ('satellite_process', 'satellite'), ('vdl2_process', 'vdl2'),
     )]
     slots.extend([
         (dmr, 'dmr_dsd_process', 'dmr'), (dmr, 'dmr_rtl_process', 'dmr'),

@@ -396,3 +396,48 @@ def clear_queue(q: queue.Queue) -> int:
         except queue.Empty:
             break
     return count
+
+def async_sse_stream_fanout(
+    source_queue: queue.Queue,
+    channel_key: str | None = None,
+    timeout: float = 1.0,
+    keepalive_interval: float = 30.0,
+    stop_check=None,
+    on_message=None,
+):
+    """SSE body for modules written against the older fan-out helper API.
+
+    Every viewer of an EventQueue already gets its own subscription, and an
+    EventQueue with a mode runs the recording/alert pipeline when an event is
+    published, so ``on_message`` only runs for other sources. ``channel_key``
+    is accepted for compatibility and not needed.
+    """
+    cursor = _request_cursor()
+    run_hook = on_message is not None and not (
+        isinstance(source_queue, EventQueue) and source_queue.mode)
+
+    async def generate():
+        events = queue_events(source_queue, timeout, keepalive_interval, stop_check, cursor)
+        try:
+            async for event in events:
+                if run_hook and isinstance(event, dict) and event.get('type') != 'keepalive':
+                    try:
+                        on_message(event)
+                    except Exception:
+                        pass
+                yield format_sse(event)
+        finally:
+            await events.aclose()
+
+    return generate()
+
+
+def async_sse_stream(
+    data_queue: queue.Queue,
+    timeout: float = 1.0,
+    keepalive_interval: float = 30.0,
+    stop_check=None,
+    channel_key: str | None = None,
+):
+    """Compatibility alias of async_sse_stream_fanout without a message hook."""
+    return async_sse_stream_fanout(data_queue, channel_key, timeout, keepalive_interval, stop_check)

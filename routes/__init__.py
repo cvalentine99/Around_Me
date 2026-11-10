@@ -33,6 +33,12 @@ def register_blueprints(app):
     from .alerts import alerts_bp
     from .recordings import recordings_bp
     from .uat import uat_bp
+    # routes/subghz.py and routes/bt_locate.py are not registered: they import
+    # SUBGHZ_* constants (utils/constants.py) and utils/bluetooth/irk_extractor.py,
+    # which do not exist in this repository, so importing them aborts startup.
+    from .vdl2 import vdl2_bp
+    from .space_weather import space_weather_bp
+    from .analytics import analytics_bp
 
     app.register_blueprint(pager_bp)
     app.register_blueprint(sensor_bp)
@@ -65,6 +71,9 @@ def register_blueprints(app):
     app.register_blueprint(alerts_bp)  # Cross-mode alerts
     app.register_blueprint(recordings_bp)  # Session recordings
     app.register_blueprint(uat_bp)  # UAT 978 MHz ADS-B decoder
+    app.register_blueprint(vdl2_bp)  # VDL Mode 2 aviation data link
+    app.register_blueprint(space_weather_bp)  # Space weather / solar conditions
+    app.register_blueprint(analytics_bp)  # Cross-mode analytics & insights
 
     # Initialize TSCM state with queue and lock from app
     import app as app_module
