@@ -45,7 +45,7 @@ async def get_capabilities():
     Returns available tools, interfaces, and scan mode support.
     """
     scanner = get_wifi_scanner()
-    caps = scanner.check_capabilities()
+    caps = await asyncio.to_thread(scanner.check_capabilities)
     return jsonify(caps.to_dict())
 
 

@@ -7,10 +7,12 @@ aggregation, and heuristics.
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import json
 import logging
+import shutil
 import threading
 import time
 from datetime import datetime
@@ -202,7 +204,7 @@ async def get_capabilities():
     Returns:
         JSON with capability information including adapters, backends, and issues.
     """
-    caps = check_capabilities()
+    caps = await asyncio.to_thread(check_capabilities)
     return jsonify(caps.to_dict())
 
 
@@ -643,7 +645,7 @@ async def get_diagnostics():
     import os
     import subprocess
 
-    caps = check_capabilities()
+    caps = await asyncio.to_thread(check_capabilities)
 
     diagnostics = {
         'system': {
@@ -714,8 +716,7 @@ async def get_diagnostics():
 
     # Check for btmon availability (useful for debugging)
     try:
-        result = subprocess.run(['which', 'btmon'], capture_output=True, timeout=2)
-        diagnostics['backends']['available']['btmon'] = result.returncode == 0
+        diagnostics['backends']['available']['btmon'] = shutil.which('btmon') is not None
     except Exception:
         diagnostics['backends']['available']['btmon'] = False
 

@@ -1038,7 +1038,7 @@ async def start_scanner() -> Response:
             await asyncio.to_thread(_stop_audio_stream)
             _release_listening_claim()
         # Claim device for scanner
-        error = app_module.claim_sdr_device(scanner_config['device'], 'scanner', sdr_type=sdr_type)
+        error = await app_module.claim_sdr_device_async(scanner_config['device'], 'scanner', sdr_type=sdr_type)
         if error:
             return jsonify({
                 'status': 'error',
@@ -1066,7 +1066,7 @@ async def start_scanner() -> Response:
         if listening_active_device is not None:
             await asyncio.to_thread(_stop_audio_stream)
             _release_listening_claim()
-        error = app_module.claim_sdr_device(scanner_config['device'], 'scanner', sdr_type=sdr_type)
+        error = await app_module.claim_sdr_device_async(scanner_config['device'], 'scanner', sdr_type=sdr_type)
         if error:
             return jsonify({
                 'status': 'error',
@@ -1336,7 +1336,7 @@ async def start_audio() -> Response:
         for attempt in range(max_claim_attempts):
             # Wait for the previous owner's actual cleanup. Releasing its
             # claim here could let its delayed finally release this stream.
-            error = app_module.claim_sdr_device(device, 'listening', sdr_type=sdr_type)
+            error = await app_module.claim_sdr_device_async(device, 'listening', sdr_type=sdr_type)
             if not error:
                 break
             if attempt < max_claim_attempts - 1:
@@ -1827,7 +1827,7 @@ async def start_waterfall() -> Response:
         pass
 
     # Claim SDR device
-    error = app_module.claim_sdr_device(waterfall_config['device'], 'waterfall', sdr_type='rtlsdr')
+    error = await app_module.claim_sdr_device_async(waterfall_config['device'], 'waterfall', sdr_type='rtlsdr')
     if error:
         return jsonify({'status': 'error', 'error_type': 'DEVICE_BUSY', 'message': error}), 409
 

@@ -147,7 +147,7 @@ async def start_capture():
     claim = None
     try:
         import app as app_module
-        error, lease = app_module.claim_sdr_device_with_lease(device_index, 'weather_sat')
+        error, lease = await app_module.claim_sdr_device_with_lease_async(device_index, 'weather_sat')
         if error:
             return jsonify({
                 'status': 'error',

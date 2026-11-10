@@ -5,7 +5,7 @@ from datetime import datetime
 import queue
 import threading
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from quart import Quart
@@ -96,6 +96,7 @@ async def test_cancelled_rtlamr_start_releases_process_device_and_lock(monkeypat
     state = SimpleNamespace(
         rtlamr_lock=lock, rtlamr_process=None, rtlamr_queue=queue.Queue(),
         claim_sdr_device=Mock(return_value=None), release_sdr_device=Mock(),
+        claim_sdr_device_async=AsyncMock(return_value=None),
     )
     process = Mock()
     process.poll.return_value = None
@@ -211,6 +212,7 @@ async def test_stop_during_start_keeps_event_loop_responsive(mode, monkeypatch):
         f'{prefix}_lock': threading.Lock(), f'{prefix}_process': None,
         f'{prefix}_queue': queue.Queue(), 'wifi_monitor_interface': None,
         'claim_sdr_device': Mock(return_value=None), 'release_sdr_device': Mock(),
+        'claim_sdr_device_async': AsyncMock(return_value=None),
     })
     monkeypatch.setattr(module, 'app_module', state)
     monkeypatch.setattr(module, output_reader, lambda *args: None)

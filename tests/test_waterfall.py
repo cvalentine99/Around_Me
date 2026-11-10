@@ -1,6 +1,6 @@
 """Tests for the Waterfall / Spectrogram endpoints."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 
 
@@ -40,6 +40,7 @@ async def test_waterfall_start_success(auth_client):
          patch('routes.listening_post._waterfall_loop'), \
          patch('routes.listening_post.app_module') as mock_app:
         mock_app.claim_sdr_device.return_value = None  # No error, claim succeeds
+        mock_app.claim_sdr_device_async = AsyncMock(return_value=None)
         resp = await auth_client.post('/listening/waterfall/start', json={
             'start_freq': 88.0,
             'end_freq': 108.0,
@@ -82,6 +83,7 @@ async def test_waterfall_start_device_busy(auth_client):
     with patch('routes.listening_post.find_rtl_power', return_value='/usr/bin/rtl_power'), \
          patch('routes.listening_post.app_module') as mock_app:
         mock_app.claim_sdr_device.return_value = 'SDR device 0 is in use by scanner'
+        mock_app.claim_sdr_device_async = AsyncMock(return_value='SDR device 0 is in use by scanner')
         resp = await auth_client.post('/listening/waterfall/start', json={
             'start_freq': 88.0,
             'end_freq': 108.0,

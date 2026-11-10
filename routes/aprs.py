@@ -21,9 +21,11 @@ from quart import Blueprint, jsonify, request, Response
 
 import app as app_module
 from utils.logging import sensor_logger as logger
-from utils.validation import validate_device_index, validate_gain, validate_ppm
+from utils.validation import validate_device_index, validate_frequency, validate_gain, validate_ppm
 from utils.sse import format_sse
 from utils.sse import event_stream_response
+from utils.async_lock import async_thread_lock
+from utils.async_process import finish_in_thread
 from utils.constants import (
     PROCESS_TERMINATE_TIMEOUT,
     SSE_KEEPALIVE_INTERVAL,
@@ -1397,7 +1399,6 @@ def stream_aprs_output(rtl_process: subprocess.Popen, decoder_process: subproces
         app_module.aprs_queue.put({'type': 'error', 'message': str(e)})
     finally:
         global aprs_active_device
-        app_module.aprs_queue.put({'type': 'status', 'status': 'stopped'})
         # Cleanup processes
         for proc in [rtl_process, decoder_process]:
             try:
@@ -1408,10 +1409,21 @@ def stream_aprs_output(rtl_process: subprocess.Popen, decoder_process: subproces
                     proc.kill()
                 except Exception:
                     pass
-        # Release SDR device
-        if aprs_active_device is not None:
-            app_module.release_sdr_device(aprs_active_device)
-            aprs_active_device = None
+        # Only this reader's own session may be reset. After a stop and a
+        # quick restart the current processes and receiver claim belong to a
+        # newer session (start holds aprs_lock until that session is set up).
+        with app_module.aprs_lock:
+            own_session = app_module.aprs_process is decoder_process
+            if own_session:
+                # The decoder ended by itself: nobody else will clean up.
+                app_module.aprs_process = None
+                app_module.aprs_rtl_process = None
+                if aprs_active_device is not None:
+                    app_module.release_sdr_device(aprs_active_device, mode_name='aprs')
+                    aprs_active_device = None
+            announce = own_session or app_module.aprs_process is None
+        if announce:
+            app_module.aprs_queue.put({'type': 'status', 'status': 'stopped'})
 
 
 @aprs_bp.route('/tools')
@@ -1458,53 +1470,54 @@ async def get_stations() -> Response:
 @aprs_bp.route('/start', methods=['POST'])
 async def start_aprs() -> Response:
     """Start APRS decoder."""
+    data = await request.get_json(silent=True) or {}
+
+    # Starting takes seconds (USB probe, two spawns, startup wait). The lock
+    # is shared with the reader thread: wait for it without blocking the
+    # event loop and keep it for the whole start, so two requests cannot both
+    # start a pipeline. The blocking steps run in a worker meanwhile.
+    async with async_thread_lock(app_module.aprs_lock):
+        payload, status = await finish_in_thread(_start_aprs_locked, data)
+    return jsonify(payload), status
+
+
+def _start_aprs_locked(data: dict) -> tuple[dict, int]:
+    """Start rtl_fm | decoder. Blocking: runs in a worker while aprs_lock is held."""
     global aprs_packet_count, aprs_station_count, aprs_last_packet_time, aprs_stations
     global aprs_active_device
 
-    with app_module.aprs_lock:
-        if app_module.aprs_process and app_module.aprs_process.poll() is None:
-            return jsonify({
+    previous = app_module.aprs_process
+    if previous is not None:
+        if previous.poll() is None:
+            return {
                 'status': 'error',
                 'message': 'APRS decoder already running'
-            }), 409
+            }, 409
+        # The decoder exited and its reader is still waiting for this lock to
+        # clean up. Do that here so the receiver can be claimed again.
+        app_module.aprs_process = None
+        app_module.aprs_rtl_process = None
+        if aprs_active_device is not None:
+            app_module.release_sdr_device(aprs_active_device, mode_name='aprs')
+            aprs_active_device = None
 
     # Check for required tools
     rtl_fm_path = find_rtl_fm()
     if not rtl_fm_path:
-        return jsonify({
+        return {
             'status': 'error',
             'message': 'rtl_fm not found. Install with: sudo apt install rtl-sdr'
-        }), 400
+        }, 400
 
     # Check for decoder (prefer direwolf, fallback to multimon-ng)
     direwolf_path = find_direwolf()
     multimon_path = find_multimon_ng()
 
     if not direwolf_path and not multimon_path:
-        return jsonify({
+        return {
             'status': 'error',
             'message': 'No APRS decoder found. Install direwolf or multimon-ng'
-        }), 400
-
-    data = await request.get_json(silent=True) or {}
-
-    # Validate inputs
-    try:
-        device = validate_device_index(data.get('device', '0'))
-        gain = validate_gain(data.get('gain', '40'))
-        ppm = validate_ppm(data.get('ppm', '0'))
-    except ValueError as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 400
-
-    # Reserve SDR device to prevent conflicts with other modes
-    error = app_module.claim_sdr_device(device, 'aprs')
-    if error:
-        return jsonify({
-            'status': 'error',
-            'error_type': 'DEVICE_BUSY',
-            'message': error
-        }), 409
-    aprs_active_device = device
+        }, 400
 
     # Get frequency for region
     region = data.get('region', 'north_america')
@@ -1513,6 +1526,26 @@ async def start_aprs() -> Response:
     # Allow custom frequency override
     if data.get('frequency'):
         frequency = data.get('frequency')
+
+    # Validate inputs before the receiver is claimed: a bad value must not
+    # leave the SDR reserved by a decoder that never started.
+    try:
+        device = validate_device_index(data.get('device', '0'))
+        gain = validate_gain(data.get('gain', '40'))
+        ppm = validate_ppm(data.get('ppm', '0'))
+        frequency_mhz = validate_frequency(frequency)
+    except ValueError as e:
+        return {'status': 'error', 'message': str(e)}, 400
+
+    # Reserve SDR device to prevent conflicts with other modes
+    error = app_module.claim_sdr_device(device, 'aprs')
+    if error:
+        return {
+            'status': 'error',
+            'error_type': 'DEVICE_BUSY',
+            'message': error
+        }, 409
+    aprs_active_device = device
 
     # Clear queue and reset stats
     while not app_module.aprs_queue.empty():
@@ -1527,7 +1560,7 @@ async def start_aprs() -> Response:
     aprs_stations = {}
 
     # Build rtl_fm command for APRS (narrowband FM at 22050 Hz for AFSK1200)
-    freq_hz = f"{float(frequency)}M"
+    freq_hz = f"{frequency_mhz}M"
     rtl_cmd = [
         rtl_fm_path,
         '-f', freq_hz,
@@ -1552,7 +1585,12 @@ async def start_aprs() -> Response:
     # Build decoder command
     if direwolf_path:
         # Create minimal config file for direwolf
-        config_path = create_direwolf_config()
+        try:
+            config_path = create_direwolf_config()
+        except OSError as e:
+            app_module.release_sdr_device(device, mode_name='aprs')
+            aprs_active_device = None
+            return {'status': 'error', 'message': f'Could not write direwolf config: {e}'}, 500
 
         # direwolf flags for receiving AFSK1200 from stdin:
         # -c config = config file path (must come before other options)
@@ -1579,6 +1617,8 @@ async def start_aprs() -> Response:
 
     logger.info(f"Starting APRS decoder: {' '.join(rtl_cmd)} | {' '.join(decoder_cmd)}")
 
+    rtl_process = None
+    decoder_process = None
     try:
         # Start rtl_fm with stdout piped to decoder.
         # stderr is captured via PIPE so errors are reported to the user.
@@ -1638,9 +1678,9 @@ async def start_aprs() -> Response:
             except Exception:
                 pass
             if aprs_active_device is not None:
-                app_module.release_sdr_device(aprs_active_device)
+                app_module.release_sdr_device(aprs_active_device, mode_name='aprs')
                 aprs_active_device = None
-            return jsonify({'status': 'error', 'message': error_msg}), 500
+            return {'status': 'error', 'message': error_msg}, 500
 
         if decoder_process.poll() is not None:
             # Decoder exited early - capture any output
@@ -1654,9 +1694,9 @@ async def start_aprs() -> Response:
             except Exception:
                 pass
             if aprs_active_device is not None:
-                app_module.release_sdr_device(aprs_active_device)
+                app_module.release_sdr_device(aprs_active_device, mode_name='aprs')
                 aprs_active_device = None
-            return jsonify({'status': 'error', 'message': error_msg}), 500
+            return {'status': 'error', 'message': error_msg}, 500
 
         # Store references for status checks and cleanup
         app_module.aprs_process = decoder_process
@@ -1670,61 +1710,80 @@ async def start_aprs() -> Response:
         )
         thread.start()
 
-        return jsonify({
+        return {
             'status': 'started',
             'frequency': frequency,
             'region': region,
             'device': device,
             'decoder': decoder_name
-        })
+        }, 200
 
     except Exception as e:
         logger.error(f"Failed to start APRS decoder: {e}")
+        # Do not leave a half-started pipeline holding the receiver
+        for proc in (decoder_process, rtl_process):
+            if proc is not None:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
         if aprs_active_device is not None:
-            app_module.release_sdr_device(aprs_active_device)
+            app_module.release_sdr_device(aprs_active_device, mode_name='aprs')
             aprs_active_device = None
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return {'status': 'error', 'message': str(e)}, 500
 
 
 @aprs_bp.route('/stop', methods=['POST'])
 async def stop_aprs() -> Response:
     """Stop APRS decoder."""
-    global aprs_active_device
+    # Waiting for the processes to exit can take seconds: do it in a worker,
+    # and wait for the reader-shared lock without blocking the event loop.
+    async with async_thread_lock(app_module.aprs_lock):
+        stopped = await finish_in_thread(_stop_aprs_locked)
 
-    with app_module.aprs_lock:
-        processes_to_stop = []
-
-        if hasattr(app_module, 'aprs_rtl_process') and app_module.aprs_rtl_process:
-            processes_to_stop.append(app_module.aprs_rtl_process)
-
-        if app_module.aprs_process:
-            processes_to_stop.append(app_module.aprs_process)
-
-        if not processes_to_stop:
-            return jsonify({
-                'status': 'error',
-                'message': 'APRS decoder not running'
-            }), 400
-
-        for proc in processes_to_stop:
-            try:
-                proc.terminate()
-                proc.wait(timeout=PROCESS_TERMINATE_TIMEOUT)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-            except Exception as e:
-                logger.error(f"Error stopping APRS process: {e}")
-
-        app_module.aprs_process = None
-        if hasattr(app_module, 'aprs_rtl_process'):
-            app_module.aprs_rtl_process = None
-
-        # Release SDR device
-        if aprs_active_device is not None:
-            app_module.release_sdr_device(aprs_active_device)
-            aprs_active_device = None
+    if not stopped:
+        return jsonify({
+            'status': 'error',
+            'message': 'APRS decoder not running'
+        }), 400
 
     return jsonify({'status': 'stopped'})
+
+
+def _stop_aprs_locked() -> bool:
+    """Stop both APRS processes and release the receiver. Caller holds aprs_lock."""
+    global aprs_active_device
+
+    processes_to_stop = []
+
+    if hasattr(app_module, 'aprs_rtl_process') and app_module.aprs_rtl_process:
+        processes_to_stop.append(app_module.aprs_rtl_process)
+
+    if app_module.aprs_process:
+        processes_to_stop.append(app_module.aprs_process)
+
+    if not processes_to_stop:
+        return False
+
+    for proc in processes_to_stop:
+        try:
+            proc.terminate()
+            proc.wait(timeout=PROCESS_TERMINATE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        except Exception as e:
+            logger.error(f"Error stopping APRS process: {e}")
+
+    app_module.aprs_process = None
+    if hasattr(app_module, 'aprs_rtl_process'):
+        app_module.aprs_rtl_process = None
+
+    # Release SDR device
+    if aprs_active_device is not None:
+        app_module.release_sdr_device(aprs_active_device, mode_name='aprs')
+        aprs_active_device = None
+
+    return True
 
 
 @aprs_bp.route('/stream')
@@ -1780,16 +1839,24 @@ async def scan_aprs_spectrum() -> Response:
         device = validate_device_index(device)
         gain = validate_gain(gain)
         duration = min(max(int(duration), 5), 60)  # Clamp 5-60 seconds
-    except ValueError as e:
+        # Get center frequency
+        if frequency:
+            center_freq_mhz = validate_frequency(frequency)
+        else:
+            center_freq_mhz = float(APRS_FREQUENCIES.get(region, '144.800'))
+    except (ValueError, TypeError) as e:
         return jsonify({'status': 'error', 'message': str(e)}), 400
 
-    # Get center frequency
-    if frequency:
-        center_freq_mhz = float(frequency)
-    else:
-        center_freq_mhz = float(APRS_FREQUENCIES.get(region, '144.800'))
+    # rtl_power runs for the whole scan (5-60 s): keep it off the event loop
+    # so every other client keeps being served meanwhile.
+    payload, status = await asyncio.to_thread(
+        _run_aprs_spectrum_scan, rtl_power_path, device, gain, region, center_freq_mhz, duration)
+    return jsonify(payload), status
 
-    # Scan 20 kHz around center frequency (±10 kHz)
+
+def _run_aprs_spectrum_scan(rtl_power_path, device, gain, region, center_freq_mhz, duration) -> tuple[dict, int]:
+    """Run rtl_power and analyse its output. Blocking: runs in a worker thread."""
+    # Scan 20 kHz around center frequency (+/-10 kHz)
     start_freq_mhz = center_freq_mhz - 0.010
     end_freq_mhz = center_freq_mhz + 0.010
     bin_size_hz = 200  # 200 Hz bins for good resolution
@@ -1826,18 +1893,18 @@ async def scan_aprs_spectrum() -> Response:
 
         if result.returncode != 0:
             error_msg = result.stderr[:200] if result.stderr else f'Exit code {result.returncode}'
-            return jsonify({
+            return {
                 'status': 'error',
                 'message': f'rtl_power failed: {error_msg}'
-            }), 500
+            }, 500
 
         # Parse rtl_power CSV output
         # Format: date, time, start_hz, end_hz, step_hz, samples, db1, db2, db3, ...
         if not os.path.exists(tmp_file):
-            return jsonify({
+            return {
                 'status': 'error',
                 'message': 'rtl_power did not produce output file'
-            }), 500
+            }, 500
 
         bins = []
         with open(tmp_file, 'r') as f:
@@ -1857,10 +1924,10 @@ async def scan_aprs_spectrum() -> Response:
                     continue
 
         if not bins:
-            return jsonify({
+            return {
                 'status': 'error',
                 'message': 'No spectrum data collected. Check SDR connection and antenna.'
-            }), 500
+            }, 500
 
         # Calculate statistics
         db_values = [b['db'] for b in bins]
@@ -1890,7 +1957,7 @@ async def scan_aprs_spectrum() -> Response:
         else:
             advice = "Good signal detected. Decoding should work well."
 
-        return jsonify({
+        return {
             'status': 'success',
             'scan_params': {
                 'center_freq_mhz': center_freq_mhz,
@@ -1914,16 +1981,16 @@ async def scan_aprs_spectrum() -> Response:
                 'signal_detected': signal_detected,
             },
             'advice': advice,
-        })
+        }, 200
 
     except subprocess.TimeoutExpired:
-        return jsonify({
+        return {
             'status': 'error',
             'message': f'Spectrum scan timed out after {duration + 15} seconds'
-        }), 500
+        }, 500
     except Exception as e:
         logger.error(f"Spectrum scan error: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return {'status': 'error', 'message': str(e)}, 500
     finally:
         # Cleanup temp file
         try:
@@ -1931,4 +1998,3 @@ async def scan_aprs_spectrum() -> Response:
                 os.remove(tmp_file)
         except Exception:
             pass
-

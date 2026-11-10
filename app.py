@@ -306,6 +306,37 @@ def release_sdr_device(device_index: int, sdr_type='rtlsdr', *, mode_name=None, 
     _sdr_registry.release(device_index, sdr_type, mode_name=mode_name, lease=lease)
 
 
+async def claim_sdr_device_async(device_index: int, mode_name: str, sdr_type='rtlsdr') -> str | None:
+    """claim_sdr_device for request handlers, without blocking the event loop.
+
+    Claiming an RTL-SDR runs ``rtl_test`` (up to 3 s), which would stall every
+    stream and WebSocket while it runs. The claim runs in a worker. If the
+    request is cancelled meanwhile, its outcome is awaited and a successful
+    claim released, so the receiver is not left reserved by nobody.
+    """
+    claim = asyncio.ensure_future(
+        asyncio.to_thread(claim_sdr_device, device_index, mode_name, sdr_type=sdr_type))
+    try:
+        return await asyncio.shield(claim)
+    except asyncio.CancelledError:
+        if not await claim:
+            release_sdr_device(device_index, sdr_type, mode_name=mode_name)
+        raise
+
+
+async def claim_sdr_device_with_lease_async(device_index: int, mode_name: str, sdr_type='rtlsdr'):
+    """claim_sdr_device_with_lease without blocking the event loop (see above)."""
+    claim = asyncio.ensure_future(
+        asyncio.to_thread(claim_sdr_device_with_lease, device_index, mode_name, sdr_type=sdr_type))
+    try:
+        return await asyncio.shield(claim)
+    except asyncio.CancelledError:
+        error, lease = await claim
+        if not error:
+            release_sdr_device(device_index, sdr_type, mode_name=mode_name, lease=lease)
+        raise
+
+
 def get_sdr_device_status() -> dict[int | str, str]:
     """Get current SDR device allocations.
 
@@ -522,6 +553,13 @@ async def get_devices_status() -> Response:
 @app.route('/devices/debug')
 async def get_devices_debug() -> Response:
     """Get detailed SDR device detection diagnostics."""
+    # The diagnostics run rtl_test, SoapySDRUtil and hackrf_info (seconds
+    # each): collect them in a worker so other clients keep being served.
+    return jsonify(await asyncio.to_thread(_collect_device_diagnostics))
+
+
+def _collect_device_diagnostics() -> dict:
+    """Run the SDR detection tools and gather their output (blocking)."""
     import shutil
 
     diagnostics = {
@@ -630,7 +668,7 @@ async def get_devices_debug() -> Response:
     if not devices and not diagnostics['suggestions']:
         diagnostics['suggestions'].append('No devices detected. Check USB connection and driver installation.')
 
-    return jsonify(diagnostics)
+    return diagnostics
 
 
 @app.route('/dependencies')

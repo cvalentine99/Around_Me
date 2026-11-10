@@ -165,7 +165,7 @@ async def start_decoder():
     # Claim SDR device
     global sstv_active_device
     device_int = int(device_index)
-    error = app_module.claim_sdr_device(device_int, 'sstv')
+    error = await app_module.claim_sdr_device_async(device_int, 'sstv')
     if error:
         return jsonify({
             'status': 'error',

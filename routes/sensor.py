@@ -25,6 +25,7 @@ from utils.process import safe_terminate, register_process, unregister_process
 from utils.sdr import SDRFactory, SDRType
 from utils.sdr.registry import normalize_sdr_type
 from utils.async_lock import async_thread_lock
+from utils.async_process import finish_in_thread
 
 sensor_bp = Blueprint('sensor', __name__)
 
@@ -179,7 +180,7 @@ async def start_sensor() -> Response:
 
         if not rtl_tcp_host:
             device_int = int(device)
-            error = app_module.claim_sdr_device(device_int, 'sensor', sdr_type=sdr_type)
+            error = await app_module.claim_sdr_device_async(device_int, 'sensor', sdr_type=sdr_type)
             if error:
                 return jsonify({'status': 'error', 'error_type': 'DEVICE_BUSY', 'message': error}), 409
             sensor_active_device = device_int
@@ -227,21 +228,28 @@ async def start_sensor() -> Response:
 @sensor_bp.route('/stop_sensor', methods=['POST'])
 async def stop_sensor() -> Response:
     async with async_thread_lock(app_module.sensor_lock):
-        if app_module.sensor_process:
-            app_module.sensor_process.terminate()
-            try:
-                app_module.sensor_process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                app_module.sensor_process.kill()
-            app_module.sensor_process = None
+        # Waiting for rtl_433 to exit can take up to 2 s: do it in a worker
+        # so other clients keep being served meanwhile.
+        stopped = await finish_in_thread(_stop_sensor_locked)
+    return jsonify({'status': 'stopped' if stopped else 'not_running'})
 
-            # Release device from registry
-            _release_sensor_claim()
 
-            return jsonify({'status': 'stopped'})
+def _stop_sensor_locked() -> bool:
+    """Stop rtl_433 and release the receiver. Caller holds sensor_lock."""
+    if app_module.sensor_process:
+        app_module.sensor_process.terminate()
+        try:
+            app_module.sensor_process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            app_module.sensor_process.kill()
+        app_module.sensor_process = None
 
+        # Release device from registry
         _release_sensor_claim()
-        return jsonify({'status': 'not_running'})
+        return True
+
+    _release_sensor_claim()
+    return False
 
 
 @sensor_bp.route('/stream_sensor')

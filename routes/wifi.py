@@ -1174,7 +1174,7 @@ async def get_v2_capabilities():
     """Get WiFi scanning capabilities on this system."""
     try:
         scanner = get_wifi_scanner()
-        caps = scanner.check_capabilities()
+        caps = await asyncio.to_thread(scanner.check_capabilities)
         return jsonify({
             'platform': caps.platform,
             'is_root': caps.is_root,

@@ -111,7 +111,7 @@ async def start_rtlamr() -> Response:
 
         # Check if device is available
         device_int = int(device)
-        error = app_module.claim_sdr_device(device_int, 'rtlamr')
+        error = await app_module.claim_sdr_device_async(device_int, 'rtlamr')
         if error:
             return jsonify({
                 'status': 'error',

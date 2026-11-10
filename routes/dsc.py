@@ -38,6 +38,8 @@ from utils.database import (
 from utils.dsc.parser import parse_dsc_message
 from utils.sse import format_sse
 from utils.sse import event_stream_response
+from utils.async_lock import async_thread_lock
+from utils.async_process import finish_in_thread
 from utils.validation import validate_device_index, validate_gain
 from utils.sdr import SDRFactory, SDRType
 from utils.dependencies import get_tool_path
@@ -100,15 +102,20 @@ def _check_dsc_tools() -> dict:
     }
 
 
-def stream_dsc_decoder(master_fd: int, decoder_process: subprocess.Popen) -> None:
+def stream_dsc_decoder(master_fd: int, decoder_process: subprocess.Popen,
+                       rtl_process: subprocess.Popen | None = None) -> None:
     """
     Stream DSC decoder output to queue using PTY for unbuffered output.
 
     Args:
         master_fd: PTY master file descriptor
         decoder_process: Decoder subprocess
+        rtl_process: The rtl_fm feeding this decoder (its own session's)
     """
     global dsc_running
+
+    if rtl_process is None:
+        rtl_process = app_module.dsc_rtl_process
 
     try:
         app_module.dsc_queue.put({'type': 'status', 'status': 'started'})
@@ -177,11 +184,9 @@ def stream_dsc_decoder(master_fd: int, decoder_process: subprocess.Popen) -> Non
             os.close(master_fd)
         except OSError:
             pass
-        dsc_running = False
-        # Cleanup both processes
-        with app_module.dsc_lock:
-            rtl_proc = app_module.dsc_rtl_process
-        for proc in [rtl_proc, decoder_process]:
+        # Cleanup both processes of THIS session. After a stop and a quick
+        # restart, app_module.dsc_rtl_process is already the new session's.
+        for proc in [rtl_process, decoder_process]:
             if proc:
                 try:
                     proc.terminate()
@@ -192,14 +197,21 @@ def stream_dsc_decoder(master_fd: int, decoder_process: subprocess.Popen) -> Non
                     except Exception:
                         pass
                 unregister_process(proc)
-        app_module.dsc_queue.put({'type': 'status', 'status': 'stopped'})
+        # Only this reader's own session may be reset (start holds dsc_lock
+        # until a new session is fully set up).
         with app_module.dsc_lock:
-            app_module.dsc_process = None
-            app_module.dsc_rtl_process = None
-        # Release SDR device
-        if dsc_active_device is not None:
-            app_module.release_sdr_device(dsc_active_device)
-            dsc_active_device = None
+            own_session = app_module.dsc_process is decoder_process
+            if own_session:
+                dsc_running = False
+                app_module.dsc_process = None
+                app_module.dsc_rtl_process = None
+                # Release SDR device
+                if dsc_active_device is not None:
+                    app_module.release_sdr_device(dsc_active_device, mode_name='dsc')
+                    dsc_active_device = None
+            announce = own_session or app_module.dsc_process is None
+        if announce:
+            app_module.dsc_queue.put({'type': 'status', 'status': 'stopped'})
 
 
 def _store_critical_alert(msg: dict) -> None:
@@ -287,115 +299,141 @@ async def check_tools() -> Response:
 @dsc_bp.route('/start', methods=['POST'])
 async def start_decoding() -> Response:
     """Start DSC decoder."""
-    global dsc_running
+    data = await request.get_json(silent=True) or {}
 
-    with app_module.dsc_lock:
-        if app_module.dsc_process and app_module.dsc_process.poll() is None:
-            return jsonify({
+    # The lock is shared with the reader thread. Wait for it without blocking
+    # the event loop (never hold it across an await), keep it for the whole
+    # start, and run the USB claim and spawns in a worker meanwhile.
+    async with async_thread_lock(app_module.dsc_lock):
+        payload, status = await finish_in_thread(_start_dsc_locked, data)
+    return jsonify(payload), status
+
+
+def _start_dsc_locked(data: dict) -> tuple[dict, int]:
+    """Start rtl_fm | DSC decoder. Blocking: runs in a worker while dsc_lock is held."""
+    global dsc_running, dsc_active_device
+
+    previous = app_module.dsc_process
+    if previous is not None:
+        if previous.poll() is None:
+            return {
                 'status': 'error',
                 'message': 'DSC decoder already running'
-            }), 409
+            }, 409
+        # The decoder exited and its reader is still waiting for this lock to
+        # clean up. Do that here so the receiver can be claimed again.
+        dsc_running = False
+        for proc in (app_module.dsc_rtl_process,):
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+        app_module.dsc_process = None
+        app_module.dsc_rtl_process = None
+        if dsc_active_device is not None:
+            app_module.release_sdr_device(dsc_active_device, mode_name='dsc')
+            dsc_active_device = None
 
-        # Check tools
-        tools = _check_dsc_tools()
-        if not tools['ready']:
-            missing = []
-            if not tools['rtl_fm']['available']:
-                missing.append('rtl_fm')
-            if not tools['dsc_decoder']['available']:
-                missing.append('dsc-decoder')
-            if not tools['scipy']['available']:
-                missing.append('scipy/numpy')
+    # Check tools
+    tools = _check_dsc_tools()
+    if not tools['ready']:
+        missing = []
+        if not tools['rtl_fm']['available']:
+            missing.append('rtl_fm')
+        if not tools['dsc_decoder']['available']:
+            missing.append('dsc-decoder')
+        if not tools['scipy']['available']:
+            missing.append('scipy/numpy')
 
-            return jsonify({
-                'status': 'error',
-                'message': f'Missing required tools: {", ".join(missing)}'
-            }), 400
+        return {
+            'status': 'error',
+            'message': f'Missing required tools: {", ".join(missing)}'
+        }, 400
 
-        data = await request.get_json(silent=True) or {}
+    # Validate device
+    try:
+        device = validate_device_index(data.get('device', '0'))
+    except ValueError as e:
+        return {
+            'status': 'error',
+            'message': str(e)
+        }, 400
 
-        # Validate device
+    # Validate gain
+    try:
+        gain = validate_gain(data.get('gain', '40'))
+    except ValueError as e:
+        return {
+            'status': 'error',
+            'message': str(e)
+        }, 400
+
+    # Check if device is available using centralized registry
+    device_int = int(device)
+    error = app_module.claim_sdr_device(device_int, 'dsc')
+    if error:
+        return {
+            'status': 'error',
+            'error_type': 'DEVICE_BUSY',
+            'message': error
+        }, 409
+
+    dsc_active_device = device_int
+
+    # Clear queue
+    while not app_module.dsc_queue.empty():
         try:
-            device = validate_device_index(data.get('device', '0'))
-        except ValueError as e:
-            return jsonify({
-                'status': 'error',
-                'message': str(e)
-            }), 400
+            app_module.dsc_queue.get_nowait()
+        except queue.Empty:
+            break
 
-        # Validate gain
+    # Build rtl_fm command
+    rtl_fm_path = tools['rtl_fm']['path']
+    decoder_path = tools['dsc_decoder']['path']
+
+    # rtl_fm command for DSC decoding
+    # DSC uses narrow FM at 156.525 MHz with 48kHz sample rate
+    rtl_cmd = [
+        rtl_fm_path,
+        '-f', f'{DSC_VHF_FREQUENCY_MHZ}M',
+        '-s', str(DSC_SAMPLE_RATE),
+        '-d', str(device),
+        '-g', str(gain),
+        '-M', 'fm',           # FM demodulation
+        '-l', '0',            # No squelch for DSC
+        '-E', 'dc'            # DC blocking filter
+    ]
+
+    # Decoder command
+    decoder_cmd = [decoder_path]
+
+    full_cmd = ' '.join(rtl_cmd) + ' | ' + ' '.join(decoder_cmd)
+    logger.info(f"Starting DSC decoder: {full_cmd}")
+
+    rtl_process = None
+    try:
+        # Start rtl_fm subprocess
+        rtl_process = subprocess.Popen(
+            rtl_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        register_process(rtl_process)
+
+        # Start stderr monitor thread
+        stderr_thread = threading.Thread(
+            target=monitor_rtl_stderr,
+            args=(rtl_process,),
+            daemon=True
+        )
+        stderr_thread.start()
+
+        # Create PTY for decoder output
+        master_fd, slave_fd = pty.openpty()
+
+        # Start decoder subprocess
         try:
-            gain = validate_gain(data.get('gain', '40'))
-        except ValueError as e:
-            return jsonify({
-                'status': 'error',
-                'message': str(e)
-            }), 400
-
-        # Check if device is available using centralized registry
-        global dsc_active_device
-        device_int = int(device)
-        error = app_module.claim_sdr_device(device_int, 'dsc')
-        if error:
-            return jsonify({
-                'status': 'error',
-                'error_type': 'DEVICE_BUSY',
-                'message': error
-            }), 409
-
-        dsc_active_device = device_int
-
-        # Clear queue
-        while not app_module.dsc_queue.empty():
-            try:
-                app_module.dsc_queue.get_nowait()
-            except queue.Empty:
-                break
-
-        # Build rtl_fm command
-        rtl_fm_path = tools['rtl_fm']['path']
-        decoder_path = tools['dsc_decoder']['path']
-
-        # rtl_fm command for DSC decoding
-        # DSC uses narrow FM at 156.525 MHz with 48kHz sample rate
-        rtl_cmd = [
-            rtl_fm_path,
-            '-f', f'{DSC_VHF_FREQUENCY_MHZ}M',
-            '-s', str(DSC_SAMPLE_RATE),
-            '-d', str(device),
-            '-g', str(gain),
-            '-M', 'fm',           # FM demodulation
-            '-l', '0',            # No squelch for DSC
-            '-E', 'dc'            # DC blocking filter
-        ]
-
-        # Decoder command
-        decoder_cmd = [decoder_path]
-
-        full_cmd = ' '.join(rtl_cmd) + ' | ' + ' '.join(decoder_cmd)
-        logger.info(f"Starting DSC decoder: {full_cmd}")
-
-        try:
-            # Start rtl_fm subprocess
-            rtl_process = subprocess.Popen(
-                rtl_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-            register_process(rtl_process)
-
-            # Start stderr monitor thread
-            stderr_thread = threading.Thread(
-                target=monitor_rtl_stderr,
-                args=(rtl_process,),
-                daemon=True
-            )
-            stderr_thread.start()
-
-            # Create PTY for decoder output
-            master_fd, slave_fd = pty.openpty()
-
-            # Start decoder subprocess
             decoder_process = subprocess.Popen(
                 decoder_cmd,
                 stdin=rtl_process.stdout,
@@ -403,117 +441,131 @@ async def start_decoding() -> Response:
                 stderr=slave_fd,
                 close_fds=True
             )
-            register_process(decoder_process)
-
+        except BaseException:
+            os.close(master_fd)
+            raise
+        finally:
             os.close(slave_fd)
-            rtl_process.stdout.close()
+        register_process(decoder_process)
 
-            # Store process references
-            app_module.dsc_process = decoder_process
-            app_module.dsc_rtl_process = rtl_process
-            dsc_running = True
+        rtl_process.stdout.close()
 
-            # Start output streaming thread
-            output_thread = threading.Thread(
-                target=stream_dsc_decoder,
-                args=(master_fd, decoder_process),
-                daemon=True
-            )
-            output_thread.start()
+        # Store process references
+        app_module.dsc_process = decoder_process
+        app_module.dsc_rtl_process = rtl_process
+        dsc_running = True
 
-            return jsonify({
-                'status': 'started',
-                'frequency': DSC_VHF_FREQUENCY_MHZ,
-                'device': device,
-                'gain': gain,
-                'command': full_cmd
-            })
+        # Start output streaming thread
+        output_thread = threading.Thread(
+            target=stream_dsc_decoder,
+            args=(master_fd, decoder_process, rtl_process),
+            daemon=True
+        )
+        output_thread.start()
 
-        except FileNotFoundError as e:
-            # Kill orphaned rtl_fm process
-            try:
-                rtl_process.terminate()
-                rtl_process.wait(timeout=2)
-            except Exception:
-                try:
-                    rtl_process.kill()
-                except Exception:
-                    pass
-            # Release device on failure
-            if dsc_active_device is not None:
-                app_module.release_sdr_device(dsc_active_device)
-                dsc_active_device = None
-            return jsonify({
-                'status': 'error',
-                'message': f'Tool not found: {e.filename}'
-            }), 400
-        except Exception as e:
-            # Kill orphaned rtl_fm process if it was started
-            try:
-                rtl_process.terminate()
-                rtl_process.wait(timeout=2)
-            except Exception:
-                try:
-                    rtl_process.kill()
-                except Exception:
-                    pass
-            # Release device on failure
-            if dsc_active_device is not None:
-                app_module.release_sdr_device(dsc_active_device)
-                dsc_active_device = None
-            logger.error(f"Failed to start DSC decoder: {e}")
-            return jsonify({
-                'status': 'error',
-                'message': str(e)
-            }), 500
+        return {
+            'status': 'started',
+            'frequency': DSC_VHF_FREQUENCY_MHZ,
+            'device': device,
+            'gain': gain,
+            'command': full_cmd
+        }, 200
+
+    except FileNotFoundError as e:
+        _discard_dsc_rtl_process(rtl_process)
+        # Release device on failure
+        if dsc_active_device is not None:
+            app_module.release_sdr_device(dsc_active_device, mode_name='dsc')
+            dsc_active_device = None
+        return {
+            'status': 'error',
+            'message': f'Tool not found: {e.filename}'
+        }, 400
+    except Exception as e:
+        _discard_dsc_rtl_process(rtl_process)
+        # Release device on failure
+        if dsc_active_device is not None:
+            app_module.release_sdr_device(dsc_active_device, mode_name='dsc')
+            dsc_active_device = None
+        logger.error(f"Failed to start DSC decoder: {e}")
+        return {
+            'status': 'error',
+            'message': str(e)
+        }, 500
+
+
+def _discard_dsc_rtl_process(rtl_process) -> None:
+    """Kill an rtl_fm whose decoder never started (blocking)."""
+    if rtl_process is None:
+        return
+    try:
+        rtl_process.terminate()
+        rtl_process.wait(timeout=2)
+    except Exception:
+        try:
+            rtl_process.kill()
+        except Exception:
+            pass
+    unregister_process(rtl_process)
 
 
 @dsc_bp.route('/stop', methods=['POST'])
 async def stop_decoding() -> Response:
     """Stop DSC decoder."""
+    # Waiting for the processes to exit can take seconds: do it in a worker,
+    # and wait for the reader-shared lock without blocking the event loop.
+    async with async_thread_lock(app_module.dsc_lock):
+        stopped = await finish_in_thread(_stop_dsc_locked)
+
+    if not stopped:
+        return jsonify({'status': 'not_running'})
+    return jsonify({'status': 'stopped'})
+
+
+def _stop_dsc_locked() -> bool:
+    """Stop both DSC processes and release the receiver. Caller holds dsc_lock."""
     global dsc_running, dsc_active_device
 
-    with app_module.dsc_lock:
-        if not app_module.dsc_process:
-            return jsonify({'status': 'not_running'})
+    if not app_module.dsc_process:
+        return False
 
-        dsc_running = False
+    dsc_running = False
 
-        # Terminate rtl_fm process first
-        if app_module.dsc_rtl_process:
+    # Terminate rtl_fm process first
+    if app_module.dsc_rtl_process:
+        try:
+            app_module.dsc_rtl_process.terminate()
+            app_module.dsc_rtl_process.wait(timeout=DSC_TERMINATE_TIMEOUT)
+        except subprocess.TimeoutExpired:
             try:
-                app_module.dsc_rtl_process.terminate()
-                app_module.dsc_rtl_process.wait(timeout=DSC_TERMINATE_TIMEOUT)
-            except subprocess.TimeoutExpired:
-                try:
-                    app_module.dsc_rtl_process.kill()
-                except OSError:
-                    pass
+                app_module.dsc_rtl_process.kill()
             except OSError:
                 pass
+        except OSError:
+            pass
 
-        # Terminate decoder process
-        if app_module.dsc_process:
+    # Terminate decoder process
+    if app_module.dsc_process:
+        try:
+            app_module.dsc_process.terminate()
+            app_module.dsc_process.wait(timeout=DSC_TERMINATE_TIMEOUT)
+        except subprocess.TimeoutExpired:
             try:
-                app_module.dsc_process.terminate()
-                app_module.dsc_process.wait(timeout=DSC_TERMINATE_TIMEOUT)
-            except subprocess.TimeoutExpired:
-                try:
-                    app_module.dsc_process.kill()
-                except OSError:
-                    pass
+                app_module.dsc_process.kill()
             except OSError:
                 pass
+        except OSError:
+            pass
 
-        app_module.dsc_process = None
-        app_module.dsc_rtl_process = None
+    app_module.dsc_process = None
+    app_module.dsc_rtl_process = None
 
-        # Release device from registry
-        if dsc_active_device is not None:
-            app_module.release_sdr_device(dsc_active_device)
-            dsc_active_device = None
+    # Release device from registry
+    if dsc_active_device is not None:
+        app_module.release_sdr_device(dsc_active_device, mode_name='dsc')
+        dsc_active_device = None
 
-        return jsonify({'status': 'stopped'})
+    return True
 
 
 @dsc_bp.route('/stream')

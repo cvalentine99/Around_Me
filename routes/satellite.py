@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import asyncio
 import urllib.request
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -494,7 +495,8 @@ def refresh_tle_data() -> list:
 async def update_tle():
     """Update TLE data from CelesTrak (API endpoint)."""
     try:
-        updated = refresh_tle_data()
+        # Downloads several CelesTrak files (15 s timeout each): never on the event loop
+        updated = await asyncio.to_thread(refresh_tle_data)
         return jsonify({
             'status': 'success',
             'updated': updated
@@ -502,6 +504,12 @@ async def update_tle():
     except Exception as e:
         logger.error(f"Error updating TLE data: {e}")
         return jsonify({'status': 'error', 'message': 'TLE update failed'})
+
+
+def _download_text(url: str, timeout: float) -> str:
+    """Blocking HTTP GET of a text document (run in a worker)."""
+    with urllib.request.urlopen(url, timeout=timeout) as response:
+        return response.read().decode('utf-8')
 
 
 @satellite_bp.route('/celestrak/<category>')
@@ -519,8 +527,7 @@ async def fetch_celestrak(category):
 
     try:
         url = f'https://celestrak.org/NORAD/elements/gp.php?GROUP={category}&FORMAT=tle'
-        with urllib.request.urlopen(url, timeout=10) as response:
-            content = response.read().decode('utf-8')
+        content = await asyncio.to_thread(_download_text, url, 10)
 
         satellites = []
         lines = content.strip().split('\n')

@@ -686,6 +686,12 @@ async def _start_adsb_locked():
     except ValueError as e:
         return jsonify({'status': 'error', 'message': str(e)}), 400
 
+    # A new session must not replay the previous session's aircraft: the
+    # queue replays its history to every viewer that opens the stream.
+    clear_history = getattr(app_module.adsb_queue, 'clear_history', None)
+    if clear_history:
+        clear_history()
+
     # Check for remote SBS connection (e.g., remote dump1090)
     remote_sbs_host = data.get('remote_sbs_host')
     remote_sbs_port = data.get('remote_sbs_port', 30003)

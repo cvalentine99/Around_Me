@@ -21,6 +21,8 @@ from utils.logging import get_logger
 from utils.sse import format_sse
 from utils.sse import EventQueue, event_stream_response
 from utils.process import register_process, unregister_process
+from utils.async_lock import async_thread_lock
+from utils.async_process import async_popen, finish_in_thread
 from utils.validation import validate_frequency, validate_gain, validate_device_index, validate_ppm
 from utils.constants import (
     SSE_QUEUE_TIMEOUT,
@@ -316,8 +318,7 @@ def stream_dsd_output(rtl_process: subprocess.Popen, dsd_process: subprocess.Pop
     except Exception as e:
         logger.error(f"DSD stream error: {e}")
     finally:
-        global dmr_active_device, dmr_rtl_process, dmr_dsd_process
-        dmr_running = False
+        global dmr_active_device, dmr_rtl_process, dmr_dsd_process, dmr_has_audio
         # Capture exit info for diagnostics
         rc = dsd_process.poll()
         reason = 'stopped'
@@ -344,13 +345,23 @@ def stream_dsd_output(rtl_process: subprocess.Popen, dsd_process: subprocess.Pop
                         pass
             if proc:
                 unregister_process(proc)
-        dmr_rtl_process = None
-        dmr_dsd_process = None
-        _queue_put({'type': 'status', 'text': reason, 'exit_code': rc, 'detail': detail})
-        # Release SDR device
-        if dmr_active_device is not None:
-            app_module.release_sdr_device(dmr_active_device)
-            dmr_active_device = None
+        # Only this reader's own session may be reset. After a stop and a
+        # quick restart the globals already hold the new pipeline (start holds
+        # dmr_lock until it is set up); clearing them would orphan it.
+        with dmr_lock:
+            own_session = dmr_dsd_process is dsd_process
+            if own_session:
+                dmr_running = False
+                dmr_has_audio = False
+                dmr_rtl_process = None
+                dmr_dsd_process = None
+                # Release SDR device
+                if dmr_active_device is not None:
+                    app_module.release_sdr_device(dmr_active_device)
+                    dmr_active_device = None
+            announce = own_session or dmr_dsd_process is None
+        if announce:
+            _queue_put({'type': 'status', 'text': reason, 'exit_code': rc, 'detail': detail})
         logger.info("DSD stream thread stopped")
 
 
@@ -376,12 +387,23 @@ async def check_tools() -> Response:
 @dmr_bp.route('/start', methods=['POST'])
 async def start_dmr() -> Response:
     """Start digital voice decoding."""
+    # Hold the lock (shared with the reader thread) for the whole start so two
+    # requests cannot both start a pipeline. It is polled, never blocked on.
+    async with async_thread_lock(dmr_lock):
+        return await _start_dmr_locked()
+
+
+async def _start_dmr_locked() -> Response:
+    """Start rtl_fm | dsd while holding dmr_lock."""
     global dmr_rtl_process, dmr_dsd_process, dmr_thread
     global dmr_running, dmr_has_audio, dmr_active_device
 
-    with dmr_lock:
-        if dmr_running:
+    if dmr_running:
+        if dmr_dsd_process is None or dmr_dsd_process.poll() is None:
             return jsonify({'status': 'error', 'message': 'Already running'}), 409
+        # The decoder exited and its reader is still waiting for this lock to
+        # clean up. Do that here so the receiver can be claimed again.
+        await asyncio.to_thread(_stop_dmr_locked)
 
     dsd_path, is_fme = find_dsd()
     if not dsd_path:
@@ -415,7 +437,7 @@ async def start_dmr() -> Response:
     # Claim SDR device — use protocol name so the device panel shows
     # "D-STAR", "P25", etc. instead of always "DMR"
     mode_label = protocol.upper() if protocol != 'auto' else 'DMR'
-    error = app_module.claim_sdr_device(device, mode_label)
+    error = await app_module.claim_sdr_device_async(device, mode_label)
     if error:
         return jsonify({'status': 'error', 'error_type': 'DEVICE_BUSY', 'message': error}), 409
 
@@ -503,28 +525,13 @@ async def start_dmr() -> Response:
         rtl_rc = dmr_rtl_process.poll()
         dsd_rc = dmr_dsd_process.poll()
         if rtl_rc is not None or dsd_rc is not None:
-            # Process died — capture stderr for diagnostics
-            rtl_err = ''
-            if dmr_rtl_process.stderr:
-                rtl_err = dmr_rtl_process.stderr.read().decode('utf-8', errors='replace')[:500]
-            dsd_err = ''
-            if dmr_dsd_process.stderr:
-                dsd_err = dmr_dsd_process.stderr.read().decode('utf-8', errors='replace')[:500]
-            logger.error(f"DSD pipeline died: rtl_fm rc={rtl_rc} err={rtl_err!r}, dsd rc={dsd_rc} err={dsd_err!r}")
-            # Terminate surviving processes and unregister all
+            # Process died. Terminate the survivor first (reading a live
+            # process's stderr would wait for it to exit), then capture both
+            # stderr outputs for diagnostics - all off the event loop.
             dmr_has_audio = False
-            for proc in [dmr_dsd_process, dmr_rtl_process]:
-                if proc and proc.poll() is None:
-                    try:
-                        proc.terminate()
-                        proc.wait(timeout=2)
-                    except Exception:
-                        try:
-                            proc.kill()
-                        except Exception:
-                            pass
-                if proc:
-                    unregister_process(proc)
+            rtl_err, dsd_err = await asyncio.to_thread(
+                _discard_failed_pipeline, dmr_rtl_process, dmr_dsd_process)
+            logger.error(f"DSD pipeline died: rtl_fm rc={rtl_rc} err={rtl_err!r}, dsd rc={dsd_rc} err={dsd_err!r}")
             dmr_rtl_process = None
             dmr_dsd_process = None
             if dmr_active_device is not None:
@@ -567,41 +574,73 @@ async def start_dmr() -> Response:
 
     except Exception as e:
         logger.error(f"Failed to start DMR: {e}")
+        # Do not leave a half-started pipeline holding the receiver
+        dmr_has_audio = False
+        await asyncio.to_thread(_discard_failed_pipeline, dmr_rtl_process, dmr_dsd_process)
+        dmr_rtl_process = None
+        dmr_dsd_process = None
         if dmr_active_device is not None:
             app_module.release_sdr_device(dmr_active_device)
             dmr_active_device = None
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-@dmr_bp.route('/stop', methods=['POST'])
-async def stop_dmr() -> Response:
-    """Stop digital voice decoding."""
+def _terminate_dmr_processes(*processes) -> None:
+    """Terminate and unregister pipeline processes (blocking: run in a worker)."""
+    for proc in processes:
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=2)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        if proc:
+            unregister_process(proc)
+
+
+def _discard_failed_pipeline(rtl_process, dsd_process) -> tuple[str, str]:
+    """Stop a pipeline that failed to start; return (rtl_fm stderr, dsd stderr)."""
+    _terminate_dmr_processes(dsd_process, rtl_process)
+    errors = []
+    for proc in (rtl_process, dsd_process):
+        text = ''
+        if proc is not None and proc.stderr:
+            try:
+                text = proc.stderr.read().decode('utf-8', errors='replace')[:500]
+            except Exception:
+                pass
+        errors.append(text)
+    return errors[0], errors[1]
+
+
+def _stop_dmr_locked() -> None:
+    """Stop the pipeline and release the receiver. Caller holds dmr_lock."""
     global dmr_rtl_process, dmr_dsd_process
     global dmr_running, dmr_has_audio, dmr_active_device
 
-    with dmr_lock:
-        dmr_running = False
-        dmr_has_audio = False
+    dmr_running = False
+    dmr_has_audio = False
 
-        for proc in [dmr_dsd_process, dmr_rtl_process]:
-            if proc and proc.poll() is None:
-                try:
-                    proc.terminate()
-                    proc.wait(timeout=2)
-                except Exception:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
-            if proc:
-                unregister_process(proc)
+    _terminate_dmr_processes(dmr_dsd_process, dmr_rtl_process)
 
-        dmr_rtl_process = None
-        dmr_dsd_process = None
+    dmr_rtl_process = None
+    dmr_dsd_process = None
 
     if dmr_active_device is not None:
         app_module.release_sdr_device(dmr_active_device)
         dmr_active_device = None
+
+
+@dmr_bp.route('/stop', methods=['POST'])
+async def stop_dmr() -> Response:
+    """Stop digital voice decoding."""
+    # Waiting for the processes to exit can take seconds: do it in a worker,
+    # and wait for the reader-shared lock without blocking the event loop.
+    async with async_thread_lock(dmr_lock):
+        await finish_in_thread(_stop_dmr_locked)
 
     return jsonify({'status': 'stopped'})
 
@@ -614,6 +653,22 @@ async def dmr_status() -> Response:
         'device': dmr_active_device,
         'has_audio': dmr_has_audio,
     })
+
+
+def _close_audio_encoder(audio_proc) -> None:
+    """Close a per-client ffmpeg encoder (blocking: run in a worker)."""
+    try:
+        audio_proc.stdin.close()
+    except Exception:
+        pass
+    try:
+        audio_proc.terminate()
+        audio_proc.wait(timeout=2)
+    except Exception:
+        try:
+            audio_proc.kill()
+        except Exception:
+            pass
 
 
 @dmr_bp.route('/audio/stream')
@@ -644,7 +699,7 @@ async def stream_dmr_audio() -> Response:
         '-f', 's16le', '-ar', '8000', '-ac', '1', '-i', 'pipe:0',
         '-acodec', 'pcm_s16le', '-ar', '44100', '-f', 'wav', 'pipe:1',
     ]
-    audio_proc = subprocess.Popen(
+    audio_proc = await async_popen(
         encoder_cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -683,20 +738,11 @@ async def stream_dmr_audio() -> Response:
         except Exception as e:
             logger.error(f"DMR audio stream error: {e}")
         finally:
-            # Disconnect mux → ffmpeg, then clean up
-            _active_ffmpeg_stdin = None
-            try:
-                audio_proc.stdin.close()
-            except Exception:
-                pass
-            try:
-                audio_proc.terminate()
-                audio_proc.wait(timeout=2)
-            except Exception:
-                try:
-                    audio_proc.kill()
-                except Exception:
-                    pass
+            # Disconnect mux → ffmpeg, then clean up. Waiting for ffmpeg to
+            # exit can take seconds: never on the event loop.
+            if _active_ffmpeg_stdin is audio_proc.stdin:
+                _active_ffmpeg_stdin = None
+            await asyncio.to_thread(_close_audio_encoder, audio_proc)
 
     return Response(
         generate(),

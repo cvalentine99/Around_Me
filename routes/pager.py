@@ -31,6 +31,7 @@ from utils.process import safe_terminate, register_process, unregister_process
 from utils.sdr import SDRFactory, SDRType, SDRValidationError
 from utils.dependencies import get_tool_path
 from utils.async_lock import async_thread_lock
+from utils.async_process import finish_in_thread
 from utils.sdr.registry import normalize_sdr_type
 
 pager_bp = Blueprint('pager', __name__)
@@ -346,7 +347,7 @@ async def start_decoding() -> Response:
 
         if not rtl_tcp_host:
             device_int = int(device)
-            error = app_module.claim_sdr_device(device_int, 'pager', sdr_type=sdr_type)
+            error = await app_module.claim_sdr_device_async(device_int, 'pager', sdr_type=sdr_type)
             if error:
                 return jsonify({'status': 'error', 'error_type': 'DEVICE_BUSY', 'message': error}), 409
             pager_active_device = device_int
@@ -443,45 +444,53 @@ async def start_decoding() -> Response:
 @pager_bp.route('/stop', methods=['POST'])
 async def stop_decoding() -> Response:
     async with async_thread_lock(app_module.process_lock):
-        if app_module.current_process:
-            # Signal audio relay thread to stop
-            if hasattr(app_module.current_process, '_stop_relay'):
-                app_module.current_process._stop_relay.set()
+        # Waiting for rtl_fm and multimon-ng to exit can take seconds: do it
+        # in a worker so other clients keep being served meanwhile.
+        stopped = await finish_in_thread(_stop_pager_locked)
+    return jsonify({'status': 'stopped' if stopped else 'not_running'})
 
-            # Kill rtl_fm process first
-            if hasattr(app_module.current_process, '_rtl_process'):
-                try:
-                    app_module.current_process._rtl_process.terminate()
-                    app_module.current_process._rtl_process.wait(timeout=2)
-                except (subprocess.TimeoutExpired, OSError):
-                    try:
-                        app_module.current_process._rtl_process.kill()
-                    except OSError:
-                        pass
 
-            # Close PTY master fd
-            if hasattr(app_module.current_process, '_master_fd'):
-                try:
-                    os.close(app_module.current_process._master_fd)
-                except OSError:
-                    pass
-
-            # Kill multimon-ng
-            app_module.current_process.terminate()
-            try:
-                app_module.current_process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                app_module.current_process.kill()
-
-            app_module.current_process = None
-
-            # Release device from registry
-            _release_pager_claim()
-
-            return jsonify({'status': 'stopped'})
-
+def _stop_pager_locked() -> bool:
+    """Stop the pager pipeline and release the receiver. Caller holds process_lock."""
+    process = app_module.current_process
+    if not process:
         _release_pager_claim()
-        return jsonify({'status': 'not_running'})
+        return False
+
+    # Signal audio relay thread to stop
+    if hasattr(process, '_stop_relay'):
+        process._stop_relay.set()
+
+    # Kill rtl_fm process first
+    if hasattr(process, '_rtl_process'):
+        try:
+            process._rtl_process.terminate()
+            process._rtl_process.wait(timeout=2)
+        except (subprocess.TimeoutExpired, OSError):
+            try:
+                process._rtl_process.kill()
+            except OSError:
+                pass
+
+    # Close PTY master fd
+    if hasattr(process, '_master_fd'):
+        try:
+            os.close(process._master_fd)
+        except OSError:
+            pass
+
+    # Kill multimon-ng
+    process.terminate()
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
+
+    app_module.current_process = None
+
+    # Release device from registry
+    _release_pager_claim()
+    return True
 
 
 @pager_bp.route('/status')

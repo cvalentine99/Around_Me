@@ -12,6 +12,7 @@ import time
 
 from utils.logging import get_logger
 from utils.process import safe_terminate, register_process, unregister_process
+from utils.async_process import async_popen, finish_in_thread
 from utils.waterfall_fft import (
     build_binary_frame,
     compute_power_spectrum,
@@ -62,6 +63,34 @@ def _build_dummy_device(device_index: int, sdr_type: SDRType) -> SDRDevice:
         driver=sdr_type.value,
         capabilities=caps,
     )
+
+
+def _release_callback(device_index, sdr_type, lease):
+    """Bind this connection's current receiver claim for _stop_capture."""
+    if device_index is None:
+        return None
+
+    def release():
+        import app as app_module
+        app_module.release_sdr_device(device_index, sdr_type=sdr_type, mode_name='waterfall', lease=lease)
+
+    return release
+
+
+def _stop_capture(stop_event: threading.Event, reader_thread, iq_process, release=None) -> None:
+    """Stop the FFT reader and its I/Q process, then release the receiver.
+
+    Blocking (the join and the process wait can take seconds each), so it runs
+    in a worker instead of freezing every other client on the event loop.
+    """
+    stop_event.set()
+    if reader_thread and reader_thread.is_alive():
+        reader_thread.join(timeout=2)
+    if iq_process:
+        safe_terminate(iq_process)
+        unregister_process(iq_process)
+    if release is not None:
+        release()
 
 
 def init_waterfall_websocket(app):
@@ -145,17 +174,12 @@ def init_waterfall_websocket(app):
                 if cmd == 'start':
                     # Stop any existing capture
                     was_restarting = iq_process is not None
-                    stop_event.set()
-                    if reader_thread and reader_thread.is_alive():
-                        reader_thread.join(timeout=2)
-                    if iq_process:
-                        safe_terminate(iq_process)
-                        unregister_process(iq_process)
-                        iq_process = None
-                    if claimed_device is not None:
-                        app_module.release_sdr_device(claimed_device, sdr_type=claimed_sdr_type, mode_name='waterfall', lease=claimed_lease)
-                        claimed_device = None
-                        claimed_lease = None
+                    await finish_in_thread(
+                        _stop_capture, stop_event, reader_thread, iq_process,
+                        _release_callback(claimed_device, claimed_sdr_type, claimed_lease))
+                    iq_process = None
+                    claimed_device = None
+                    claimed_lease = None
                     stop_event.clear()
                     # Flush stale frames from previous capture
                     while not send_queue.empty():
@@ -202,7 +226,7 @@ def init_waterfall_websocket(app):
                     end_freq = center_freq + effective_span_mhz / 2
 
                     # Claim the device
-                    claim_err, lease = app_module.claim_sdr_device_with_lease(device_index, 'waterfall', sdr_type=sdr_type)
+                    claim_err, lease = await app_module.claim_sdr_device_with_lease_async(device_index, 'waterfall', sdr_type=sdr_type)
                     if claim_err:
                         await websocket.send(json.dumps({
                             'status': 'error',
@@ -245,7 +269,7 @@ def init_waterfall_websocket(app):
                                 f"span={effective_span_mhz:.1f} MHz, "
                                 f"sr={sample_rate}, fft={fft_size}"
                             )
-                            iq_process = subprocess.Popen(
+                            iq_process = await async_popen(
                                 iq_cmd,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.DEVNULL,
@@ -272,7 +296,7 @@ def init_waterfall_websocket(app):
                     except Exception as e:
                         logger.error(f"Failed to start I/Q capture: {e}")
                         if iq_process:
-                            safe_terminate(iq_process)
+                            await asyncio.to_thread(safe_terminate, iq_process)
                             unregister_process(iq_process)
                             iq_process = None
                         app_module.release_sdr_device(device_index, sdr_type=claimed_sdr_type, mode_name='waterfall', lease=claimed_lease)
@@ -362,31 +386,23 @@ def init_waterfall_websocket(app):
                     reader_thread.start()
 
                 elif cmd == 'stop':
-                    stop_event.set()
-                    if reader_thread and reader_thread.is_alive():
-                        reader_thread.join(timeout=2)
-                        reader_thread = None
-                    if iq_process:
-                        safe_terminate(iq_process)
-                        unregister_process(iq_process)
-                        iq_process = None
-                    if claimed_device is not None:
-                        app_module.release_sdr_device(claimed_device, sdr_type=claimed_sdr_type, mode_name='waterfall', lease=claimed_lease)
-                        claimed_device = None
-                        claimed_lease = None
+                    await finish_in_thread(
+                        _stop_capture, stop_event, reader_thread, iq_process,
+                        _release_callback(claimed_device, claimed_sdr_type, claimed_lease))
+                    reader_thread = None
+                    iq_process = None
+                    claimed_device = None
+                    claimed_lease = None
                     stop_event.clear()
                     await websocket.send(json.dumps({'status': 'stopped'}))
 
         except Exception as e:
             logger.info(f"WebSocket waterfall closed: {e}")
         finally:
-            # Cleanup
-            stop_event.set()
-            if reader_thread and reader_thread.is_alive():
-                reader_thread.join(timeout=2)
-            if iq_process:
-                safe_terminate(iq_process)
-                unregister_process(iq_process)
-            if claimed_device is not None:
-                app_module.release_sdr_device(claimed_device, sdr_type=claimed_sdr_type, mode_name='waterfall', lease=claimed_lease)
+            # Cleanup runs in a worker (joining the reader and waiting for the
+            # process can take seconds) and completes even if this handler is
+            # cancelled again meanwhile, so the receiver is always released.
+            await finish_in_thread(
+                _stop_capture, stop_event, reader_thread, iq_process,
+                _release_callback(claimed_device, claimed_sdr_type, claimed_lease))
             logger.info("WebSocket waterfall client disconnected")
