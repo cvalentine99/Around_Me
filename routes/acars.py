@@ -20,7 +20,7 @@ from quart import Blueprint, jsonify, request, Response
 
 import app as app_module
 from utils.logging import sensor_logger as logger
-from utils.validation import validate_device_index, validate_gain, validate_ppm
+from utils.validation import validate_device_index, validate_frequency, validate_gain, validate_ppm
 from utils.sse import format_sse
 from utils.sse import event_stream_response
 from utils.constants import (
@@ -29,8 +29,10 @@ from utils.constants import (
     SSE_QUEUE_TIMEOUT,
     PROCESS_START_WAIT,
 )
-from utils.process import register_process, unregister_process
+from utils.process import register_process, unregister_process, safe_terminate
 from utils.sdr.registry import normalize_sdr_type
+from utils.async_lock import async_thread_lock
+from utils.async_process import async_popen, finish_in_thread
 
 acars_bp = Blueprint('acars', __name__, url_prefix='/acars')
 
@@ -54,6 +56,34 @@ acars_active_device: int | None = None
 def find_acarsdec():
     """Find acarsdec binary."""
     return shutil.which('acarsdec')
+
+
+def _parse_acars_frequencies(value) -> list[str]:
+    """Return acarsdec frequency arguments, or raise ValueError.
+
+    The values end up in acarsdec's argv, so each one must be a plain
+    frequency: never an option, and never a non-string that breaks the spawn
+    after the receiver has been claimed.
+    """
+    if value is None:
+        return list(DEFAULT_ACARS_FREQUENCIES)
+    if isinstance(value, str):
+        value = [f.strip() for f in value.split(',')]
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        value = [value]
+    if not isinstance(value, (list, tuple)) or not value:
+        raise ValueError('ACARS frequencies must be a non-empty list of MHz values')
+    frequencies = []
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, (str, int, float)):
+            raise ValueError(f'Invalid ACARS frequency: {item}')
+        text = str(item).strip()
+        try:
+            validate_frequency(text)
+        except ValueError:
+            raise ValueError(f'Invalid ACARS frequency: {item}') from None
+        frequencies.append(text)
+    return frequencies
 
 
 def get_acarsdec_json_flag(acarsdec_path: str) -> str:
@@ -204,8 +234,6 @@ async def acars_status() -> Response:
 @acars_bp.route('/start', methods=['POST'])
 async def start_acars() -> Response:
     """Start ACARS decoder."""
-    global acars_message_count, acars_last_message_time, acars_active_device
-
     data = await request.get_json(silent=True) or {}
     try:
         sdr_type = normalize_sdr_type(data.get('sdr_type', 'rtlsdr'))
@@ -215,12 +243,30 @@ async def start_acars() -> Response:
         return jsonify({'status': 'error', 'message': 'ACARS requires an RTL-SDR receiver.',
                         'supported_sdr_types': ['rtlsdr']}), 400
 
-    with app_module.acars_lock:
-        if app_module.acars_process and app_module.acars_process.poll() is None:
+    # The lock is shared with the reader thread. Wait for it without blocking
+    # the event loop and keep it for the whole start, so two requests cannot
+    # both pass the "already running" check.
+    async with async_thread_lock(app_module.acars_lock):
+        return await _start_acars_locked(data)
+
+
+async def _start_acars_locked(data: dict) -> Response:
+    """Start acarsdec while holding acars_lock; slow steps run off the event loop."""
+    global acars_message_count, acars_last_message_time, acars_active_device
+
+    previous = app_module.acars_process
+    if previous is not None:
+        if previous.poll() is None:
             return jsonify({
                 'status': 'error',
                 'message': 'ACARS decoder already running'
             }), 409
+        # The decoder exited and its reader is still waiting for this lock to
+        # clean up. Do that here so the receiver can be claimed again.
+        app_module.acars_process = None
+        if acars_active_device is not None:
+            app_module.release_sdr_device(acars_active_device, mode_name='acars')
+            acars_active_device = None
 
     # Check for acarsdec
     acarsdec_path = find_acarsdec()
@@ -235,12 +281,28 @@ async def start_acars() -> Response:
         device = validate_device_index(data.get('device', '0'))
         gain = validate_gain(data.get('gain', '40'))
         ppm = validate_ppm(data.get('ppm', '0'))
+        # Get frequencies - use provided or defaults. Validated before the
+        # receiver is claimed: a bad value must not strand the claim.
+        frequencies = _parse_acars_frequencies(data.get('frequencies'))
     except ValueError as e:
         return jsonify({'status': 'error', 'message': str(e)}), 400
 
-    # Check if device is available
+    # Probing the installed fork runs acarsdec once; do it before the receiver
+    # is claimed so nothing has to be undone if the request goes away.
+    json_flag = await asyncio.to_thread(get_acarsdec_json_flag, acarsdec_path)
+
+    # Check if device is available. The claim probes USB, so it runs in a
+    # worker; wait for its result even when cancelled so a late successful
+    # claim is not orphaned.
     device_int = int(device)
-    error = app_module.claim_sdr_device(device_int, 'acars')
+    claim = asyncio.create_task(asyncio.to_thread(app_module.claim_sdr_device, device_int, 'acars'))
+    try:
+        error = await asyncio.shield(claim)
+    except asyncio.CancelledError:
+        error = await claim
+        if not error:
+            app_module.release_sdr_device(device_int, mode_name='acars')
+        raise
     if error:
         return jsonify({
             'status': 'error',
@@ -249,11 +311,6 @@ async def start_acars() -> Response:
         }), 409
 
     acars_active_device = device_int
-
-    # Get frequencies - use provided or defaults
-    frequencies = data.get('frequencies', DEFAULT_ACARS_FREQUENCIES)
-    if isinstance(frequencies, str):
-        frequencies = [f.strip() for f in frequencies.split(',')]
 
     # Clear queue
     while not app_module.acars_queue.empty():
@@ -272,7 +329,6 @@ async def start_acars() -> Response:
     # - TLeconte v3: acarsdec -o 4 -g <gain> -p <ppm> -r <device> <freq1> <freq2> ...
     # - f00b4r0 (DragonOS): acarsdec --output json:file:- -g <gain> -p <ppm> -r <device> <freq1> ...
     # Note: gain/ppm must come BEFORE -r
-    json_flag = get_acarsdec_json_flag(acarsdec_path)
     cmd = [acarsdec_path]
     if json_flag == '--output':
         # f00b4r0 fork: --output json:file (no path = stdout)
@@ -302,24 +358,30 @@ async def start_acars() -> Response:
 
     logger.info(f"Starting ACARS decoder: {' '.join(cmd)}")
 
+    process = None
     try:
         is_text_mode = False
 
         # On macOS, use pty to avoid stdout buffering issues
         if platform.system() == 'Darwin':
             master_fd, slave_fd = pty.openpty()
-            process = subprocess.Popen(
-                cmd,
-                stdout=slave_fd,
-                stderr=subprocess.PIPE,
-                start_new_session=True
-            )
-            os.close(slave_fd)
+            try:
+                process = await async_popen(
+                    cmd,
+                    stdout=slave_fd,
+                    stderr=subprocess.PIPE,
+                    start_new_session=True
+                )
+            except BaseException:
+                os.close(master_fd)
+                raise
+            finally:
+                os.close(slave_fd)
             # Wrap master_fd as a text file for line-buffered reading
             process.stdout = io.open(master_fd, 'r', buffering=1)
             is_text_mode = True
         else:
-            process = subprocess.Popen(
+            process = await async_popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -327,7 +389,7 @@ async def start_acars() -> Response:
             )
 
         # Wait briefly to check if process started
-        time.sleep(PROCESS_START_WAIT)
+        await asyncio.sleep(PROCESS_START_WAIT)
 
         if process.poll() is not None:
             # Process died - release device
@@ -336,7 +398,7 @@ async def start_acars() -> Response:
                 acars_active_device = None
             stderr = ''
             if process.stderr:
-                stderr = process.stderr.read().decode('utf-8', errors='replace')
+                stderr = (await asyncio.to_thread(process.stderr.read)).decode('utf-8', errors='replace')
             error_msg = f'acarsdec failed to start'
             if stderr:
                 error_msg += f': {stderr[:200]}'
@@ -363,6 +425,16 @@ async def start_acars() -> Response:
             'gain': gain
         })
 
+    except asyncio.CancelledError:
+        # The client went away mid-start (there is no await after the decoder
+        # is handed to its reader): do not leave an unowned decoder holding
+        # the receiver.
+        if process is not None:
+            await asyncio.to_thread(safe_terminate, process)
+        if acars_active_device is not None:
+            app_module.release_sdr_device(acars_active_device, mode_name='acars')
+            acars_active_device = None
+        raise
     except Exception as e:
         # Release device on failure
         if acars_active_device is not None:
@@ -375,31 +447,44 @@ async def start_acars() -> Response:
 @acars_bp.route('/stop', methods=['POST'])
 async def stop_acars() -> Response:
     """Stop ACARS decoder."""
-    global acars_active_device
+    # Waiting for acarsdec to exit can take seconds: do it in a worker, and
+    # wait for the reader-shared lock without blocking the event loop.
+    async with async_thread_lock(app_module.acars_lock):
+        was_running = await finish_in_thread(_stop_acars)
 
-    with app_module.acars_lock:
-        if not app_module.acars_process:
-            return jsonify({
-                'status': 'error',
-                'message': 'ACARS decoder not running'
-            }), 400
-
-        try:
-            app_module.acars_process.terminate()
-            app_module.acars_process.wait(timeout=PROCESS_TERMINATE_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            app_module.acars_process.kill()
-        except Exception as e:
-            logger.error(f"Error stopping ACARS: {e}")
-
-        app_module.acars_process = None
-
-        # Keep release and process reset inside the same synchronization scope.
-        if acars_active_device is not None:
-            app_module.release_sdr_device(acars_active_device, mode_name='acars')
-            acars_active_device = None
+    if not was_running:
+        return jsonify({
+            'status': 'error',
+            'message': 'ACARS decoder not running'
+        }), 400
 
     return jsonify({'status': 'stopped'})
+
+
+def _stop_acars() -> bool:
+    """Stop acarsdec and release its receiver. Caller holds acars_lock."""
+    global acars_active_device
+
+    process = app_module.acars_process
+    if not process:
+        return False
+
+    try:
+        process.terminate()
+        process.wait(timeout=PROCESS_TERMINATE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        process.kill()
+    except Exception as e:
+        logger.error(f"Error stopping ACARS: {e}")
+
+    app_module.acars_process = None
+
+    # Keep release and process reset inside the same synchronization scope.
+    if acars_active_device is not None:
+        app_module.release_sdr_device(acars_active_device, mode_name='acars')
+        acars_active_device = None
+
+    return True
 
 
 @acars_bp.route('/stream')

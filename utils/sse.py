@@ -5,12 +5,36 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import math
 import queue
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from enum import Enum
 from typing import Any, Generator
+
+# An open stream parks one thread in a bounded queue read almost all the time.
+# Those waits get a pool of their own: on the event loop's default executor
+# (min(32, cpus + 4) workers, 8 on a 4-core host) a handful of open browser
+# streams would hold every worker, and each asyncio.to_thread call elsewhere
+# in the application would then wait for a stream's read to time out.
+# Threads are created on demand, so the limit costs nothing until it is used.
+STREAM_WAIT_WORKERS = 256
+_stream_wait_executor: ThreadPoolExecutor | None = None
+_stream_wait_executor_lock = threading.Lock()
+
+
+def _stream_wait(func, *args):
+    """Run a bounded blocking stream read off the loop and off its default pool."""
+    global _stream_wait_executor
+    with _stream_wait_executor_lock:
+        if _stream_wait_executor is None:
+            _stream_wait_executor = ThreadPoolExecutor(
+                max_workers=STREAM_WAIT_WORKERS, thread_name_prefix='sse-wait')
+        executor = _stream_wait_executor
+    return asyncio.get_running_loop().run_in_executor(executor, func, *args)
 
 
 class _PublishedEvent(dict):
@@ -157,7 +181,7 @@ async def queue_events(
     with event_subscription(data_queue, last_event_id=last_event_id) as subscriber:
         while not stop_check or not stop_check():
             try:
-                event = await asyncio.to_thread(subscriber.get, True, timeout)
+                event = await _stream_wait(subscriber.get, True, timeout)
                 last_event = time.monotonic()
                 yield event
             except queue.Empty:
@@ -206,7 +230,7 @@ def iterable_stream_response(events, *, event_mapper=None):
         pending = None
         try:
             while True:
-                pending = asyncio.create_task(asyncio.to_thread(next, iterator, end))
+                pending = _stream_wait(next, iterator, end)
                 event = await asyncio.shield(pending)
                 if event is end:
                     return
@@ -225,7 +249,7 @@ def iterable_stream_response(events, *, event_mapper=None):
                 await asyncio.shield(pending)
             close = getattr(iterator, 'close', None)
             if close:
-                await asyncio.to_thread(close)
+                await _stream_wait(close)
 
     response = Response(generate(), mimetype='text/event-stream', headers={
         'Cache-Control': 'no-cache',
@@ -270,6 +294,62 @@ def sse_stream(
                     last_keepalive = now
 
 
+def _json_default(value: Any) -> Any:
+    """Encode what json cannot, so one odd field never costs viewers a stream."""
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value).hex()
+    if isinstance(value, (set, frozenset)):
+        try:
+            return sorted(value)
+        except TypeError:
+            return list(value)
+    if isinstance(value, Enum):
+        return value.value
+    # datetime / date / time, then numpy scalars and arrays.
+    for convert in ('isoformat', 'tolist'):
+        method = getattr(value, convert, None)
+        if callable(method):
+            try:
+                return method()
+            except Exception:
+                break
+    return str(value)
+
+
+def _plain_json(value: Any) -> Any:
+    """Rebuild a payload from JSON types only; NaN and Infinity become null."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if value is None or isinstance(value, (str, int)):
+        return value
+    if isinstance(value, dict):
+        return {
+            key if key is None or isinstance(key, (str, int)) else str(key): _plain_json(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_plain_json(item) for item in value]
+    return _plain_json(_json_default(value))
+
+
+_json_encoder = json.JSONEncoder(default=_json_default, allow_nan=False)
+
+
+def dumps_event(data: Any) -> str:
+    """json.dumps for event payloads that always yields JSON a browser accepts.
+
+    An exception here would end the response generator, and because the event
+    stays in the replay history every reconnect would end on it too. NaN and
+    Infinity (json.dumps writes them as bare tokens) are rejected by
+    JSON.parse, so they are sent as null. Ordinary payloads take the first
+    branch and are encoded exactly as json.dumps encodes them.
+    """
+    try:
+        return _json_encoder.encode(data)
+    except (TypeError, ValueError):
+        return _json_encoder.encode(_plain_json(data))
+
+
 def format_sse(data: dict[str, Any] | str, event: str | None = None, event_id: str | None = None) -> str:
     """
     Format data as SSE message.
@@ -284,7 +364,7 @@ def format_sse(data: dict[str, Any] | str, event: str | None = None, event_id: s
     """
     event_id = event_id or getattr(data, 'event_id', None)
     if isinstance(data, dict):
-        data = json.dumps(data)
+        data = dumps_event(data)
 
     lines = []
     if event_id:

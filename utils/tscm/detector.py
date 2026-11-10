@@ -91,6 +91,18 @@ def _is_audio_capable_ble(name: str | None, device_type: str | None = None) -> b
     return False
 
 
+def _dbm_or_none(value):
+    """Return a signal level as an int, or None when it is not numeric.
+
+    Scanners report levels as text or numbers; severity rules compare them
+    with integers.
+    """
+    try:
+        return int(float(value))
+    except (ValueError, TypeError):
+        return None
+
+
 class ThreatDetector:
     """
     Analyzes scan results to detect potential surveillance threats.
@@ -153,6 +165,11 @@ class ThreatDetector:
         mac = device.get('bssid', device.get('mac', '')).upper()
         ssid = device.get('essid', device.get('ssid', ''))
         signal = device.get('power', device.get('signal', -100))
+        # Scanners report power as text (airodump CSV) or as a number.
+        try:
+            signal_val = int(signal) if signal else -100
+        except (ValueError, TypeError):
+            signal_val = -100
 
         reasons = []
         classification = 'informational'
@@ -175,11 +192,6 @@ class ThreatDetector:
             if is_potential_camera(ssid=ssid, mac=mac):
                 reasons.append('Matches camera device patterns')
                 classification = 'high_interest'
-
-            try:
-                signal_val = int(signal) if signal else -100
-            except (ValueError, TypeError):
-                signal_val = -100
 
             # Use standardized signal classification
             signal_info = get_signal_strength_info(signal_val)
@@ -413,7 +425,7 @@ class ThreatDetector:
         mac = device.get('bssid', device.get('mac', '')).upper()
         ssid = device.get('essid', device.get('ssid', ''))
         vendor = device.get('vendor', '')
-        signal = device.get('power', device.get('signal', -100))
+        signal = _dbm_or_none(device.get('power', device.get('signal', -100)))
 
         threats = []
 
@@ -479,7 +491,7 @@ class ThreatDetector:
         """
         mac = device.get('mac', device.get('address', '')).upper()
         name = device.get('name', '')
-        rssi = device.get('rssi', device.get('signal', -100))
+        rssi = _dbm_or_none(device.get('rssi', device.get('signal', -100)))
         manufacturer = device.get('manufacturer', '')
         device_type = device.get('type', '')
         manufacturer_data = device.get('manufacturer_data')

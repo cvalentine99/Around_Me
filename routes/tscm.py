@@ -91,6 +91,7 @@ tscm_lock: threading.Lock | None = None
 _sweep_thread: threading.Thread | None = None
 _sweep_running = False
 _current_sweep_id: int | None = None
+_sweep_start_lock = threading.Lock()
 _baseline_recorder = BaselineRecorder()
 _schedule_thread: threading.Thread | None = None
 _schedule_running = False
@@ -493,63 +494,75 @@ def _start_sweep_internal(
     """Start a TSCM sweep without request context."""
     global _sweep_running, _sweep_thread, _current_sweep_id
 
-    if _sweep_running:
-        return {'status': 'error', 'message': 'Sweep already running', 'http_status': 409}
+    # The device probe between the "already running" check and the state
+    # change takes seconds, and starts arrive from request worker threads and
+    # from the scheduler thread: only one of them may get through.
+    with _sweep_start_lock:
+        if _sweep_running:
+            return {'status': 'error', 'message': 'Sweep already running', 'http_status': 409}
 
-    # Check for available devices
-    devices = _check_available_devices(wifi_enabled, bt_enabled, rf_enabled)
+        # Check for available devices
+        devices = _check_available_devices(wifi_enabled, bt_enabled, rf_enabled)
 
-    warnings = []
-    if wifi_enabled and not devices['wifi']:
-        warnings.append(f"WiFi: {devices['wifi_reason']}")
-    if bt_enabled and not devices['bluetooth']:
-        warnings.append(f"Bluetooth: {devices['bt_reason']}")
-    if rf_enabled and not devices['rf']:
-        warnings.append(f"RF: {devices['rf_reason']}")
+        warnings = []
+        if wifi_enabled and not devices['wifi']:
+            warnings.append(f"WiFi: {devices['wifi_reason']}")
+        if bt_enabled and not devices['bluetooth']:
+            warnings.append(f"Bluetooth: {devices['bt_reason']}")
+        if rf_enabled and not devices['rf']:
+            warnings.append(f"RF: {devices['rf_reason']}")
 
-    # If no devices available at all, return error
-    if not any([devices['wifi'], devices['bluetooth'], devices['rf']]):
+        # If no devices available at all, return error
+        if not any([devices['wifi'], devices['bluetooth'], devices['rf']]):
+            return {
+                'status': 'error',
+                'message': 'No scanning devices available',
+                'details': warnings,
+                'http_status': 400,
+            }
+
+        # Create sweep record
+        _current_sweep_id = create_tscm_sweep(
+            sweep_type=sweep_type,
+            baseline_id=baseline_id,
+            wifi_enabled=wifi_enabled,
+            bt_enabled=bt_enabled,
+            rf_enabled=rf_enabled
+        )
+
+        # A sweep is a new stream session. The queue replays its history to every
+        # new subscriber, and the UI acts on a replayed 'sweep_completed' or
+        # 'sweep_stopped' of the previous sweep as if it belonged to this one.
+        clear_history = getattr(tscm_queue, 'clear_history', None)
+        if clear_history:
+            clear_history()
+
+        _sweep_running = True
+
+        # Start sweep thread
+        _sweep_thread = threading.Thread(
+            target=_run_sweep,
+            args=(sweep_type, baseline_id, wifi_enabled, bt_enabled, rf_enabled,
+                  wifi_interface, bt_interface, sdr_device, verbose_results),
+            kwargs={'sweep_id': _current_sweep_id},
+            daemon=True
+        )
+        _sweep_thread.start()
+
+        logger.info(f"Started TSCM sweep: type={sweep_type}, id={_current_sweep_id}")
+
         return {
-            'status': 'error',
-            'message': 'No scanning devices available',
-            'details': warnings,
-            'http_status': 400,
+            'status': 'success',
+            'message': 'Sweep started',
+            'sweep_id': _current_sweep_id,
+            'sweep_type': sweep_type,
+            'warnings': warnings if warnings else None,
+            'devices': {
+                'wifi': devices['wifi'],
+                'bluetooth': devices['bluetooth'],
+                'rf': devices['rf']
+            }
         }
-
-    # Create sweep record
-    _current_sweep_id = create_tscm_sweep(
-        sweep_type=sweep_type,
-        baseline_id=baseline_id,
-        wifi_enabled=wifi_enabled,
-        bt_enabled=bt_enabled,
-        rf_enabled=rf_enabled
-    )
-
-    _sweep_running = True
-
-    # Start sweep thread
-    _sweep_thread = threading.Thread(
-        target=_run_sweep,
-        args=(sweep_type, baseline_id, wifi_enabled, bt_enabled, rf_enabled,
-              wifi_interface, bt_interface, sdr_device, verbose_results),
-        daemon=True
-    )
-    _sweep_thread.start()
-
-    logger.info(f"Started TSCM sweep: type={sweep_type}, id={_current_sweep_id}")
-
-    return {
-        'status': 'success',
-        'message': 'Sweep started',
-        'sweep_id': _current_sweep_id,
-        'sweep_type': sweep_type,
-        'warnings': warnings if warnings else None,
-        'devices': {
-            'wifi': devices['wifi'],
-            'bluetooth': devices['bluetooth'],
-            'rf': devices['rf']
-        }
-    }
 
 
 @tscm_bp.route('/status')
@@ -576,7 +589,9 @@ async def start_sweep():
     bt_interface = data.get('bt_interface', '')
     sdr_device = data.get('sdr_device')
 
-    result = _start_sweep_internal(
+    # Device probing runs external tools for seconds: keep it off the loop.
+    result = await asyncio.to_thread(
+        _start_sweep_internal,
         sweep_type=sweep_type,
         baseline_id=baseline_id,
         wifi_enabled=wifi_enabled,
@@ -759,7 +774,8 @@ async def run_schedule_now(schedule_id: int):
     if not schedule:
         return jsonify({'status': 'error', 'message': 'Schedule not found'}), 404
 
-    result = _start_sweep_internal(
+    result = await asyncio.to_thread(
+        _start_sweep_internal,
         sweep_type=schedule.get('sweep_type') or 'standard',
         baseline_id=schedule.get('baseline_id'),
         wifi_enabled=True,
@@ -950,7 +966,7 @@ async def get_tscm_devices():
     # Detect SDR devices
     try:
         from utils.sdr import SDRFactory
-        sdr_list = SDRFactory.detect_devices()
+        sdr_list = await asyncio.to_thread(SDRFactory.detect_devices)
         for sdr in sdr_list:
             # SDRDevice is a dataclass with attributes, not a dict
             sdr_type_name = sdr.sdr_type.value if hasattr(sdr.sdr_type, 'value') else str(sdr.sdr_type)
@@ -1542,7 +1558,8 @@ def _run_sweep(
     wifi_interface: str = '',
     bt_interface: str = '',
     sdr_device: int | None = None,
-    verbose_results: bool = False
+    verbose_results: bool = False,
+    sweep_id: int | None = None
 ) -> None:
     """
     Run the TSCM sweep in a background thread.
@@ -1551,6 +1568,15 @@ def _run_sweep(
     then analyzes results for threats using the correlation engine.
     """
     global _sweep_running, _current_sweep_id
+
+    # This worker owns exactly one sweep. After a stop and an immediate
+    # restart it can still be inside a scan; when that scan returns it must
+    # not carry on as, report for, or reset the state of the newer sweep.
+    if sweep_id is None:
+        sweep_id = _current_sweep_id
+
+    def superseded() -> bool:
+        return _current_sweep_id != sweep_id
 
     try:
         # Get baseline for comparison if specified
@@ -1563,7 +1589,7 @@ def _run_sweep(
         duration = preset.get('duration_seconds', 300)
 
         _emit_event('sweep_started', {
-            'sweep_id': _current_sweep_id,
+            'sweep_id': sweep_id,
             'sweep_type': sweep_type,
             'duration': duration,
             'wifi': wifi_enabled,
@@ -1613,7 +1639,7 @@ def _run_sweep(
                 add_device_timeline_entry(
                     device_identifier=identifier_norm,
                     protocol=protocol,
-                    sweep_id=_current_sweep_id,
+                    sweep_id=sweep_id,
                     rssi=rssi,
                     channel=channel,
                     frequency=frequency,
@@ -1638,13 +1664,15 @@ def _run_sweep(
         bt_scan_interval = 20   # Scan Bluetooth every 20 seconds
         rf_scan_interval = 30   # Scan RF every 30 seconds
 
-        while _sweep_running and (time.time() - start_time) < duration:
+        while _sweep_running and not superseded() and (time.time() - start_time) < duration:
             current_time = time.time()
 
             # Perform WiFi scan
             if wifi_enabled and (current_time - last_wifi_scan) >= wifi_scan_interval:
                 try:
                     wifi_networks = _scan_wifi_networks(wifi_interface)
+                    if superseded():
+                        break
                     last_wifi_scan = current_time
                     if not wifi_networks and not all_wifi:
                         logger.warning("TSCM WiFi scan returned 0 networks")
@@ -1689,7 +1717,7 @@ def _run_sweep(
                                 # Analyze for threats
                                 threat = detector.analyze_wifi_device(network)
                                 if threat:
-                                    _handle_threat(threat)
+                                    _handle_threat(threat, sweep_id)
                                     threats_found += 1
                                     is_threat = True
                                     sev = threat.get('severity', 'low').lower()
@@ -1824,6 +1852,8 @@ def _run_sweep(
                         logger.info(f"TSCM: Using legacy BT scanner on {bt_interface}")
                         bt_devices = _scan_bluetooth_devices(bt_interface, duration=8)
                         logger.info(f"TSCM: Legacy scanner returned {len(bt_devices)} devices")
+                    if superseded():
+                        break
                     last_bt_scan = current_time
                     for device in bt_devices:
                         try:
@@ -1855,7 +1885,7 @@ def _run_sweep(
                                 # Analyze for threats
                                 threat = detector.analyze_bt_device(device)
                                 if threat:
-                                    _handle_threat(threat)
+                                    _handle_threat(threat, sweep_id)
                                     threats_found += 1
                                     is_threat = True
                                     sev = threat.get('severity', 'low').lower()
@@ -1919,7 +1949,13 @@ def _run_sweep(
                         'rf_count': len(all_rf),
                     })
                     # Try RF scan even if sdr_device is None (will use device 0)
-                    rf_signals = _scan_rf_signals(sdr_device, sweep_ranges=preset.get('ranges'))
+                    rf_signals = _scan_rf_signals(
+                        sdr_device,
+                        stop_check=lambda: not _sweep_running or superseded(),
+                        sweep_ranges=preset.get('ranges')
+                    )
+                    if superseded():
+                        break
 
                     # If no signals and this is first RF scan, send info event
                     if not rf_signals and last_rf_scan == 0:
@@ -1958,7 +1994,7 @@ def _run_sweep(
                             # Analyze RF signal for threats
                             threat = detector.analyze_rf_signal(signal)
                             if threat:
-                                _handle_threat(threat)
+                                _handle_threat(threat, sweep_id)
                                 threats_found += 1
                                 is_threat = True
                                 sev = threat.get('severity', 'low').lower()
@@ -2006,7 +2042,7 @@ def _run_sweep(
             time.sleep(2)  # Update every 2 seconds
 
         # Complete sweep (run even if stopped by user so correlations/clusters are computed)
-        if _current_sweep_id:
+        if sweep_id and not superseded():
             # Run cross-protocol correlation analysis
             correlations = correlation.correlate_devices()
             findings = correlation.get_all_findings()
@@ -2091,7 +2127,7 @@ def _run_sweep(
                 ]
 
             update_tscm_sweep(
-                _current_sweep_id,
+                sweep_id,
                 status='completed',
                 results={
                     'wifi_devices': wifi_payload,
@@ -2142,7 +2178,7 @@ def _run_sweep(
             })
 
             _emit_event('sweep_completed', {
-                'sweep_id': _current_sweep_id,
+                'sweep_id': sweep_id,
                 'threats_found': threats_found,
                 'wifi_count': len(all_wifi),
                 'wifi_client_count': len(all_wifi_clients),
@@ -2159,22 +2195,26 @@ def _run_sweep(
 
     except Exception as e:
         logger.error(f"Sweep error: {e}")
-        _emit_event('sweep_error', {'error': str(e)})
-        if _current_sweep_id:
-            update_tscm_sweep(_current_sweep_id, status='error', completed=True)
+        if not superseded():
+            _emit_event('sweep_error', {'error': str(e)})
+        if sweep_id:
+            update_tscm_sweep(sweep_id, status='error', completed=True)
 
     finally:
-        _sweep_running = False
+        if not superseded():
+            _sweep_running = False
 
 
-def _handle_threat(threat: dict) -> None:
+def _handle_threat(threat: dict, sweep_id: int | None = None) -> None:
     """Handle a detected threat."""
-    if not _current_sweep_id:
+    if sweep_id is None:
+        sweep_id = _current_sweep_id
+    if not sweep_id:
         return
 
     # Add to database
     threat_id = add_tscm_threat(
-        sweep_id=_current_sweep_id,
+        sweep_id=sweep_id,
         threat_type=threat['threat_type'],
         severity=threat['severity'],
         source=threat['source'],
@@ -2998,7 +3038,8 @@ async def get_capabilities():
         wifi_interface = request.args.get('wifi_interface', '')
         bt_adapter = request.args.get('bt_adapter', '')
 
-        caps = detect_sweep_capabilities(
+        caps = await asyncio.to_thread(
+            detect_sweep_capabilities,
             wifi_interface=wifi_interface,
             bt_adapter=bt_adapter
         )
@@ -3624,7 +3665,7 @@ async def get_pdf_report():
         # Get data for report
         correlation = get_correlation_engine()
         profiles = [p.to_dict() for p in correlation.device_profiles.values()]
-        caps = detect_sweep_capabilities().to_dict()
+        caps = (await asyncio.to_thread(detect_sweep_capabilities)).to_dict()
 
         manager = get_timeline_manager()
         timelines = [t.to_dict() for t in manager.get_all_timelines()]
@@ -3678,7 +3719,7 @@ async def get_technical_annex():
         # Get data for report
         correlation = get_correlation_engine()
         profiles = [p.to_dict() for p in correlation.device_profiles.values()]
-        caps = detect_sweep_capabilities().to_dict()
+        caps = (await asyncio.to_thread(detect_sweep_capabilities)).to_dict()
 
         manager = get_timeline_manager()
         timelines = [t.to_dict() for t in manager.get_all_timelines()]

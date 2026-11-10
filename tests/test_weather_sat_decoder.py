@@ -158,11 +158,14 @@ class TestWeatherSatDecoder:
             mock_pty.return_value = (10, 11)
             mock_popen.side_effect = OSError('Device not found')
 
-            decoder = WeatherSatDecoder()
-            callback = MagicMock()
-            decoder.set_callback(callback)
+            # start() creates its capture directory before spawning; keep it
+            # out of the application's real data/weather_sat folder.
+            with tempfile.TemporaryDirectory() as output_dir:
+                decoder = WeatherSatDecoder(output_dir=output_dir)
+                callback = MagicMock()
+                decoder.set_callback(callback)
 
-            success = decoder.start(satellite='NOAA-18', device_index=0, gain=40.0)
+                success = decoder.start(satellite='NOAA-18', device_index=0, gain=40.0)
 
             assert success is False
             assert decoder.is_running is False

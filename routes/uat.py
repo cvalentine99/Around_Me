@@ -10,6 +10,7 @@ Pipeline: dump978-fa --sdr | uat2json → JSON lines on stdout → parser thread
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -26,10 +27,15 @@ from utils.validation import validate_device_index, validate_gain
 from utils.process import register_process, unregister_process
 from utils.constants import UAT_START_WAIT, UAT_TERMINATE_TIMEOUT
 from utils.sdr.registry import normalize_sdr_type
+from utils.async_lock import async_thread_lock
+from utils.async_process import async_popen, finish_in_thread
 
 logger = get_logger('valentine.uat')
 
 uat_bp = Blueprint('uat', __name__, url_prefix='/uat')
+
+# Serializes start, stop and the reader thread's own cleanup.
+uat_lock = threading.Lock()
 
 # Module-level state
 uat_running = False
@@ -225,9 +231,6 @@ async def start_uat():
         POST /uat/start
         {"device": 1, "gain": 40}
     """
-    global uat_running, uat_active_device
-    global _uat_dump978_process, _uat_json_process, _uat_messages_received
-
     data = await request.get_json(silent=True) or {}
     try:
         sdr_type = normalize_sdr_type(data.get('sdr_type', 'rtlsdr'))
@@ -242,6 +245,18 @@ async def start_uat():
             'status': 'error',
             'message': 'UAT support is disabled. Set VALENTINE_UAT_ENABLED=true.'
         }), 400
+
+    # Starting takes seconds (USB claim, two spawns, startup wait). The slow
+    # steps run off the event loop, so the lock keeps a second request from
+    # starting a second pipeline in the meantime.
+    async with async_thread_lock(uat_lock):
+        return await _start_uat_locked(data)
+
+
+async def _start_uat_locked(data: dict):
+    """Start the dump978 | uat2json pipeline while holding uat_lock."""
+    global uat_running, uat_active_device
+    global _uat_dump978_process, _uat_json_process, _uat_messages_received
 
     if uat_running:
         return jsonify({
@@ -271,7 +286,16 @@ async def start_uat():
         }), 500
 
     # ── Claim SDR device ──
-    error = app_module.claim_sdr_device(device, 'uat')
+    # The claim probes USB, so it runs in a worker; wait for its result even
+    # when cancelled so a late successful claim is not orphaned.
+    claim = asyncio.create_task(asyncio.to_thread(app_module.claim_sdr_device, device, 'uat'))
+    try:
+        error = await asyncio.shield(claim)
+    except asyncio.CancelledError:
+        error = await claim
+        if not error:
+            app_module.release_sdr_device(device, mode_name='uat')
+        raise
     if error:
         return jsonify({
             'status': 'error',
@@ -292,7 +316,7 @@ async def start_uat():
         logger.info("Starting dump978 pipeline: %s | %s", dump978_cmd, uat2json_cmd)
 
         # Start dump978-fa (raw UAT frames to stdout)
-        _uat_dump978_process = subprocess.Popen(
+        _uat_dump978_process = await async_popen(
             dump978_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -301,7 +325,7 @@ async def start_uat():
         register_process(_uat_dump978_process)
 
         # Pipe dump978 stdout into uat2json stdin
-        _uat_json_process = subprocess.Popen(
+        _uat_json_process = await async_popen(
             uat2json_cmd,
             stdin=_uat_dump978_process.stdout,
             stdout=subprocess.PIPE,
@@ -315,18 +339,11 @@ async def start_uat():
         _uat_dump978_process.stdout.close()
 
         # Wait briefly and check for immediate crash
-        time.sleep(UAT_START_WAIT)
+        await asyncio.sleep(UAT_START_WAIT)
 
         if _uat_dump978_process.poll() is not None:
-            stderr_text = ''
-            if _uat_dump978_process.stderr:
-                try:
-                    stderr_text = _uat_dump978_process.stderr.read().decode(
-                        'utf-8', errors='ignore'
-                    ).strip()[:500]
-                except Exception:
-                    pass
-            _cleanup_uat_processes()
+            stderr_text = await asyncio.to_thread(_read_exit_stderr, _uat_dump978_process)
+            await asyncio.to_thread(_cleanup_uat_processes)
             app_module.release_sdr_device(device, mode_name='uat')
             return jsonify({
                 'status': 'error',
@@ -353,8 +370,14 @@ async def start_uat():
             'receiver': {'device': device, 'sdr_type': 'rtlsdr'},
         })
 
+    except asyncio.CancelledError:
+        # The client went away mid-start (there is no await after the reader
+        # thread takes over): stop the half-started pipeline and free the SDR.
+        await asyncio.to_thread(_cleanup_uat_processes)
+        app_module.release_sdr_device(device, mode_name='uat')
+        raise
     except Exception as e:
-        _cleanup_uat_processes()
+        await asyncio.to_thread(_cleanup_uat_processes)
         app_module.release_sdr_device(device, mode_name='uat')
         logger.error("Failed to start UAT: %s", e)
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -363,6 +386,17 @@ async def start_uat():
 @uat_bp.route('/stop', methods=['POST'])
 async def stop_uat():
     """Stop UAT decoding and release the SDR device."""
+    # Terminating the pipeline can wait seconds per process. Run it in a
+    # worker, serialized with start: a start awaits its startup check, and a
+    # stop must not tear the pipeline down underneath it.
+    async with async_thread_lock(uat_lock):
+        await finish_in_thread(_stop_uat)
+
+    return jsonify({'status': 'stopped', 'message': 'UAT decoder stopped.'})
+
+
+def _stop_uat() -> None:
+    """Stop the pipeline and release the receiver. Caller holds uat_lock."""
     global uat_running, uat_active_device
 
     uat_running = False
@@ -372,10 +406,18 @@ async def stop_uat():
         app_module.release_sdr_device(uat_active_device, mode_name='uat')
         uat_active_device = None
 
-    return jsonify({'status': 'stopped', 'message': 'UAT decoder stopped.'})
-
 
 # ─── Internal helpers ──────────────────────────────────────────────
+
+def _read_exit_stderr(process: subprocess.Popen) -> str:
+    """Return what an exited pipeline member wrote to stderr (blocking read)."""
+    if not process.stderr:
+        return ''
+    try:
+        return process.stderr.read().decode('utf-8', errors='ignore').strip()[:500]
+    except Exception:
+        return ''
+
 
 def _cleanup_uat_processes() -> None:
     """Terminate dump978 and uat2json processes."""

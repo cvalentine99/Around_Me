@@ -380,6 +380,17 @@ class MeshtasticClient:
                 self._error = None
                 return True
 
+            except SystemExit:
+                # The SDK calls sys.exit() when auto-discovery finds several
+                # candidate serial ports. Left alone, that exception stops the
+                # web server's event loop.
+                self._interface = None
+                self._error = ("Multiple serial ports detected. "
+                               "Select the Meshtastic device's serial port and try again.")
+                logger.error(f"Failed to connect to Meshtastic: {self._error}")
+                self._cleanup_subscriptions()
+                return False
+
             except Exception as e:
                 self._error = str(e)
                 logger.error(f"Failed to connect to Meshtastic: {e}")
@@ -472,7 +483,8 @@ class MeshtasticClient:
                 self._handle_routing_packet(packet, decoded)
 
             # Handle neighbor info for mesh topology
-            if portnum == 'NEIGHBOR_INFO_APP':
+            # (the SDK's name for this port is NEIGHBORINFO_APP)
+            if portnum in ('NEIGHBORINFO_APP', 'NEIGHBOR_INFO_APP'):
                 self._handle_neighbor_info(packet, decoded)
 
             # Skip callback if none set
@@ -494,6 +506,7 @@ class MeshtasticClient:
                 'POSITION_APP',     # Position updates - used for map, not messages
                 'NODEINFO_APP',     # Node info - used for tracking, not messages
                 'NEIGHBOR_INFO_APP',  # Neighbor info - handled above
+                'NEIGHBORINFO_APP',
             }
             if portnum in ignored_portnums:
                 logger.debug(f"Ignoring {portnum} message from {from_num}")
@@ -1001,9 +1014,23 @@ class MeshtasticClient:
             if dest_id == BROADCAST_ADDR:
                 return False, "Cannot traceroute to broadcast address"
 
-            # Use the SDK's sendTraceRoute method
+            # Send the RouteDiscovery request ourselves. The SDK's
+            # sendTraceRoute() sleeps in its caller until the reply arrives or
+            # a timeout that grows with every call expires, which froze the
+            # event loop. The reply still reaches _on_receive via pubsub.
+            from meshtastic import mesh_pb2, portnums_pb2
+
             logger.info(f"Sending traceroute to {self._format_node_id(dest_id)} with hop_limit={hop_limit}")
-            self._interface.sendTraceRoute(dest_id, hopLimit=hop_limit)
+            request = {
+                'destinationId': dest_id,
+                'portNum': portnums_pb2.PortNum.TRACEROUTE_APP,
+                'wantResponse': True,
+            }
+            try:
+                self._interface.sendData(mesh_pb2.RouteDiscovery(), hopLimit=hop_limit, **request)
+            except TypeError:
+                # Older SDK releases have no per-packet hop limit.
+                self._interface.sendData(mesh_pb2.RouteDiscovery(), **request)
 
             return True, None
 
@@ -1015,7 +1042,8 @@ class MeshtasticClient:
         """Handle incoming traceroute response."""
         try:
             from_num = packet.get('from', 0)
-            route_discovery = decoded.get('routeDiscovery', {})
+            # The SDK publishes the decoded RouteDiscovery as 'traceroute'.
+            route_discovery = decoded.get('traceroute') or decoded.get('routeDiscovery', {})
 
             # Extract route information
             route = route_discovery.get('route', [])
