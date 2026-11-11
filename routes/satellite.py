@@ -310,42 +310,9 @@ async def predict_passes():
     })
 
 
-@satellite_bp.route('/position', methods=['POST'])
-async def get_satellite_position():
-    """Get real-time positions of satellites."""
-    try:
-        from skyfield.api import load, wgs84, EarthSatellite
-    except ImportError:
-        return jsonify({'status': 'error', 'message': 'skyfield not installed'}), 503
-
-    data = await request.get_json(silent=True) or {}
-
-    # Validate inputs
-    try:
-        lat = validate_latitude(data.get('latitude', data.get('lat', 51.5074)))
-        lon = validate_longitude(data.get('longitude', data.get('lon', -0.1278)))
-    except ValueError as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 400
-
-    sat_input = data.get('satellites', [])
-    include_track = bool(data.get('includeTrack', True))
-
-    norad_to_name = {
-        25544: 'ISS',
-        25338: 'NOAA-15',
-        28654: 'NOAA-18',
-        33591: 'NOAA-19',
-        43013: 'NOAA-20',
-        40069: 'METEOR-M2',
-        57166: 'METEOR-M2-3'
-    }
-
-    satellites = []
-    for sat in sat_input:
-        if isinstance(sat, int) and sat in norad_to_name:
-            satellites.append(norad_to_name[sat])
-        else:
-            satellites.append(sat)
+def _compute_positions(satellites, lat, lon, include_track, iss_realtime):
+    """Compute positions (and optional ground tracks). Blocking: run in a worker."""
+    from skyfield.api import load, wgs84, EarthSatellite
 
     ts = load.timescale()
     observer = wgs84.latlon(lat, lon)
@@ -357,7 +324,7 @@ async def get_satellite_position():
     for sat_name in satellites:
         # Special handling for ISS - use real-time API for accurate position
         if sat_name == 'ISS':
-            iss_data = await _fetch_iss_realtime(lat, lon)
+            iss_data = dict(iss_realtime) if iss_realtime else None
             if iss_data:
                 # Add orbit track if requested (using TLE for track prediction)
                 if include_track and 'ISS' in _tle_cache:
@@ -429,6 +396,53 @@ async def get_satellite_position():
             positions.append(pos_data)
         except Exception:
             continue
+
+    return positions
+
+
+@satellite_bp.route('/position', methods=['POST'])
+async def get_satellite_position():
+    """Get real-time positions of satellites."""
+    try:
+        from skyfield.api import load, wgs84, EarthSatellite
+    except ImportError:
+        return jsonify({'status': 'error', 'message': 'skyfield not installed'}), 503
+
+    data = await request.get_json(silent=True) or {}
+
+    # Validate inputs
+    try:
+        lat = validate_latitude(data.get('latitude', data.get('lat', 51.5074)))
+        lon = validate_longitude(data.get('longitude', data.get('lon', -0.1278)))
+    except ValueError as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 400
+
+    sat_input = data.get('satellites', [])
+    include_track = bool(data.get('includeTrack', True))
+
+    norad_to_name = {
+        25544: 'ISS',
+        25338: 'NOAA-15',
+        28654: 'NOAA-18',
+        33591: 'NOAA-19',
+        43013: 'NOAA-20',
+        40069: 'METEOR-M2',
+        57166: 'METEOR-M2-3'
+    }
+
+    satellites = []
+    for sat in sat_input:
+        if isinstance(sat, int) and sat in norad_to_name:
+            satellites.append(norad_to_name[sat])
+        else:
+            satellites.append(sat)
+
+    # The real-time ISS position comes from a network API (async); the orbit
+    # math for every satellite is CPU work (0.2-0.6 s) and runs in a worker
+    # so it does not stall streams and other requests every poll.
+    iss_realtime = await _fetch_iss_realtime(lat, lon) if 'ISS' in satellites else None
+    positions = await asyncio.to_thread(
+        _compute_positions, satellites, lat, lon, include_track, iss_realtime)
 
     return jsonify({
         'status': 'success',

@@ -353,8 +353,8 @@ async def check_ais_tools():
     """Check for AIS decoding tools and hardware."""
     has_ais_catcher = find_ais_catcher() is not None
 
-    # Check what SDR hardware is detected
-    devices = SDRFactory.detect_devices()
+    # Check what SDR hardware is detected (off the event loop, cached briefly)
+    devices = await app_module.detect_devices_async()
     has_rtlsdr = any(d.sdr_type == SDRType.RTL_SDR for d in devices)
 
     return jsonify({

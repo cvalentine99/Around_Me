@@ -517,8 +517,8 @@ async def check_adsb_tools():
     has_readsb = shutil.which('readsb') is not None
     has_rtl_adsb = shutil.which('rtl_adsb') is not None
 
-    # Check what SDR hardware is detected
-    devices = SDRFactory.detect_devices()
+    # Check what SDR hardware is detected (off the event loop, cached briefly)
+    devices = await app_module.detect_devices_async()
     has_rtlsdr = any(d.sdr_type == SDRType.RTL_SDR for d in devices)
     has_soapy_sdr = any(d.sdr_type in (SDRType.HACKRF, SDRType.LIME_SDR, SDRType.AIRSPY) for d in devices)
     soapy_types = [d.sdr_type.value for d in devices if d.sdr_type in (SDRType.HACKRF, SDRType.LIME_SDR, SDRType.AIRSPY)]

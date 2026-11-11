@@ -3084,7 +3084,7 @@
             // This ensures currentDeviceList is populated on page load (fixes #99)
             if (typeof deviceList !== 'undefined' && deviceList.length > 0) {
                 currentDeviceList = deviceList;
-                const firstType = deviceList[0].sdr_type || 'rtlsdr';
+                const firstType = preferredSDRType(deviceList);
                 const sdrTypeSelect = document.getElementById('sdrTypeSelect');
                 if (sdrTypeSelect) {
                     sdrTypeSelect.value = firstType;
@@ -4490,38 +4490,52 @@
         let currentDeviceList = [];
 
         // SDR Device Usage Tracking
-        // Tracks which mode is using which device index
+        // Receivers are identified by hardware family AND index: HackRF 0 and
+        // RTL-SDR 0 are different devices. Local reservations cover modes
+        // started on this page; the server's /devices/status (polled) covers
+        // modes started anywhere else, e.g. the Aircraft dashboard.
         const sdrDeviceUsage = {
-            // deviceIndex: 'modeName' (e.g., 0: 'pager', 1: 'scanner')
+            // 'rtlsdr:0': 'pager', 'hackrf:0': 'sensor', ...
         };
+        let sdrServerStatus = [];
 
-        function getDeviceInUseBy(deviceIndex) {
-            return sdrDeviceUsage[deviceIndex] || null;
+        function sdrKey(deviceIndex, sdrType) {
+            return `${sdrType || getSelectedSDRType() || 'rtlsdr'}:${parseInt(deviceIndex)}`;
         }
 
-        function isDeviceInUse(deviceIndex) {
-            return sdrDeviceUsage[deviceIndex] !== undefined;
+        function getDeviceInUseBy(deviceIndex, sdrType) {
+            const key = sdrKey(deviceIndex, sdrType);
+            if (sdrDeviceUsage[key]) return sdrDeviceUsage[key];
+            const server = sdrServerStatus.find(d => sdrKey(d.index, d.sdr_type || 'rtlsdr') === key);
+            return server && server.in_use ? (server.used_by || 'another mode') : null;
         }
 
-        function reserveDevice(deviceIndex, modeName) {
-            sdrDeviceUsage[deviceIndex] = modeName;
+        function isDeviceInUse(deviceIndex, sdrType) {
+            return getDeviceInUseBy(deviceIndex, sdrType) !== null;
+        }
+
+        function reserveDevice(deviceIndex, modeName, sdrType) {
+            sdrDeviceUsage[sdrKey(deviceIndex, sdrType)] = modeName;
             updateDeviceSelectStatus();
         }
 
         function releaseDevice(modeName) {
-            for (const [idx, mode] of Object.entries(sdrDeviceUsage)) {
+            for (const [key, mode] of Object.entries(sdrDeviceUsage)) {
                 if (mode === modeName) {
-                    delete sdrDeviceUsage[idx];
+                    delete sdrDeviceUsage[key];
                 }
             }
             updateDeviceSelectStatus();
         }
 
         function getAvailableDevice() {
-            // Find first device not in use
-            for (const device of currentDeviceList) {
-                if (!isDeviceInUse(device.index)) {
-                    return device.index;
+            // First free receiver, preferring the selected family, then RTL-SDR
+            const selected = getSelectedSDRType();
+            const order = d => ((d.sdr_type || 'rtlsdr') === selected ? 0 : (d.sdr_type || 'rtlsdr') === 'rtlsdr' ? 1 : 2);
+            const candidates = [...currentDeviceList].sort((a, b) => order(a) - order(b));
+            for (const device of candidates) {
+                if (!isDeviceInUse(device.index, device.sdr_type || 'rtlsdr')) {
+                    return { index: device.index, sdr_type: device.sdr_type || 'rtlsdr' };
                 }
             }
             return null;
@@ -4535,7 +4549,7 @@
             const options = select.querySelectorAll('option');
             options.forEach(opt => {
                 const idx = parseInt(opt.value);
-                const usedBy = getDeviceInUseBy(idx);
+                const usedBy = getDeviceInUseBy(idx, opt.dataset.sdrType || getSelectedSDRType());
                 const baseName = opt.textContent.replace(/ \[.*\]$/, ''); // Remove existing status
                 if (usedBy) {
                     opt.textContent = `${baseName} [${usedBy.toUpperCase()}]`;
@@ -4548,34 +4562,46 @@
         }
 
         function checkDeviceAvailability(modeName) {
+            const selectedType = getSelectedSDRType();
             const selectedDevice = parseInt(getSelectedDevice());
-            const usedBy = getDeviceInUseBy(selectedDevice);
+            const usedBy = getDeviceInUseBy(selectedDevice, selectedType);
 
             if (usedBy && usedBy !== modeName) {
                 // Device is in use by another mode
-                const availableDevice = getAvailableDevice();
+                const available = getAvailableDevice();
+                const label = d => `${(sdrCapabilities[d.sdr_type] || {}).name || d.sdr_type} ${d.index}`;
 
-                if (availableDevice !== null) {
+                if (available !== null) {
                     // Another device is available - offer to switch
                     const switchDevice = confirm(
-                        `Device ${selectedDevice} is in use by ${usedBy.toUpperCase()}.\n\n` +
-                        `Device ${availableDevice} is available. Switch to it?`
+                        `${label({ index: selectedDevice, sdr_type: selectedType })} is in use by ${usedBy.toUpperCase()}.\n\n` +
+                        `${label(available)} is available. Switch to it?`
                     );
                     if (switchDevice) {
-                        document.getElementById('deviceSelect').value = availableDevice;
+                        if (available.sdr_type !== selectedType) {
+                            document.getElementById('sdrTypeSelect').value = available.sdr_type;
+                            onSDRTypeChanged();
+                        }
+                        document.getElementById('deviceSelect').value = available.index;
                         return true; // Can proceed with new device
                     }
                     return false; // User declined to switch
                 } else {
                     // No other devices available
                     showNotification('SDR In Use',
-                        `Device ${selectedDevice} is in use by ${usedBy.toUpperCase()}. ` +
+                        `${label({ index: selectedDevice, sdr_type: selectedType })} is in use by ${usedBy.toUpperCase()}. ` +
                         `No other SDR devices available. Stop ${usedBy} first or connect another SDR.`
                     );
                     return false;
                 }
             }
             return true; // Device is available
+        }
+
+        function preferredSDRType(devices) {
+            // Most modes are built for RTL-SDR; use it whenever one is present
+            if (devices.some(d => (d.sdr_type || 'rtlsdr') === 'rtlsdr')) return 'rtlsdr';
+            return devices.length ? (devices[0].sdr_type || 'rtlsdr') : 'rtlsdr';
         }
 
         function onSDRTypeChanged() {
@@ -4616,10 +4642,13 @@
                     currentDeviceList = devices;
                     deviceList = devices;
 
-                    // Auto-select SDR type if devices found
+                    // Keep the chosen SDR type if it is still present, else prefer RTL-SDR
                     if (devices.length > 0) {
-                        const firstType = devices[0].sdr_type || 'rtlsdr';
-                        document.getElementById('sdrTypeSelect').value = firstType;
+                        const typeSelect = document.getElementById('sdrTypeSelect');
+                        const current = typeSelect.value;
+                        if (!devices.some(d => (d.sdr_type || 'rtlsdr') === current)) {
+                            typeSelect.value = preferredSDRType(devices);
+                        }
                     }
 
                     // Trigger filter update
@@ -4675,7 +4704,9 @@
             fetch('/devices/status')
                 .then(r => r.json())
                 .then(devices => {
+                    sdrServerStatus = Array.isArray(devices) ? devices : [];
                     renderSdrStatus(devices);
+                    updateDeviceSelectStatus();
                 })
                 .catch(err => {
                     console.error('Failed to fetch SDR status:', err);

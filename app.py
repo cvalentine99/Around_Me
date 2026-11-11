@@ -347,6 +347,55 @@ def get_sdr_device_status() -> dict[int | str, str]:
 
 
 # ============================================
+# SDR DEVICE DETECTION
+# ============================================
+# Detection runs rtl_test, hackrf_info and SoapySDRUtil (about 3 s). It must
+# never run on the event loop: the main page polls /devices/status every few
+# seconds, and each blocking run froze every stream and button meanwhile.
+DEVICE_CACHE_SECONDS = 10.0
+_device_cache: dict = {'devices': None, 'at': 0.0, 'source': None}
+_device_cache_lock = threading.Lock()
+
+
+def _detector():
+    # Identity of the detection function: a test that patches it gets fresh data
+    import inspect
+    return inspect.getattr_static(SDRFactory, 'detect_devices')
+
+
+def _detect_devices_cached(max_age: float) -> list:
+    """Detect devices (blocking), sharing one run between concurrent callers."""
+    with _device_cache_lock:
+        cache = _device_cache
+        if (cache['devices'] is not None and cache['source'] is _detector()
+                and _time.monotonic() - cache['at'] < max_age):
+            return cache['devices']
+        devices = list(SDRFactory.detect_devices())
+        # A receiver that a mode is using cannot always be opened by the
+        # detection tools (hackrf_info fails on a busy HackRF). Keep the last
+        # known entry for claimed receivers instead of letting them vanish.
+        if cache['devices'] and cache['source'] is _detector():
+            claimed = set(get_sdr_device_status())
+            present = {sdr_device_key(d.index, d.sdr_type) for d in devices}
+            for old in cache['devices']:
+                key = sdr_device_key(old.index, old.sdr_type)
+                if key in claimed and key not in present:
+                    devices.append(old)
+            devices.sort(key=lambda d: (d.sdr_type.value, d.index))
+        cache.update(devices=devices, at=_time.monotonic(), source=_detector())
+        return devices
+
+
+async def detect_devices_async(max_age: float = DEVICE_CACHE_SECONDS) -> list:
+    """SDR detection for request handlers: off the event loop, briefly cached."""
+    cache = _device_cache
+    if (cache['devices'] is not None and cache['source'] is _detector()
+            and _time.monotonic() - cache['at'] < max_age):
+        return cache['devices']
+    return await asyncio.to_thread(_detect_devices_cached, max_age)
+
+
+# ============================================
 # MAIN ROUTES
 # ============================================
 
@@ -512,7 +561,7 @@ async def index() -> str:
         'rtl_433': check_tool('rtl_433'),
         'rtlamr': check_tool('rtlamr')
     }
-    devices = [d.to_dict() for d in SDRFactory.detect_devices()]
+    devices = [d.to_dict() for d in await detect_devices_async()]
     return await render_template(
         'index.html',
         tools=tools,
@@ -534,14 +583,15 @@ async def favicon() -> Response:
 @app.route('/devices')
 async def get_devices() -> Response:
     """Get all detected SDR devices with hardware type info."""
-    devices = SDRFactory.detect_devices()
+    # An explicit device list request (the Refresh button) re-detects
+    devices = await detect_devices_async(max_age=0)
     return jsonify([d.to_dict() for d in devices])
 
 
 @app.route('/devices/status')
 async def get_devices_status() -> Response:
     """Get all SDR devices with usage status."""
-    devices = SDRFactory.detect_devices()
+    devices = await detect_devices_async()
     registry = get_sdr_device_status()
 
     result = []
@@ -679,7 +729,7 @@ def _collect_device_diagnostics() -> dict:
 @app.route('/dependencies')
 async def get_dependencies() -> Response:
     """Get status of all tool dependencies."""
-    results = check_all_dependencies()
+    results = await asyncio.to_thread(check_all_dependencies)
 
     # Determine OS for install instructions
     system = platform.system().lower()
