@@ -426,8 +426,13 @@ def _verify_api_token(token: str) -> bool:
     return False
 
 
+async def _not_a_login_attempt() -> bool:
+    """Only POSTs are login attempts; viewing the login page must not count."""
+    return request.method != 'POST'
+
+
 @app.route('/login', methods=['GET', 'POST'])
-@rate_limit(5, timedelta(minutes=1))  # Limit to 5 login attempts per minute per IP
+@rate_limit(5, timedelta(minutes=1), skip_function=_not_a_login_attempt)  # 5 login attempts per minute per IP
 async def login():
     if request.method == 'POST':
         form = await request.form
