@@ -81,8 +81,11 @@ class BluetoothScanner:
         # Duration-based scanning
         self._scan_timer: Optional[threading.Timer] = None
 
-        # Callbacks
+        # Callbacks: one legacy slot (Bluetooth page) plus any number of
+        # listeners such as a BT Locate session
         self._on_device_updated: Optional[Callable[[BTDeviceAggregate], None]] = None
+        self._on_device_updated_callbacks: list[Callable[[BTDeviceAggregate], None]] = []
+        self._callbacks_lock = threading.Lock()
 
         # Capability check result
         self._capabilities: Optional[SystemCapabilities] = None
@@ -260,6 +263,15 @@ class BluetoothScanner:
             if self._on_device_updated:
                 self._on_device_updated(device)
 
+            # Listeners: one failing listener must not stop the others
+            with self._callbacks_lock:
+                listeners = list(self._on_device_updated_callbacks)
+            for listener in listeners:
+                try:
+                    listener(device)
+                except Exception as e:
+                    logger.debug(f"Device listener failed: {e}")
+
         except Exception as e:
             logger.error(f"Error handling observation: {e}")
 
@@ -390,6 +402,18 @@ class BluetoothScanner:
     def set_on_device_updated(self, callback: Callable[[BTDeviceAggregate], None]) -> None:
         """Set callback for device updates."""
         self._on_device_updated = callback
+
+    def add_device_callback(self, callback: Callable[[BTDeviceAggregate], None]) -> None:
+        """Register an additional listener for device updates."""
+        with self._callbacks_lock:
+            if callback not in self._on_device_updated_callbacks:
+                self._on_device_updated_callbacks.append(callback)
+
+    def remove_device_callback(self, callback: Callable[[BTDeviceAggregate], None]) -> None:
+        """Unregister a listener added with add_device_callback (no-op if absent)."""
+        with self._callbacks_lock:
+            if callback in self._on_device_updated_callbacks:
+                self._on_device_updated_callbacks.remove(callback)
 
     @property
     def is_scanning(self) -> bool:

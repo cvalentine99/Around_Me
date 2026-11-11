@@ -494,7 +494,7 @@ async def list_geofences():
 
 @analytics_bp.route('/geofences', methods=['POST'])
 async def create_geofence():
-    data = request.get_json() or {}
+    data = await request.get_json(silent=True) or {}
     name = data.get('name')
     lat = data.get('lat')
     lon = data.get('lon')

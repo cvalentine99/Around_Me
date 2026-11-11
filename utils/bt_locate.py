@@ -18,6 +18,7 @@ from enum import Enum
 from utils.bluetooth.models import BTDeviceAggregate
 from utils.bluetooth.scanner import BluetoothScanner, get_bluetooth_scanner
 from utils.gps import get_current_position
+from utils.sse import EventQueue
 
 logger = logging.getLogger('intercept.bt_locate')
 
@@ -313,7 +314,8 @@ class LocateSession:
         self._rssi_ema: float | None = None
 
         # SSE event queue
-        self.event_queue: queue.Queue = queue.Queue(maxsize=500)
+        # Every open stream gets its own copy of the events
+        self.event_queue: queue.Queue = EventQueue(maxsize=500)
 
         # Session state
         self.active = False
@@ -644,7 +646,14 @@ def start_locate_session(
         _session = LocateSession(
             target, environment, custom_exponent, fallback_lat, fallback_lon
         )
-        if not _session.start():
+        try:
+            started = _session.start()
+        except Exception:
+            # A half-started session must not stay registered: status and
+            # stop would then fail on it until the app restarts.
+            _session = None
+            raise
+        if not started:
             _session = None
             raise RuntimeError("Bluetooth scanner failed to start")
         return _session
@@ -661,6 +670,10 @@ def stop_locate_session() -> None:
 
 
 def get_locate_session() -> LocateSession | None:
-    """Get the current locate session (if any)."""
-    with _session_lock:
-        return _session
+    """Get the current locate session (if any).
+
+    Lock-free on purpose: request handlers call this on the event loop, and
+    start/stop hold _session_lock for seconds while the scanner starts or
+    the poll thread is joined. Reading the reference is atomic.
+    """
+    return _session

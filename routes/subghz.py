@@ -6,12 +6,18 @@ signal replay/transmit, and wideband spectrum analysis.
 
 from __future__ import annotations
 
+import asyncio
 import queue
+import threading
 
-from quart import Blueprint, jsonify, request, Response, send_file
+from quart import Blueprint, jsonify, render_template, request, Response, send_file
+
+from config import SHARED_OBSERVER_LOCATION_ENABLED, VERSION
+
+import app as app_module
 
 from utils.logging import get_logger
-from utils.sse import async_sse_stream_fanout, format_sse
+from utils.sse import EventQueue, async_sse_stream_fanout, format_sse
 from utils.subghz import get_subghz_manager
 from utils.event_pipeline import process_event
 from utils.constants import (
@@ -23,6 +29,7 @@ from utils.constants import (
     SUBGHZ_TX_MAX_DURATION,
     SUBGHZ_SAMPLE_RATES,
     SUBGHZ_PRESETS,
+    SUBGHZ_TX_ALLOWED_BANDS,
 )
 
 logger = get_logger('intercept.subghz')
@@ -30,7 +37,60 @@ logger = get_logger('intercept.subghz')
 subghz_bp = Blueprint('subghz', __name__, url_prefix='/subghz')
 
 # SSE queue for streaming events to frontend
-_subghz_queue: queue.Queue = queue.Queue(maxsize=200)
+# (an EventQueue gives every open stream its own copy of the events)
+_subghz_queue: queue.Queue = EventQueue(maxsize=200)
+
+# Sub-GHz drives the HackRF directly. Reserve it in the shared SDR registry
+# while any Sub-GHz activity runs, so the waterfall or another mode cannot
+# open the same receiver at the same time.
+_HACKRF_INDEX = 0
+_hackrf_claim_lock = threading.Lock()
+_hackrf_claimed = False
+
+
+def _release_hackrf_if_idle() -> None:
+    """Release our HackRF reservation once the manager has nothing running.
+
+    Blocking (the manager's mode check takes its lock): call it in a worker.
+    """
+    global _hackrf_claimed
+    with _hackrf_claim_lock:
+        if _hackrf_claimed and get_subghz_manager().active_mode == 'idle':
+            app_module.release_sdr_device(_HACKRF_INDEX, 'hackrf', mode_name='subghz')
+            _hackrf_claimed = False
+
+
+async def _claim_hackrf() -> str | None:
+    """Reserve the HackRF for Sub-GHz; return an error if another mode has it."""
+    global _hackrf_claimed
+    # A previous Sub-GHz session that ended by itself still holds the claim.
+    await asyncio.to_thread(_release_hackrf_if_idle)
+    with _hackrf_claim_lock:
+        if _hackrf_claimed:
+            return None  # Sub-GHz is running; the manager rejects a second start
+    error = await app_module.claim_sdr_device_async(_HACKRF_INDEX, 'subghz', sdr_type='hackrf')
+    if not error:
+        with _hackrf_claim_lock:
+            _hackrf_claimed = True
+    return error
+
+
+async def _run_with_hackrf(method, **kwargs) -> dict:
+    """Reserve the HackRF, run a blocking manager start in a worker, and give
+    the reservation back if nothing ended up running."""
+    error = await _claim_hackrf()
+    if error:
+        return {'status': 'error', 'error_type': 'DEVICE_BUSY', 'message': error}
+    try:
+        return await asyncio.to_thread(method, **kwargs)
+    finally:
+        await asyncio.to_thread(_release_hackrf_if_idle)
+
+
+async def _stop_and_release(method) -> dict:
+    result = await asyncio.to_thread(method)
+    await asyncio.to_thread(_release_hackrf_if_idle)
+    return result
 
 
 def _event_callback(event: dict) -> None:
@@ -120,10 +180,30 @@ def _validate_bool(data: dict, key: str, default: bool = False) -> bool:
 # STATUS
 # ------------------------------------------------------------------
 
+@subghz_bp.route('/dashboard')
+async def dashboard():
+    """Sub-GHz page: capture, decode, sweep, capture library and replay."""
+    return await render_template(
+        'subghz.html',
+        shared_observer_location=SHARED_OBSERVER_LOCATION_ENABLED,
+        version=VERSION,
+        subghz_config={
+            'freq_min_mhz': SUBGHZ_FREQ_MIN_MHZ,
+            'freq_max_mhz': SUBGHZ_FREQ_MAX_MHZ,
+            'vga_gain_max': SUBGHZ_VGA_GAIN_MAX,
+            'tx_gain_max': SUBGHZ_TX_VGA_GAIN_MAX,
+            'tx_max_duration': SUBGHZ_TX_MAX_DURATION,
+            'tx_bands': [list(band) for band in SUBGHZ_TX_ALLOWED_BANDS],
+        },
+    )
+
+
 @subghz_bp.route('/status')
 async def get_status():
     manager = get_subghz_manager()
-    return jsonify(manager.get_status())
+    status = await asyncio.to_thread(manager.get_status)
+    await asyncio.to_thread(_release_hackrf_if_idle)
+    return jsonify(status)
 
 
 @subghz_bp.route('/presets')
@@ -137,7 +217,7 @@ async def get_presets():
 
 @subghz_bp.route('/receive/start', methods=['POST'])
 async def start_receive():
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
 
     freq_hz, err = _validate_frequency_hz(data)
     if err:
@@ -154,7 +234,8 @@ async def start_receive():
     manager = get_subghz_manager()
     manager.set_callback(_event_callback)
 
-    result = manager.start_receive(
+    result = await _run_with_hackrf(
+        manager.start_receive,
         frequency_hz=freq_hz,
         sample_rate=sample_rate,
         lna_gain=lna_gain,
@@ -172,7 +253,7 @@ async def start_receive():
 @subghz_bp.route('/receive/stop', methods=['POST'])
 async def stop_receive():
     manager = get_subghz_manager()
-    result = manager.stop_receive()
+    result = await _stop_and_release(manager.stop_receive)
     return jsonify(result)
 
 
@@ -182,7 +263,7 @@ async def stop_receive():
 
 @subghz_bp.route('/decode/start', methods=['POST'])
 async def start_decode():
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
 
     freq_hz, err = _validate_frequency_hz(data)
     if err:
@@ -197,7 +278,8 @@ async def start_decode():
     manager = get_subghz_manager()
     manager.set_callback(_event_callback)
 
-    result = manager.start_decode(
+    result = await _run_with_hackrf(
+        manager.start_decode,
         frequency_hz=freq_hz,
         sample_rate=sample_rate,
         lna_gain=lna_gain,
@@ -213,7 +295,7 @@ async def start_decode():
 @subghz_bp.route('/decode/stop', methods=['POST'])
 async def stop_decode():
     manager = get_subghz_manager()
-    result = manager.stop_decode()
+    result = await _stop_and_release(manager.stop_decode)
     return jsonify(result)
 
 
@@ -223,7 +305,7 @@ async def stop_decode():
 
 @subghz_bp.route('/transmit', methods=['POST'])
 async def start_transmit():
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
 
     capture_id = data.get('capture_id')
     if not capture_id or not isinstance(capture_id, str):
@@ -246,7 +328,8 @@ async def start_transmit():
     manager = get_subghz_manager()
     manager.set_callback(_event_callback)
 
-    result = manager.transmit(
+    result = await _run_with_hackrf(
+        manager.transmit,
         capture_id=capture_id,
         tx_gain=tx_gain,
         max_duration=max_duration,
@@ -262,7 +345,7 @@ async def start_transmit():
 @subghz_bp.route('/transmit/stop', methods=['POST'])
 async def stop_transmit():
     manager = get_subghz_manager()
-    result = manager.stop_transmit()
+    result = await _stop_and_release(manager.stop_transmit)
     return jsonify(result)
 
 
@@ -272,7 +355,7 @@ async def stop_transmit():
 
 @subghz_bp.route('/sweep/start', methods=['POST'])
 async def start_sweep():
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
 
     try:
         freq_start = float(data.get('freq_start_mhz', 300))
@@ -290,7 +373,8 @@ async def start_sweep():
     manager = get_subghz_manager()
     manager.set_callback(_event_callback)
 
-    result = manager.start_sweep(
+    result = await _run_with_hackrf(
+        manager.start_sweep,
         freq_start_mhz=freq_start,
         freq_end_mhz=freq_end,
         bin_width=bin_width,
@@ -304,7 +388,7 @@ async def start_sweep():
 @subghz_bp.route('/sweep/stop', methods=['POST'])
 async def stop_sweep():
     manager = get_subghz_manager()
-    result = manager.stop_sweep()
+    result = await _stop_and_release(manager.stop_sweep)
     return jsonify(result)
 
 
@@ -315,7 +399,7 @@ async def stop_sweep():
 @subghz_bp.route('/captures')
 async def list_captures():
     manager = get_subghz_manager()
-    captures = manager.list_captures()
+    captures = await asyncio.to_thread(manager.list_captures)
     return jsonify({
         'status': 'ok',
         'captures': [c.to_dict() for c in captures],
@@ -346,11 +430,11 @@ async def download_capture(capture_id: str):
     if not path:
         return jsonify({'status': 'error', 'message': 'Capture not found'}), 404
 
-    return send_file(
+    return await send_file(
         path,
         mimetype='application/octet-stream',
         as_attachment=True,
-        download_name=path.name,
+        attachment_filename=path.name,
     )
 
 
@@ -359,7 +443,7 @@ async def trim_capture(capture_id: str):
     if not capture_id.isalnum():
         return jsonify({'status': 'error', 'message': 'Invalid capture_id'}), 400
 
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
     start_seconds, start_err = _validate_optional_float(data, 'start_seconds')
     if start_err:
         return jsonify({'status': 'error', 'message': start_err}), 400
@@ -374,7 +458,8 @@ async def trim_capture(capture_id: str):
         return jsonify({'status': 'error', 'message': 'Label must be a string (max 100 chars)'}), 400
 
     manager = get_subghz_manager()
-    result = manager.trim_capture(
+    result = await asyncio.to_thread(
+        manager.trim_capture,
         capture_id=capture_id,
         start_seconds=start_seconds,
         duration_seconds=duration_seconds,
@@ -404,7 +489,7 @@ async def update_capture(capture_id: str):
     if not capture_id.isalnum():
         return jsonify({'status': 'error', 'message': 'Invalid capture_id'}), 400
 
-    data = request.get_json(silent=True) or {}
+    data = await request.get_json(silent=True) or {}
     label = data.get('label', '')
 
     if not isinstance(label, str) or len(label) > 100:
@@ -432,4 +517,6 @@ async def stream():
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
     response.headers['Connection'] = 'keep-alive'
+    # An event stream is open-ended: no total-response deadline
+    response.timeout = None
     return response

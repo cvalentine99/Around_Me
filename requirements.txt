@@ -34,3 +34,6 @@ qrcode[pil]==8.0
 
 # WebSocket support for KiwiSDR client (browser → KiwiSDR proxy)
 websocket-client==1.8.0
+
+# AES for Bluetooth resolvable-private-address resolution (BT Locate)
+cryptography==50.0.2

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SUB-GHZ // VALENTINE RF - HackRF</title>
+    <!-- Fonts - Conditional CDN/Local loading -->
+    {% if offline_settings.fonts_source == 'local' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts-local.css') }}">
+    {% else %}
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700&display=swap" rel="stylesheet">
+    {% endif %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/core/variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/subghz.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global-nav.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/help-modal.css') }}">
+    <script>
+        window.VALENTINE_SHARED_OBSERVER_LOCATION = {{ shared_observer_location | tojson }};
+        window.SUBGHZ_CONFIG = {{ subghz_config | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/core/observer-location.js') }}"></script>
+</head>
+<body>
+    <header class="sg-header">
+        <div class="sg-logo">
+            SUB-GHZ
+            <span>// VALENTINE RF - HackRF transceiver</span>
+        </div>
+        <div class="sg-status-bar">
+            <div class="sg-status-item">
+                <div class="sg-dot" id="modeDot"></div>
+                <span id="modeText">IDLE</span>
+            </div>
+            <div class="sg-status-item">
+                <span class="sg-label">HACKRF</span>
+                <span id="hackrfState">--</span>
+            </div>
+            <div class="sg-status-item">
+                <span class="sg-label">ELAPSED</span>
+                <span id="elapsedText">--</span>
+            </div>
+            <div class="sg-clock" id="utcTime">--:--:-- UTC</div>
+        </div>
+    </header>
+
+    {% set active_mode = 'subghz' %}
+    {% include 'partials/nav.html' with context %}
+
+    <main class="sg-dashboard">
+        <!-- Controls -->
+        <section class="sg-panel sg-controls">
+            <h2>Tuning</h2>
+            <div class="sg-field">
+                <label for="presetSelect">PRESET</label>
+                <select id="presetSelect"><option value="">Custom frequency</option></select>
+            </div>
+            <div class="sg-field">
+                <label for="freqInput">FREQUENCY (MHz)</label>
+                <input id="freqInput" type="number" step="0.001" min="{{ subghz_config.freq_min_mhz }}" max="{{ subghz_config.freq_max_mhz }}" value="433.920">
+            </div>
+            <div class="sg-field">
+                <label for="sampleRateSelect">SAMPLE RATE</label>
+                <select id="sampleRateSelect"></select>
+            </div>
+            <div class="sg-row">
+                <div class="sg-field">
+                    <label for="lnaGain">LNA GAIN (dB)</label>
+                    <select id="lnaGain">
+                        <option value="0">0</option><option value="8">8</option><option value="16">16</option>
+                        <option value="24">24</option><option value="32" selected>32</option><option value="40">40</option>
+                    </select>
+                </div>
+                <div class="sg-field">
+                    <label for="vgaGain">VGA GAIN (dB)</label>
+                    <input id="vgaGain" type="number" min="0" max="{{ subghz_config.vga_gain_max }}" step="2" value="20">
+                </div>
+            </div>
+
+            <h2>Capture</h2>
+            <label class="sg-check"><input type="checkbox" id="triggerEnabled"> Smart trigger (save bursts only)</label>
+            <div class="sg-row">
+                <div class="sg-field">
+                    <label for="triggerPre">PRE (ms)</label>
+                    <input id="triggerPre" type="number" min="50" max="5000" step="50" value="350">
+                </div>
+                <div class="sg-field">
+                    <label for="triggerPost">POST (ms)</label>
+                    <input id="triggerPost" type="number" min="100" max="10000" step="50" value="700">
+                </div>
+            </div>
+            <button class="sg-btn primary" id="btnCapture" onclick="SubGhz.startCapture()">Start capture</button>
+
+            <h2>Decode</h2>
+            <div class="sg-field">
+                <label for="decodeProfile">PROTOCOLS (rtl_433)</label>
+                <select id="decodeProfile">
+                    <option value="weather">Weather &amp; sensors</option>
+                    <option value="all">All decoders</option>
+                </select>
+            </div>
+            <button class="sg-btn primary" id="btnDecode" onclick="SubGhz.startDecode()">Start decoding</button>
+
+            <h2>Spectrum sweep</h2>
+            <div class="sg-row">
+                <div class="sg-field">
+                    <label for="sweepStart">FROM (MHz)</label>
+                    <input id="sweepStart" type="number" step="1" value="300">
+                </div>
+                <div class="sg-field">
+                    <label for="sweepEnd">TO (MHz)</label>
+                    <input id="sweepEnd" type="number" step="1" value="928">
+                </div>
+            </div>
+            <div class="sg-field">
+                <label for="sweepBin">BIN WIDTH (kHz)</label>
+                <input id="sweepBin" type="number" min="10" max="5000" step="10" value="100">
+            </div>
+            <button class="sg-btn primary" id="btnSweep" onclick="SubGhz.startSweep()">Start sweep</button>
+
+            <button class="sg-btn danger" id="btnStop" onclick="SubGhz.stopActive()" disabled>Stop</button>
+            <div class="sg-message" id="controlMessage"></div>
+        </section>
+
+        <!-- Live view -->
+        <section class="sg-panel sg-live">
+            <div class="sg-panel-head">
+                <h2 id="spectrumTitle">Spectrum</h2>
+                <div class="sg-meter" title="Signal level"><div class="sg-meter-fill" id="levelFill"></div></div>
+            </div>
+            <canvas id="spectrumCanvas" class="sg-canvas"></canvas>
+            <div class="sg-hints" id="hintLine">No signal analysis yet</div>
+            <div class="sg-stats" id="statsLine"></div>
+
+            <div class="sg-panel-head">
+                <h2>Decoded messages <span class="sg-count" id="decodeCount">0</span></h2>
+                <button class="sg-btn small" onclick="SubGhz.clearDecoded()">Clear</button>
+            </div>
+            <div class="sg-table-wrap">
+                <table class="sg-table">
+                    <thead><tr><th>Time</th><th>Model</th><th>ID</th><th>Data</th></tr></thead>
+                    <tbody id="decodeRows"><tr class="sg-empty"><td colspan="4">Start decoding to see sensor and remote messages</td></tr></tbody>
+                </table>
+            </div>
+
+            <div class="sg-panel-head">
+                <h2>Event log</h2>
+                <button class="sg-btn small" onclick="SubGhz.clearLog()">Clear</button>
+            </div>
+            <div class="sg-log" id="eventLog"></div>
+        </section>
+
+        <!-- Captures + transmit -->
+        <section class="sg-panel sg-library">
+            <div class="sg-panel-head">
+                <h2>Captures <span class="sg-count" id="captureCount">0</span></h2>
+                <button class="sg-btn small" onclick="SubGhz.loadCaptures()">Refresh</button>
+            </div>
+            <div class="sg-captures" id="captureList"><div class="sg-empty-state">No captures yet</div></div>
+
+            <h2>Replay (transmit)</h2>
+            <div class="sg-tx-note" id="txNote"></div>
+            <div class="sg-row">
+                <div class="sg-field">
+                    <label for="txGain">TX GAIN (dB)</label>
+                    <input id="txGain" type="number" min="0" max="{{ subghz_config.tx_gain_max }}" step="1" value="20">
+                </div>
+                <div class="sg-field">
+                    <label for="txDuration">MAX SECONDS</label>
+                    <input id="txDuration" type="number" min="1" max="{{ subghz_config.tx_max_duration }}" step="1" value="{{ subghz_config.tx_max_duration }}">
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Settings Modal -->
+    {% include 'partials/settings-modal.html' %}
+
+    <!-- Help Modal -->
+    {% include 'partials/help-modal.html' %}
+
+    <script src="{{ url_for('static', filename='js/core/settings-manager.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/global-nav.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/core/subghz.js') }}"></script>
+</body>
+</html>

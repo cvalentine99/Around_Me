@@ -105,5 +105,5 @@ async def download_recording(session_id: str):
         file_path,
         mimetype='application/x-ndjson',
         as_attachment=True,
-        download_name=file_path.name,
+        attachment_filename=file_path.name,
     )

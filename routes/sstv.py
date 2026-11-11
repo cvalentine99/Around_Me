@@ -348,7 +348,7 @@ async def download_image(filename: str):
     if not image_path.exists():
         return jsonify({'status': 'error', 'message': 'Image not found'}), 404
 
-    return await send_file(image_path, mimetype='image/png', as_attachment=True, download_name=filename)
+    return await send_file(image_path, mimetype='image/png', as_attachment=True, attachment_filename=filename)
 
 
 @sstv_bp.route('/images/<filename>', methods=['DELETE'])

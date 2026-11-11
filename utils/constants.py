@@ -291,3 +291,47 @@ MAX_DEAUTH_ALERTS_AGE_SECONDS = 300  # 5 minutes
 # Deauth detector sniff timeout (seconds)
 DEAUTH_SNIFF_TIMEOUT = 0.5
 
+
+
+# =============================================================================
+# SUB-GHZ (HackRF One)
+# =============================================================================
+
+# Tuning range of the HackRF One
+SUBGHZ_FREQ_MIN_MHZ = 1.0
+SUBGHZ_FREQ_MAX_MHZ = 6000.0
+
+# Receive gains (hackrf_transfer -l / -g): LNA 0-40 dB in 8 dB steps,
+# baseband VGA 0-62 dB in 2 dB steps
+SUBGHZ_LNA_GAIN_MIN = 0
+SUBGHZ_LNA_GAIN_MAX = 40
+SUBGHZ_VGA_GAIN_MIN = 0
+SUBGHZ_VGA_GAIN_MAX = 62
+
+# Transmit VGA gain (hackrf_transfer -x): 0-47 dB
+SUBGHZ_TX_VGA_GAIN_MIN = 0
+SUBGHZ_TX_VGA_GAIN_MAX = 47
+
+# Transmission is limited to licence-exempt ISM / SRD bands (MHz, inclusive)
+# and to a short burst. The operator remains responsible for local rules.
+SUBGHZ_TX_ALLOWED_BANDS = [
+    (314.0, 316.0),     # 315 MHz SRD (Americas, Asia)
+    (433.05, 434.79),   # 433 MHz ISM (ITU Region 1)
+    (868.0, 868.6),     # 868 MHz SRD (Europe)
+    (902.0, 928.0),     # 915 MHz ISM (ITU Region 2)
+]
+SUBGHZ_TX_MAX_DURATION = 10  # seconds per transmission
+
+# Sample rates offered for receive (HackRF minimum is 2 MS/s)
+SUBGHZ_SAMPLE_RATES = [2000000, 4000000, 8000000, 10000000, 20000000]
+
+# Common sub-GHz frequencies (MHz)
+SUBGHZ_PRESETS = {
+    '300.000': 'Garage / gate remotes (300 MHz)',
+    '315.000': 'Key fobs, TPMS (315 MHz)',
+    '390.000': 'Garage door openers (390 MHz)',
+    '418.000': 'Remote controls (418 MHz)',
+    '433.920': 'ISM 433.92 MHz: weather stations, sensors, remotes',
+    '868.350': 'SRD 868.35 MHz: Europe sensors, alarms',
+    '915.000': 'ISM 915 MHz: Americas sensors, LoRa',
+}

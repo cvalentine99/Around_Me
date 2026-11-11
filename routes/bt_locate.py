@@ -7,10 +7,12 @@ and retrieving GPS-tagged signal trails.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from collections.abc import Generator
 
-from quart import Blueprint, Response, jsonify, request
+from quart import Blueprint, Response, jsonify, render_template, request
+
+from config import SHARED_OBSERVER_LOCATION_ENABLED, VERSION
 
 from utils.bluetooth.irk_extractor import get_paired_irks
 from utils.bt_locate import (
@@ -21,11 +23,21 @@ from utils.bt_locate import (
     start_locate_session,
     stop_locate_session,
 )
-from utils.sse import format_sse
+from utils.sse import format_sse, queue_events
 
 logger = logging.getLogger('intercept.bt_locate')
 
 bt_locate_bp = Blueprint('bt_locate', __name__, url_prefix='/bt_locate')
+
+
+@bt_locate_bp.route('/dashboard')
+async def dashboard():
+    """BT Locate page: follow one Bluetooth device by signal strength."""
+    return await render_template(
+        'bt_locate.html',
+        shared_observer_location=SHARED_OBSERVER_LOCATION_ENABLED,
+        version=VERSION,
+    )
 
 
 @bt_locate_bp.route('/start', methods=['POST'])
@@ -49,7 +61,7 @@ async def start_session():
     Returns:
         JSON with session status.
     """
-    data = request.get_json() or {}
+    data = await request.get_json(silent=True) or {}
 
     # Build target
     target = LocateTarget(
@@ -110,7 +122,9 @@ async def start_session():
     )
 
     try:
-        session = start_locate_session(
+        # Starting the Bluetooth scanner can take seconds: keep it off the loop
+        session = await asyncio.to_thread(
+            start_locate_session,
             target, environment, custom_exponent, fallback_lat, fallback_lon
         )
     except RuntimeError as exc:
@@ -139,7 +153,8 @@ async def stop_session():
     if not session:
         return jsonify({'status': 'no_session'})
 
-    stop_locate_session()
+    # Stopping joins the session's poll thread (up to 3 s): keep it off the loop
+    await asyncio.to_thread(stop_locate_session)
     return jsonify({'status': 'stopped'})
 
 
@@ -174,21 +189,29 @@ async def get_trail():
 async def stream_detections():
     """SSE stream of detection events."""
 
-    def event_generator() -> Generator[str, None, None]:
+    async def event_generator():
+        # Follow the current session; every viewer gets its own subscription
+        # and the wait never runs on the event loop.
         while True:
-            # Re-fetch session each iteration in case it changes
-            s = get_locate_session()
-            if not s:
+            session = get_locate_session()
+            if not session:
                 yield format_sse({'type': 'session_ended'}, event='session_ended')
                 return
 
+            events = queue_events(
+                session.event_queue, timeout=1.0, keepalive_interval=2.0,
+                stop_check=lambda current=session: get_locate_session() is not current,
+            )
             try:
-                event = s.event_queue.get(timeout=2.0)
-                yield format_sse(event, event='detection')
-            except Exception:
-                yield format_sse({}, event='ping')
+                async for event in events:
+                    if isinstance(event, dict) and event.get('type') == 'keepalive':
+                        yield format_sse({}, event='ping')
+                    else:
+                        yield format_sse(event, event='detection')
+            finally:
+                await events.aclose()
 
-    return Response(
+    response = Response(
         event_generator(),
         mimetype='text/event-stream',
         headers={
@@ -197,6 +220,9 @@ async def stream_detections():
             'X-Accel-Buffering': 'no',
         }
     )
+    # An event stream is open-ended: no total-response deadline
+    response.timeout = None
+    return response
 
 
 @bt_locate_bp.route('/resolve_rpa', methods=['POST'])
@@ -211,7 +237,7 @@ async def test_resolve_rpa():
     Returns:
         JSON with resolution result.
     """
-    data = request.get_json() or {}
+    data = await request.get_json(silent=True) or {}
     irk_hex = data.get('irk_hex', '')
     address = data.get('address', '')
 
@@ -241,7 +267,7 @@ async def set_environment():
     if not session:
         return jsonify({'error': 'no active session'}), 400
 
-    data = request.get_json() or {}
+    data = await request.get_json(silent=True) or {}
     env_str = data.get('environment', '').upper()
     try:
         environment = Environment[env_str]
@@ -295,7 +321,7 @@ async def debug_matching():
 async def paired_irks():
     """Return paired Bluetooth devices that have IRKs."""
     try:
-        devices = get_paired_irks()
+        devices = await asyncio.to_thread(get_paired_irks)
     except Exception as e:
         logger.exception("Failed to read paired IRKs")
         return jsonify({'devices': [], 'error': str(e)})
